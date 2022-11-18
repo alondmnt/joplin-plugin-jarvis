@@ -1,0 +1,13 @@
+{
+	"manifest_version": 1,
+	"id": "joplin.plugin.alondmnt.jarvis",
+	"app_min_version": "2.8",
+	"version": "1.0.0",
+	"name": "Jarvis",
+	"description": "OpenAI-based assistant",
+	"author": "alondmnt",
+	"homepage_url": "",
+	"repository_url": "",
+	"keywords": [],
+	"categories": []
+}
