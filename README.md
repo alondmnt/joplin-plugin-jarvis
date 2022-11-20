@@ -19,5 +19,10 @@ J.A.R.V.I.S (Joplin Assistant Running A Very Intelligent System) is an AI note-t
 
 ## Usage
 
-- Text generation: Run the command "Ask Jarvis" (from the Tools menu) and write your query in the pop-up window, or select a prompt text in the editor before running the command.
-- Text editing: Select a text to edit, run the command "Let Jarvis edit selection" (from the Tools menu) and write your instructions in the pop-up window.
+- **Text generation:** Run the command "Ask Jarvis" (from the Tools menu) and write your query in the pop-up window, or select a prompt text in the editor before running the command.
+- **Text editing:** Select a text to edit, run the command "Let Jarvis edit selection" (from the Tools menu) and write your instructions in the pop-up window.
+
+## Future directions
+
+- Add resampling techniques to improve output.
+- Add support for other AI models.
