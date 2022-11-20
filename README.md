@@ -1,24 +1,23 @@
-# Joplin Plugin
+# Jarvis
 
-This is a template to create a new Joplin plugin.
+J.A.R.V.I.S (Joplin Assistant Running A Very Intelligent System) is an AI note-taking assistant based on OpenAI's GPT-3. You can ask it to [generate text](https://beta.openai.com/docs/guides/completion/introduction), or [edit existing text](https://beta.openai.com/docs/guides/completion/editing-text) based on free text instructions. You will need an OpenAI account in order for Jarvis to work (at the moment, new users get 18$ credit upon registering, which is equivalent to 900,000 tokens, or more than 600,000 generated words).
 
-The main two files you will want to look at are:
+## Disclaimer
 
-- `/src/index.ts`, which contains the entry point for the plugin source code.
-- `/src/manifest.json`, which is the plugin manifest. It contains information such as the plugin a name, version, etc.
+- This plugin sends your queries to OpenAI (and only to it).
+- This plugin uses your OpenAI API key in order to do so (and uses it for this sole purpose).
+- You may incur payments (if you are a paying user) from OpenAI by using this plugin.
+- Therefore, always check your usage statistics on OpenAI periodically.
+- It is also recommended to rotate your API key occasionally.
+- The developer is not affiliated with OpenAI in any way.
 
-## Building the plugin
+## Installation
 
-The plugin is built using Webpack, which creates the compiled code in `/dist`. A JPL archive will also be created at the root, which can use to distribute the plugin.
+1. Install Jarvis from Joplin's plugin marketplace, or download it from [github](https://github.com/alondmnt/joplin-plugin-jarvis/releases).
+2. Setup your [OpenAI account](https://beta.openai.com/signup).
+3. Enter your [API key](https://beta.openai.com/account/api-keys) in Joplin's plugin settings page.
 
-To build the plugin, simply run `npm run dist`.
+## Usage
 
-The project is setup to use TypeScript, although you can change the configuration to use plain JavaScript.
-
-## Updating the plugin framework
-
-To update the plugin framework, run `npm run update`.
-
-In general this command tries to do the right thing - in particular it's going to merge the changes in package.json and .gitignore instead of overwriting. It will also leave "/src" as well as README.md untouched.
-
-The file that may cause problem is "webpack.config.js" because it's going to be overwritten. For that reason, if you want to change it, consider creating a separate JavaScript file and include it in webpack.config.js. That way, when you update, you only have to restore the line that include your file.
+- Text generation: Run the command "Ask Jarvis" (from the Tools menu) and write your query in the pop-up window, or select a prompt text in the editor before running the command.
+- Text editing: Select a text to edit, and run the command "Let Jarvis edit selection" (from the Tools menu) and write your instructions in the pop-up window.
