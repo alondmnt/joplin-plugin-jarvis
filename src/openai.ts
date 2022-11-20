@@ -27,14 +27,10 @@ export async function query_edit(input: string, instruction: string, settings: J
   const responseParams = {
     input: input,
     instruction: instruction,
-    model: settings.model,
-    max_tokens: settings.max_tokens - Math.ceil(prompt.length / 4),
+    model: 'text-davinci-edit-001',
     temperature: settings.temperature,
     top_p: settings.top_p,
-    frequency_penalty: settings.frequency_penalty,
-    presence_penalty: settings.presence_penalty,
   }
-  console.log(responseParams);
   const response = await fetch('https://api.openai.com/v1/edits', {
     method: 'POST',
     headers: {

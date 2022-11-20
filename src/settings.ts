@@ -47,7 +47,7 @@ export async function register_settings() {
             section: 'jarvis',
             public: true,
             label: 'Model',
-            description: 'The model to use',
+            description: 'The model to use for asking Jarvis',
             options: {
                 'text-davinci-002': 'text-davinci-002',
                 'text-curie-001': 'text-curie-001',
