@@ -2,6 +2,8 @@
 
 Jarvis (Joplin Assistant Running a Very Intelligent System) is an AI note-taking assistant based on OpenAI's GPT-3. You can ask it to [generate text](https://beta.openai.com/docs/guides/completion/introduction), or [edit existing text](https://beta.openai.com/docs/guides/completion/editing-text) based on free text instructions. You will need an OpenAI account in order for Jarvis to work (at the moment, new users get 18$ credit upon registering, which is equivalent to 900,000 tokens, or more than 600,000 generated words).
 
+![jarvis demo](jarvis.gif)
+
 ## Disclaimer
 
 - This plugin sends your queries to OpenAI (and only to it).
