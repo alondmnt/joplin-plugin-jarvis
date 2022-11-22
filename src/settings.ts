@@ -16,7 +16,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     return {
         openai_api_key: await joplin.settings.value('openai_api_key'),
         model: await joplin.settings.value('model'),
-        temperature: (await joplin.settings.value('temperature')) / 10,
+        temperature: (await joplin.settings.value('temp')) / 10,
         max_tokens: await joplin.settings.value('max_tokens'),
         top_p: (await joplin.settings.value('top_p')) / 100,
         frequency_penalty: (await joplin.settings.value('frequency_penalty')) / 10,
@@ -55,8 +55,8 @@ export async function register_settings() {
                 'text-ada-001': 'text-ada-001',
             }
         },
-        'temperature': {
-            value: 0.7,
+        'temp': {
+            value: 9,
             type: SettingItemType.Int,
             minimum: 0,
             maximum: 10,
