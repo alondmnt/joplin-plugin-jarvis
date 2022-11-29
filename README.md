@@ -28,7 +28,7 @@ Jarvis (Joplin Assistant Running a Very Intelligent System) is an AI note-taking
 
 - No response from Jarvis
     - Check your network connection, and retry sending your request.
-    - If you are using the maximal number of tokens, try to decrease them a little.
+    - If you are using the maximal number of tokens, try to decrease it a little.
 
 ## Future directions
 
