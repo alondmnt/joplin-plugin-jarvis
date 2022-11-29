@@ -41,7 +41,7 @@ export async function register_settings() {
             description: 'Your OpenAI API Key',
         },
         'model': {
-            value: 'text-davinci-002',
+            value: 'text-davinci-003',
             type: SettingItemType.String,
             isEnum: true,
             section: 'jarvis',
@@ -49,6 +49,7 @@ export async function register_settings() {
             label: 'Model',
             description: 'The model to use for asking Jarvis',
             options: {
+                'text-davinci-003': 'text-davinci-003',
                 'text-davinci-002': 'text-davinci-002',
                 'text-curie-001': 'text-curie-001',
                 'text-babbage-001': 'text-babbage-001',
