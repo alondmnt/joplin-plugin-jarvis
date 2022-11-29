@@ -24,6 +24,12 @@ Jarvis (Joplin Assistant Running a Very Intelligent System) is an AI note-taking
 - **Text generation:** Run the command "Ask Jarvis" (from the Tools menu) and write your query in the pop-up window, or select a prompt text in the editor before running the command.
 - **Text editing:** Select a text to edit, run the command "Let Jarvis edit selection" (from the Tools menu) and write your instructions in the pop-up window.
 
+## Troubleshooting
+
+- No response from Jarvis
+    - Check your network connection, and retry sending your request.
+    - If you are using the maximal number of tokens, try to decrease them a little.
+
 ## Future directions
 
 - Add resampling techniques to improve output.
