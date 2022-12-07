@@ -1,0 +1,22 @@
+#joplin-plugin-content {
+  width: 560px;
+  height: 420px;
+}
+form {
+  width: 100%;
+  height: 400px;
+}
+form > div {
+  margin: 0.5em 0;
+}
+form > div > label {
+  display: block;
+  margin-bottom: 0.5em;
+}
+form > div > input {
+  width: 98%;
+}
+form > div > textarea {
+  width: 98%;
+  height: 270px;
+}

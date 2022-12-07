@@ -34,12 +34,13 @@ export async function send_jarvis_text(dialogHandle: string) {
 export async function get_completion_params(
     dialogHandle: string, settings:JarvisSettings): Promise<DialogResult> {
   let defaultPrompt = await joplin.commands.execute('selectedText');
+
   await joplin.views.dialogs.setHtml(dialogHandle, `
     <form name="ask">
       <h3>Ask Jarvis anything</h3>
       <div>
         <label for="prompt">prompt</label><br>
-        <textarea name="prompt" rows="20" cols="22">${defaultPrompt}</textarea>
+        <textarea name="prompt">${defaultPrompt}</textarea>
       </div>
       <div>
         <label for="max_tokens">max tokens</label><br>
@@ -47,10 +48,13 @@ export async function get_completion_params(
          min="256" max="4096" value="${settings.max_tokens}" step="16" />
       </div>
     <form>
-  `);
+    `);
+
+  await joplin.views.dialogs.addScript(dialogHandle, 'view.css');
   await joplin.views.dialogs.setButtons(dialogHandle,
     [{ id: "submit", title: "Submit"},
      { id: "cancel", title: "Cancel"}]);
+  await joplin.views.dialogs.setFitToContent(dialogHandle, true);
 
   const result = await joplin.views.dialogs.open(dialogHandle);
 
@@ -65,13 +69,15 @@ export async function get_edit_params(dialogHandle: string): Promise<DialogResul
       <h3>Editor requests</h3>
       <div>
         <label for="prompt">prompt</label><br>
-        <textarea name="prompt" rows="20" cols="22"></textarea>
+        <textarea name="prompt"></textarea>
       </div>
     <form>
   `);
+  await joplin.views.dialogs.addScript(dialogHandle, 'view.css');
   await joplin.views.dialogs.setButtons(dialogHandle,
     [{ id: "submit", title: "Submit"},
     { id: "cancel", title: "Cancel"}]);
+  await joplin.views.dialogs.setFitToContent(dialogHandle, true);
 
   const result = await joplin.views.dialogs.open(dialogHandle);
 
