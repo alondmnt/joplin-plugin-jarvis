@@ -1,3 +1,4 @@
+import joplin from 'api';
 import { JarvisSettings } from './settings';
 
 
@@ -20,6 +21,12 @@ export async function query_completion(prompt: string, settings: JarvisSettings)
     body: JSON.stringify(responseParams),
   });
   const data = await response.json();
+
+  // handle errors
+  if (data.choices == undefined) {
+    await joplin.views.dialogs.showMessageBox('Error:' + data.error.message);
+    return '';
+  }
   return data.choices[0].text;
 }
 
@@ -40,5 +47,11 @@ export async function query_edit(input: string, instruction: string, settings: J
     body: JSON.stringify(responseParams),
   });
   const data = await response.json();
+
+  // handle errors
+  if (data.choices == undefined) {
+    await joplin.views.dialogs.showMessageBox('Error:' + data.error.message);
+    return '';
+  }
   return data.choices[0].text;
 }
