@@ -1,3 +1,7 @@
+* {
+  color: var(--joplin-color);
+  background-color: var(--joplin-background-color);
+}
 #joplin-plugin-content {
   width: 560px;
   height: 420px;
