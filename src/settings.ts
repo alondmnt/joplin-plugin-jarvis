@@ -127,7 +127,7 @@ export async function register_settings() {
             section: 'jarvis',
             public: true,
             label: 'Frequency Penalty',
-            description: 'A value between -20 and 20 that penalizes new tokens based on whether they appear in the text so far. Can add diversity by preventing the model from repeating the same line verbatim.',
+            description: "A value between -20 and 20. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim.",
         },
         'presence_penalty': {
             value: 0,
@@ -138,7 +138,7 @@ export async function register_settings() {
             section: 'jarvis',
             public: true,
             label: 'Presence Penalty',
-            description: 'A value between -20 and 20 that penalizes new tokens based on whether they appear in the text so far. Can add diversity by preventing the model from repeating the same line verbatim.',
+            description: "A value between -20 and 20. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics.",
         },
         'include_prompt': {
             value: false,
