@@ -19,19 +19,19 @@ form > div > label {
 }
 form > div > textarea {
   width: 98%;
-  height: 270px;
+  height: 290px;
 }
 #instruction {
-  width: 40%;
+  width: 30%;
 }
 #scope {
-  width: 25%;
+  width: 23%;
 }
 #role {
-  width: 33%;
+  width: 22%;
 }
 #reasoning {
-  width: 50%;
+  width: 22.5%;
 }
 #max_tokens {
   width: 98%;

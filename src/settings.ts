@@ -10,6 +10,7 @@ export interface JarvisSettings {
     top_p: number;
     frequency_penalty: number;
     presence_penalty: number;
+    include_prompt: boolean;
     instruction: string;
     scope: string;
     role: string;
@@ -44,6 +45,7 @@ export async function get_settings(): Promise<JarvisSettings> {
         top_p: (await joplin.settings.value('top_p')) / 100,
         frequency_penalty: (await joplin.settings.value('frequency_penalty')) / 10,
         presence_penalty: (await joplin.settings.value('presence_penalty')) / 10,
+        include_prompt: await joplin.settings.value('include_prompt'),
         instruction: await parse_dropdown_setting('instruction'),
         scope: await parse_dropdown_setting('scope'),
         role: await parse_dropdown_setting('role'),
@@ -137,6 +139,13 @@ export async function register_settings() {
             public: true,
             label: 'Presence Penalty',
             description: 'A value between -20 and 20 that penalizes new tokens based on whether they appear in the text so far. Can add diversity by preventing the model from repeating the same line verbatim.',
+        },
+        'include_prompt': {
+            value: false,
+            type: SettingItemType.Bool,
+            section: 'jarvis',
+            public: true,
+            label: 'Include prompt in response',
         },
         'instruction': {
             value: '',

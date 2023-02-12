@@ -14,7 +14,13 @@ export async function ask_jarvis(dialogHandle: string) {
   settings.max_tokens = parseInt(result.formData.ask.max_tokens, 10);
   const prompt = build_prompt(result.formData.ask);
   let completion = await query_completion(prompt, settings);
-  await joplin.commands.execute('replaceSelection', prompt + completion + '\n');
+
+  if (result.formData.ask.include_prompt) {
+    completion = prompt + completion;
+  }
+  completion += '\n';
+
+  await joplin.commands.execute('replaceSelection', completion);
 }
 
 export async function send_jarvis_text(dialogHandle: string) {
@@ -35,35 +41,38 @@ export async function send_jarvis_text(dialogHandle: string) {
 export async function get_completion_params(
     dialogHandle: string, settings:JarvisSettings): Promise<DialogResult> {
   let defaultPrompt = await joplin.commands.execute('selectedText');
+  const include_prompt = settings.include_prompt ? 'checked' : '';
 
   await joplin.views.dialogs.setHtml(dialogHandle, `
     <form name="ask">
       <h3>Ask Jarvis anything</h3>
       <div>
-        <select name="instruction" id="instruction">
+        <select title="Instruction" name="instruction" id="instruction">
           ${settings.instruction}
         </select>
-        <select name="scope" id="scope">
+        <select title="Scope" name="scope" id="scope">
           ${settings.scope}
         </select>
-        <select name="role" id="role">
+        <select title="Role" name="role" id="role">
           ${settings.role}
+        </select>
+        <select title="Reasoning" name="reasoning" id="reasoning">
+          ${settings.reasoning}
         </select>
       </div>
       <div>
         <textarea name="prompt">${defaultPrompt}</textarea>
       </div>
       <div>
-        <select name="reasoning" id="reasoning">
-          ${settings.reasoning}
-        </select>
+        <input type="range" title="Max tokens (response length)" name="max_tokens" id="max_tokens" size="25" min="256" max="4096" value="${settings.max_tokens}" step="128" />
       </div>
       <div>
-        <label for="max_tokens">max tokens</label>
-        <input type="range" name="max_tokens" id="max_tokens" size="25"
-         min="256" max="4096" value="${settings.max_tokens}" step="16" />
+        <label for="include_prompt">
+        <input type="checkbox" title="Show prompt" id="include_prompt" name="include_prompt" ${include_prompt} />
+        Show prompt in response
+        </label>
       </div>
-    <form>
+    </form>
     `);
 
   await joplin.views.dialogs.addScript(dialogHandle, 'view.css');
@@ -87,12 +96,12 @@ export async function get_edit_params(dialogHandle: string): Promise<DialogResul
         <label for="prompt">prompt</label><br>
         <textarea name="prompt"></textarea>
       </div>
-    <form>
+    </form>
   `);
   await joplin.views.dialogs.addScript(dialogHandle, 'view.css');
   await joplin.views.dialogs.setButtons(dialogHandle,
     [{ id: "submit", title: "Submit"},
-    { id: "cancel", title: "Cancel"}]);
+     { id: "cancel", title: "Cancel"}]);
   await joplin.views.dialogs.setFitToContent(dialogHandle, true);
 
   const result = await joplin.views.dialogs.open(dialogHandle);
