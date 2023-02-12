@@ -118,7 +118,7 @@ export async function register_settings() {
             section: 'jarvis',
             public: true,
             label: 'Memory Tokens',
-            description: 'The number of tokens to keep in memory when chatting with Jarvis. Must be lower than max_tokens',
+            description: 'The number of tokens to keep in memory when chatting with Jarvis. Higher values will result in more coherent conversations. Must be lower than max_tokens.',
         },
         'top_p': {
             value: 100,
