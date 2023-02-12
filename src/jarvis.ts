@@ -39,7 +39,6 @@ export async function chat_with_jarvis() {
   });
   // get last tokens
   prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
-  console.log(prompt);
 
   let completion = await query_completion(prompt, settings);
   await joplin.commands.execute('replaceSelection', completion);
