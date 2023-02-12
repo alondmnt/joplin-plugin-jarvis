@@ -28,7 +28,7 @@ joplin.plugins.register({
 
     joplin.commands.register({
       name: 'jarvis.edit',
-      label: 'Let Jarvis edit selection',
+      label: 'Edit selection with Jarvis',
       execute: async () => {
         send_jarvis_text(dialogAsk);
       }
