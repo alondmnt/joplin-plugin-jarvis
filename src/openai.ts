@@ -38,13 +38,11 @@ export async function query_completion(
 
   // find all numbers in error message
   const max_tokens = [...data.error.message.matchAll(/([0-9]+)/g)];
-  console.log(max_tokens);
 
   // adjust max tokens
   if ((max_tokens != null) &&
       (data.error.message.includes('reduce your prompt'))) {
     adjust_max_tokens = parseInt(max_tokens[1]) - parseInt(max_tokens[0]);
-    console.log(adjust_max_tokens);
   }
 
   // retry
