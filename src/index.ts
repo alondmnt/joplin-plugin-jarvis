@@ -34,11 +34,11 @@ joplin.plugins.register({
       }
     });
 
-    joplin.views.menuItems.create(
-      'jarvis.ask', 'jarvis.ask', MenuItemLocation.Tools, {accelerator: 'CmdOrCtrl+Shift+J'});
-    joplin.views.menuItems.create(
-      'jarvis.chat', 'jarvis.chat', MenuItemLocation.Tools, {accelerator: 'CmdOrCtrl+Shift+C'});
-    joplin.views.menuItems.create(
-      'jarvis.edit', 'jarvis.edit', MenuItemLocation.Tools, {accelerator: 'CmdOrCtrl+Shift+Alt+J'});
+    joplin.views.menus.create('jarvis', 'Jarvis', [
+      {commandName: 'jarvis.ask', accelerator: 'CmdOrCtrl+Shift+J'},
+      {commandName: 'jarvis.chat', accelerator: 'CmdOrCtrl+Shift+C'},
+      {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+Alt+J'}
+      ], MenuItemLocation.Tools
+    );
 	},
 });
