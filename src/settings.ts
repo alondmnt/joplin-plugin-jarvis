@@ -7,6 +7,7 @@ export interface JarvisSettings {
     model: string;
     temperature: number;
     max_tokens: number;
+    memory_tokens: number;
     top_p: number;
     frequency_penalty: number;
     presence_penalty: number;
@@ -42,6 +43,7 @@ export async function get_settings(): Promise<JarvisSettings> {
         model: await joplin.settings.value('model'),
         temperature: (await joplin.settings.value('temp')) / 10,
         max_tokens: await joplin.settings.value('max_tokens'),
+        memory_tokens: await joplin.settings.value('memory_tokens'),
         top_p: (await joplin.settings.value('top_p')) / 100,
         frequency_penalty: (await joplin.settings.value('frequency_penalty')) / 10,
         presence_penalty: (await joplin.settings.value('presence_penalty')) / 10,
@@ -106,6 +108,17 @@ export async function register_settings() {
             public: true,
             label: 'Max Tokens',
             description: 'The maximum number of tokens to generate. Higher values will result in more text, but can also result in more nonsensical text.',
+        },
+        'memory_tokens': {
+            value: 128,
+            type: SettingItemType.Int,
+            minimum: 16,
+            maximum: 4096,
+            step: 16,
+            section: 'jarvis',
+            public: true,
+            label: 'Memory Tokens',
+            description: 'The number of tokens to keep in memory when chatting with Jarvis. Must be lower than max_tokens',
         },
         'top_p': {
             value: 100,

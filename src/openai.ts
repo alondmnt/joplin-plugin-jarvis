@@ -13,6 +13,7 @@ export async function query_completion(
     frequency_penalty: settings.frequency_penalty,
     presence_penalty: settings.presence_penalty,
   }
+  console.log(responseParams);
   const response = await fetch('https://api.openai.com/v1/completions', {
     method: 'POST',
     headers: {

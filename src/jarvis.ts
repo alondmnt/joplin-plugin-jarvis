@@ -23,6 +23,28 @@ export async function ask_jarvis(dialogHandle: string) {
   await joplin.commands.execute('replaceSelection', completion);
 }
 
+// this function takes the last tokens from the current note and uses them as a completion prompt
+export async function chat_with_jarvis() {
+  const settings = await get_settings();
+
+  // get cursor position
+  const cursor = await joplin.commands.execute('editor.execCommand', {
+    name: 'getCursor',
+    args: ['from'],
+  });
+  // get all text up to current cursor
+  let prompt = await joplin.commands.execute('editor.execCommand', {
+    name: 'getRange',
+    args: [{line: 0, ch: 0}, cursor],
+  });
+  // get last tokens
+  prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
+  console.log(prompt);
+
+  let completion = await query_completion(prompt, settings);
+  await joplin.commands.execute('replaceSelection', completion);
+}
+
 export async function send_jarvis_text(dialogHandle: string) {
   let selection = await joplin.commands.execute('selectedText');
   if (!selection) { return; }
