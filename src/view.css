@@ -17,10 +17,22 @@ form > div > label {
   display: block;
   margin-bottom: 0.5em;
 }
-form > div > input {
-  width: 98%;
-}
 form > div > textarea {
   width: 98%;
   height: 270px;
+}
+#instruction {
+  width: 40%;
+}
+#scope {
+  width: 25%;
+}
+#role {
+  width: 33%;
+}
+#reasoning {
+  width: 50%;
+}
+#max_tokens {
+  width: 98%;
 }

@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { SettingItemType } from 'api/types';
-
+import prompts = require('./assets/prompts.json');
 
 export interface JarvisSettings {
     openai_api_key: string;
@@ -10,6 +10,29 @@ export interface JarvisSettings {
     top_p: number;
     frequency_penalty: number;
     presence_penalty: number;
+    instruction: string;
+    scope: string;
+    role: string;
+    reasoning: string;
+}
+
+function parse_dropdown_json(json: any): string {
+    let options = '';
+    for (let [key, value] of Object.entries(json)) {
+        options += `<option value="${value}">${key}</option>`;
+    }
+    return options;
+}
+
+async function parse_dropdown_setting(name: string): Promise<string> {
+    const setting = await joplin.settings.value(name);
+    const empty = '<option value=""></option>';
+    const preset = parse_dropdown_json(prompts[name]);
+    try {
+        return empty + parse_dropdown_json(JSON.parse(setting)) + preset
+    } catch (e) {
+        return empty + preset;
+    }
 }
 
 export async function get_settings(): Promise<JarvisSettings> {
@@ -21,6 +44,10 @@ export async function get_settings(): Promise<JarvisSettings> {
         top_p: (await joplin.settings.value('top_p')) / 100,
         frequency_penalty: (await joplin.settings.value('frequency_penalty')) / 10,
         presence_penalty: (await joplin.settings.value('presence_penalty')) / 10,
+        instruction: await parse_dropdown_setting('instruction'),
+        scope: await parse_dropdown_setting('scope'),
+        role: await parse_dropdown_setting('role'),
+        reasoning: await parse_dropdown_setting('reasoning'),
     }
 }
 
@@ -110,6 +137,38 @@ export async function register_settings() {
             public: true,
             label: 'Presence Penalty',
             description: 'A value between -20 and 20 that penalizes new tokens based on whether they appear in the text so far. Can add diversity by preventing the model from repeating the same line verbatim.',
+        },
+        'instruction': {
+            value: '',
+            type: SettingItemType.String,
+            section: 'jarvis',
+            public: true,
+            label: 'Instruction dropdown options',
+            description: 'Favorite instruction prompts to show in dropdown ({label:prompt, ...} JSON).',
+        },
+        'scope': {
+            value: '',
+            type: SettingItemType.String,
+            section: 'jarvis',
+            public: true,
+            label: 'Scope dropdown options',
+            description: 'Favorite scope prompts to show in dropdown ({label:prompt, ...} JSON).',
+        },
+        'role': {
+            value: '',
+            type: SettingItemType.String,
+            section: 'jarvis',
+            public: true,
+            label: 'Role dropdown options',
+            description: 'Favorite role prompts to show in dropdown ({label:prompt, ...} JSON).',
+        },
+        'reasoning': {
+            value: '',
+            type: SettingItemType.String,
+            section: 'jarvis',
+            public: true,
+            label: 'Reasoning dropdown options',
+            description: 'Favorite reasoning prompts to show in dropdown ({label:prompt, ...} JSON).',
         },
     });
 }

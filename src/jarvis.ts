@@ -12,8 +12,9 @@ export async function ask_jarvis(dialogHandle: string) {
   if (result.id === "cancel") { return; }
 
   settings.max_tokens = parseInt(result.formData.ask.max_tokens, 10);
-  let completion = await query_completion(result.formData.ask.prompt, settings);
-  await joplin.commands.execute('replaceSelection', result.formData.ask.prompt + completion + '\n');
+  const prompt = build_prompt(result.formData.ask);
+  let completion = await query_completion(prompt, settings);
+  await joplin.commands.execute('replaceSelection', prompt + completion + '\n');
 }
 
 export async function send_jarvis_text(dialogHandle: string) {
@@ -39,12 +40,27 @@ export async function get_completion_params(
     <form name="ask">
       <h3>Ask Jarvis anything</h3>
       <div>
-        <label for="prompt">prompt</label><br>
+        <select name="instruction" id="instruction">
+          ${settings.instruction}
+        </select>
+        <select name="scope" id="scope">
+          ${settings.scope}
+        </select>
+        <select name="role" id="role">
+          ${settings.role}
+        </select>
+      </div>
+      <div>
         <textarea name="prompt">${defaultPrompt}</textarea>
       </div>
       <div>
-        <label for="max_tokens">max tokens</label><br>
-        <input type="range" name="max_tokens" size="25"
+        <select name="reasoning" id="reasoning">
+          ${settings.reasoning}
+        </select>
+      </div>
+      <div>
+        <label for="max_tokens">max tokens</label>
+        <input type="range" name="max_tokens" id="max_tokens" size="25"
          min="256" max="4096" value="${settings.max_tokens}" step="16" />
       </div>
     <form>
@@ -84,4 +100,14 @@ export async function get_edit_params(dialogHandle: string): Promise<DialogResul
   if (result.id === "cancel") { return undefined; }
 
   return result
+}
+
+function build_prompt(promptFields: any): string {
+  let prompt: string = '';
+  if (promptFields.role) { prompt += `${promptFields.role}\n`; }
+  if (promptFields.scope) { prompt += `${promptFields.scope}\n`; }
+  if (promptFields.instruction) { prompt += `${promptFields.instruction}\n`; }
+  if (promptFields.prompt) { prompt += `${promptFields.prompt}\n`; }
+  if (promptFields.reasoning) { prompt += `${promptFields.reasoning}\n`; }
+  return prompt;
 }

@@ -1,0 +1,10 @@
+label,value,tokens
+Paragraph,Scope: one paragraph.,15.75
+2-3 Paragraphs,Scope: 2-3 paragraphs.,16.5
+4-5 Paragraphs,Scope: 4-5 paragraphs.,
+5 items,Scope: bullet list of 5 items in each section. make sure to include details for each item. use markdown format.,83.25
+10 items,Scope: bullet list of 10 items in each section. make sure to include details for each item. use markdown format.,84
+Email,Scope: an email that includes a subject line and the content.,45.75
+Blog post,"Scope: blog post that has an introduction, 3 topic paragraphs, and a conclusion.",60
+Essay,Scope: essay.,9.75
+Article,Scope: article.,11.25
