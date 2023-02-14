@@ -41,7 +41,7 @@ export async function chat_with_jarvis() {
   prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
 
   let completion = await query_completion(prompt, settings);
-  await joplin.commands.execute('replaceSelection', completion);
+  await replace_selection(completion);
 }
 
 export async function edit_with_jarvis(dialogHandle: string) {
@@ -140,4 +140,17 @@ function build_prompt(promptFields: any): string {
   if (promptFields.prompt) { prompt += `${promptFields.prompt}\n`; }
   if (promptFields.reasoning) { prompt += `${promptFields.reasoning}\n`; }
   return prompt;
+}
+
+async function replace_selection(text: string) {
+  await joplin.commands.execute('editor.execCommand', {
+		name: 'replaceSelection',
+		args: [text, 'around'],
+	});
+
+	// this works also with the rich text editor
+	const editedText = await joplin.commands.execute('selectedText');
+	if (editedText != text) {
+		await joplin.commands.execute('replaceSelection', text);
+	}
 }
