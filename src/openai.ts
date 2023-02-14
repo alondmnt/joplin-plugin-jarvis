@@ -29,7 +29,9 @@ export async function query_completion(
   }
 
   // display error message
-  const errorHandler = await joplin.views.dialogs.showMessageBox('Error: ' + data.error.message);
+  const errorHandler = await joplin.views.dialogs.showMessageBox(
+    `Error: ${data.error.message}\nPress OK to retry.`
+    );
 
   // cancel button
   if (errorHandler == 1) {
