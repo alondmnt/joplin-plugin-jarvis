@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { MenuItemLocation } from 'api/types';
-import { ask_jarvis, chat_with_jarvis, send_jarvis_text } from './jarvis';
+import { ask_jarvis, chat_with_jarvis, edit_with_jarvis } from './jarvis';
 import { register_settings } from './settings';
 
 
@@ -30,7 +30,7 @@ joplin.plugins.register({
       name: 'jarvis.edit',
       label: 'Edit selection with Jarvis',
       execute: async () => {
-        send_jarvis_text(dialogAsk);
+        edit_with_jarvis(dialogAsk);
       }
     });
 

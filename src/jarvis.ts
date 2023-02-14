@@ -44,7 +44,7 @@ export async function chat_with_jarvis() {
   await joplin.commands.execute('replaceSelection', completion);
 }
 
-export async function send_jarvis_text(dialogHandle: string) {
+export async function edit_with_jarvis(dialogHandle: string) {
   let selection = await joplin.commands.execute('selectedText');
   if (!selection) { return; }
 
