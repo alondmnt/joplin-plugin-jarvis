@@ -4,5 +4,6 @@
 /api
 /src
 /dist
+/img
 tsconfig.json
 webpack.config.js

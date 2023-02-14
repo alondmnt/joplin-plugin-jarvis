@@ -2,7 +2,7 @@
 	"manifest_version": 1,
 	"id": "joplin.plugin.alondmnt.jarvis",
 	"app_min_version": "2.8",
-	"version": "0.1.3",
+	"version": "0.2.0",
 	"name": "Jarvis",
 	"description": "Joplin assistant running a very intelligent system (GPT-3)",
 	"author": "Alon Diament",
