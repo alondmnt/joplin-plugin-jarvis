@@ -40,8 +40,8 @@ export async function chat_with_jarvis() {
   // get last tokens
   prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
 
-  let completion = await query_completion(prompt, settings);
-  await replace_selection(completion);
+  let completion = await query_completion(prompt + settings.chat_prefix, settings);
+  await replace_selection(settings.chat_prefix + completion + settings.chat_suffix);
 }
 
 export async function edit_with_jarvis(dialogHandle: string) {

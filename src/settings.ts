@@ -16,6 +16,8 @@ export interface JarvisSettings {
     scope: string;
     role: string;
     reasoning: string;
+    chat_prefix: string;
+    chat_suffix: string;
 }
 
 function parse_dropdown_json(json: any): string {
@@ -52,6 +54,8 @@ export async function get_settings(): Promise<JarvisSettings> {
         scope: await parse_dropdown_setting('scope'),
         role: await parse_dropdown_setting('role'),
         reasoning: await parse_dropdown_setting('reasoning'),
+        chat_prefix: (await joplin.settings.value('chat_prefix')).replace(/\\n/g, '\n'),
+        chat_suffix: (await joplin.settings.value('chat_suffix')).replace(/\\n/g, '\n'),
     }
 }
 
@@ -160,11 +164,28 @@ export async function register_settings() {
             public: true,
             label: 'Include prompt in response',
         },
+        'chat_prefix': {
+            value: '',
+            type: SettingItemType.String,
+            section: 'jarvis',
+            public: true,
+            label: 'Prefix to add to each chat prompt (before the response).',
+            description: 'e.g., "\\n\\nJarvis:"',
+        },
+        'chat_suffix': {
+            value: '\\n\\nUser: ',
+            type: SettingItemType.String,
+            section: 'jarvis',
+            public: true,
+            label: 'Suffix to add to each chat response (after the response).',
+            description: 'e.g., "\\n\\nUser: "',
+        },
         'instruction': {
             value: '',
             type: SettingItemType.String,
             section: 'jarvis',
             public: true,
+            advanced: true,
             label: 'Instruction dropdown options',
             description: 'Favorite instruction prompts to show in dropdown ({label:prompt, ...} JSON).',
         },
@@ -173,6 +194,7 @@ export async function register_settings() {
             type: SettingItemType.String,
             section: 'jarvis',
             public: true,
+            advanced: true,
             label: 'Scope dropdown options',
             description: 'Favorite scope prompts to show in dropdown ({label:prompt, ...} JSON).',
         },
@@ -181,6 +203,7 @@ export async function register_settings() {
             type: SettingItemType.String,
             section: 'jarvis',
             public: true,
+            advanced: true,
             label: 'Role dropdown options',
             description: 'Favorite role prompts to show in dropdown ({label:prompt, ...} JSON).',
         },
@@ -189,6 +212,7 @@ export async function register_settings() {
             type: SettingItemType.String,
             section: 'jarvis',
             public: true,
+            advanced: true,
             label: 'Reasoning dropdown options',
             description: 'Favorite reasoning prompts to show in dropdown ({label:prompt, ...} JSON).',
         },
