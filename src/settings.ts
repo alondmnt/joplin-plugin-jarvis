@@ -5,6 +5,7 @@ import prompts = require('./assets/prompts.json');
 export interface JarvisSettings {
     openai_api_key: string;
     scopus_api_key: string;
+    springer_api_key: string;
     model: string;
     temperature: number;
     max_tokens: number;
@@ -45,6 +46,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     return {
         openai_api_key: await joplin.settings.value('openai_api_key'),
         scopus_api_key: await joplin.settings.value('scopus_api_key'),
+        springer_api_key: await joplin.settings.value('springer_api_key'),
         model: await joplin.settings.value('model'),
         temperature: (await joplin.settings.value('temp')) / 10,
         max_tokens: await joplin.settings.value('max_tokens'),
@@ -87,6 +89,15 @@ export async function register_settings() {
             public: true,
             label: 'Scopus API Key',
             description: 'Your Elsevier/Scopus API Key (optional, only needed for resarch)',
+        },
+        'springer_api_key': {
+            value: '',
+            type: SettingItemType.String,
+            secure: true,
+            section: 'jarvis',
+            public: true,
+            label: 'Springer API Key',
+            description: 'Your Springer API Key (optional, only needed for resarch)',
         },
         'model': {
             value: 'text-davinci-003',

@@ -169,13 +169,18 @@ async function get_paper_summary(paper: PaperInfo,
 }
 
 async function get_paper_abstract(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
+
   let info = await get_scidir_info(paper, settings);  // ScienceDirect (Elsevier), full text or abstract
   if (info['abstract']) { return info; }
   else {
-    info = await get_scopus_info(paper, settings);  // Scopus, abstract
-    if (info['asbtract']) { return info; }
+    info = await get_springer_info(paper, settings);  // Springer, abstract
+    if (info['abstract']) { return info; }
     else {
-      return await get_crossref_info(paper);  // Crossref, abstract
+      info = await get_scopus_info(paper, settings);  // Scopus, abstract
+      if (info['asbtract']) { return info; }
+      else {
+        return await get_crossref_info(paper);  // Crossref, abstract
+      }
     }
   }
 }
@@ -259,6 +264,34 @@ async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Prom
     const info = jsonResponse['abstracts-retrieval-response']['coredata'];
     if ( info['dc:description'] ) {
       paper['abstract'] = info['dc:description'].trim();
+    }
+  }
+  catch (error) {
+    // console.log(error);
+  }
+  return paper;
+}
+
+async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
+  if ( !settings.springer_api_key ) { return paper; }
+
+  const url = `https://api.springernature.com/metadata/json/doi/${paper['doi']}?api_key=${settings.springer_api_key}`;
+  const headers = {
+    'Accept': 'application/json',
+  };
+  const options = {
+    method: 'GET',
+    headers: headers,
+  };
+  let response = await fetch(url, options);
+
+  if (!response.ok) { return paper; }
+
+  try {
+    const jsonResponse = await response.json()
+    const info = jsonResponse['records'][0]['abstract'];
+    if ( info ) {
+      paper['abstract'] = info.trim();
     }
   }
   catch (error) {
