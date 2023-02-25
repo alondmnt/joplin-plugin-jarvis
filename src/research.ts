@@ -169,13 +169,13 @@ async function get_paper_summary(paper: PaperInfo,
 }
 
 async function get_paper_abstract(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
-  let info = await get_crossref_info(paper);  // Crossref
+  let info = await get_scidir_info(paper, settings);  // ScienceDirect (Elsevier), full text or abstract
   if (info['abstract']) { return info; }
   else {
-    info = await get_scopus_info(paper, settings);  // Scopus
+    info = await get_scopus_info(paper, settings);  // Scopus, abstract
     if (info['asbtract']) { return info; }
     else {
-      return await get_scidir_info(paper, settings);  // ScienceDirect (Elsevier)
+      return await get_crossref_info(paper);  // Crossref, abstract
     }
   }
 }
@@ -226,9 +226,12 @@ async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Prom
 
   try {
     const jsonResponse = await response.json();
-    const info = jsonResponse['full-text-retrieval-response']['coredata'];
-    if ( info['dc:description'] ) {
-      paper['abstract'] = info['dc:description'].trim();
+    const info = jsonResponse['full-text-retrieval-response'];
+    if ( info['originalText'] ) {
+      paper['abstract'] = info['originalText']['xocs:doc']['xocs:rawtext'].trim();
+      console.log('success!');
+    } else if ( info['coredata']['dc:description'] ) {
+      paper['abstract'] = info['coredata']['dc:description'].trim();
     }
   }
   catch (error) {
