@@ -2,6 +2,7 @@ import joplin from 'api';
 import { DialogResult } from 'api/types';
 import { get_settings, JarvisSettings } from './settings';
 import { query_completion, query_edit } from './openai';
+import { do_research } from './research';
 
 
 export async function ask_jarvis(dialogHandle: string) {
@@ -19,6 +20,34 @@ export async function ask_jarvis(dialogHandle: string) {
     completion = prompt + completion;
   }
   completion += '\n';
+
+  await joplin.commands.execute('replaceSelection', completion);
+}
+
+export async function research_with_jarvis(dialogHandle: string) {
+  const settings = await get_settings();
+  if (settings.scopus_api_key === '') {
+    joplin.views.dialogs.showMessageBox('Please set your Scopus API key in the settings.');
+    return;
+  }
+
+  const result = await get_research_params(dialogHandle, settings);
+
+  if (!result) { return; }
+  if (result.id === "cancel") { return; }
+
+  // params for research
+  settings.max_tokens = parseInt(result.formData.ask.max_tokens, 10);
+  const prompt = result.formData.ask.prompt;
+  const n_papers = parseInt(result.formData.ask.n_papers);
+  const only_search = result.formData.ask.only_search;
+  let paper_tokens = Math.ceil(parseInt(result.formData.ask.paper_tokens) / 100 * settings.max_tokens);
+  if (only_search) {
+    paper_tokens = Infinity;  // don't limit the number of summarized papers
+    settings.include_paper_summary = true;
+  }
+
+  const completion = await do_research(prompt, n_papers, paper_tokens, only_search, settings);
 
   await joplin.commands.execute('replaceSelection', completion);
 }
@@ -85,7 +114,8 @@ export async function get_completion_params(
         <textarea name="prompt">${defaultPrompt}</textarea>
       </div>
       <div>
-        <input type="range" title="Max tokens (response length)" name="max_tokens" id="max_tokens" size="25" min="256" max="4096" value="${settings.max_tokens}" step="128" />
+        <input type="range" title="Prompt + response length = ${settings.max_tokens}" name="max_tokens" id="max_tokens" size="25" min="256" max="4096" value="${settings.max_tokens}" step="128"
+         oninput="title='Prompt + response length = ' + value" />
       </div>
       <div>
         <label for="include_prompt">
@@ -109,10 +139,57 @@ export async function get_completion_params(
   return result
 }
 
+export async function get_research_params(
+  dialogHandle: string, settings:JarvisSettings): Promise<DialogResult> {
+let defaultPrompt = await joplin.commands.execute('selectedText');
+const include_prompt = settings.include_prompt ? 'checked' : '';
+
+await joplin.views.dialogs.setHtml(dialogHandle, `
+  <form name="ask">
+    <h3>Research with Jarvis</h3>
+    <div>
+      <textarea id="research_prompt" name="prompt">${defaultPrompt}</textarea>
+    </div>
+    <div>
+      <label for="n_papers">Paper space</label>
+      <input type="range" title="Search for 25 papers to sample from" name="n_papers" id="n_papers" size="25" min="0" max="500" value="25" step="25"
+       oninput="title='Search for ' + value + ' papers to sample from'" />
+    </div>
+    <div>
+      <label for="paper_tokens">Paper tokens</label>
+      <input type="range" title="Paper context (50% of total tokens) to include in the prompt" name="paper_tokens" id="paper_tokens" size="25" min="10" max="90" value="50" step="10"
+       oninput="title='Paper context (' + value + '% of max tokens) to include in the prompt'" />
+    </div>
+    <div>
+      <label for="max_tokens">Max tokens</label>
+      <input type="range" title="Prompt + response length = ${settings.max_tokens}" name="max_tokens" id="max_tokens" size="25" min="256" max="4096" value="${settings.max_tokens}" step="128"
+       oninput="title='Prompt + response length = ' + value" />
+    </div>
+    <div>
+      <label for="only_search">
+      <input type="checkbox" title="Show prompt" id="only_search" name="only_search" />
+      Only perform search, don't generate a response, and ignore paper tokens
+    </label>
+  </form>
+  `);
+
+await joplin.views.dialogs.addScript(dialogHandle, 'view.css');
+await joplin.views.dialogs.setButtons(dialogHandle,
+  [{ id: "submit", title: "Submit"},
+   { id: "cancel", title: "Cancel"}]);
+await joplin.views.dialogs.setFitToContent(dialogHandle, true);
+
+const result = await joplin.views.dialogs.open(dialogHandle);
+
+if (result.id === "cancel") { return undefined; }
+
+return result
+}
+
 export async function get_edit_params(dialogHandle: string): Promise<DialogResult> {
   await joplin.views.dialogs.setHtml(dialogHandle, `
     <form name="ask">
-      <h3>Editor requests</h3>
+      <h3>Edit with Jarvis</h3>
       <div>
         <label for="prompt">prompt</label><br>
         <textarea name="prompt"></textarea>

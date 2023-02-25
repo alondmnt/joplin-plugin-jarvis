@@ -1,8 +1,7 @@
 import joplin from 'api';
 import { MenuItemLocation } from 'api/types';
-import { ask_jarvis, chat_with_jarvis, edit_with_jarvis } from './jarvis';
+import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, research_with_jarvis } from './jarvis';
 import { register_settings } from './settings';
-
 
 joplin.plugins.register({
 	onStart: async function() {
@@ -27,6 +26,14 @@ joplin.plugins.register({
     })
 
     joplin.commands.register({
+      name: 'jarvis.research',
+      label: 'Research with Jarvis',
+      execute: async () => {
+        research_with_jarvis(dialogAsk);
+      }
+    });
+
+    joplin.commands.register({
       name: 'jarvis.edit',
       label: 'Edit selection with Jarvis',
       execute: async () => {
@@ -37,6 +44,7 @@ joplin.plugins.register({
     joplin.views.menus.create('jarvis', 'Jarvis', [
       {commandName: 'jarvis.ask', accelerator: 'CmdOrCtrl+Shift+J'},
       {commandName: 'jarvis.chat', accelerator: 'CmdOrCtrl+Shift+C'},
+      {commandName: 'jarvis.research', accelerator: 'CmdOrCtrl+Shift+R'},
       {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+Alt+J'}
       ], MenuItemLocation.Tools
     );

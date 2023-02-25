@@ -21,6 +21,9 @@ form > div > textarea {
   width: 98%;
   height: 290px;
 }
+#research_prompt {
+  height: 200px;
+}
 #instruction {
   width: 30%;
 }
@@ -34,5 +37,11 @@ form > div > textarea {
   width: 22.5%;
 }
 #max_tokens {
+  width: 98%;
+}
+#n_papers {
+  width: 98%;
+}
+#paper_tokens {
   width: 98%;
 }

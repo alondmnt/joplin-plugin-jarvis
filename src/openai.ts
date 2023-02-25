@@ -3,7 +3,7 @@ import { JarvisSettings } from './settings';
 
 
 export async function query_completion(
-    prompt: string, settings: JarvisSettings, adjust_max_tokens: number = 0) {
+    prompt: string, settings: JarvisSettings, adjust_max_tokens: number = 0): Promise<string> {
   const responseParams = {
     prompt: prompt,
     model: settings.model,
@@ -51,7 +51,7 @@ export async function query_completion(
   return await query_completion(prompt, settings, adjust_max_tokens);
 }
 
-export async function query_edit(input: string, instruction: string, settings: JarvisSettings) {
+export async function query_edit(input: string, instruction: string, settings: JarvisSettings): Promise<string> {
   const responseParams = {
     input: input,
     instruction: instruction,
