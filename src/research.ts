@@ -157,7 +157,7 @@ async function get_paper_summary(paper: PaperInfo,
     prompt:\n${prompt}
     abstract:\n${paper['abstract']}`, settings);
 
-  paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.trim()}`;
+  paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.replace('\n', '')}`;
   paper['compression'] = paper['summary'].length / paper['abstract'].length;
 
   let cite = `- ${paper['author']} et al., [${paper['title']}](https://doi.org/${paper['doi']}), ${paper['journal']}, ${paper['year']}, cited: ${paper['citation_count']}.\n`;
@@ -233,8 +233,9 @@ async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Prom
     const jsonResponse = await response.json();
     const info = jsonResponse['full-text-retrieval-response'];
     if ( info['originalText'] ) {
-      paper['abstract'] = info['originalText']['xocs:doc']['xocs:rawtext'].trim();
-      console.log('success!');
+      paper['abstract'] = info['originalText']
+        .split('Discussion').at(-1).split('References').at(0)
+        .slice(0, 0.75*4*settings.max_tokens).trim();
     } else if ( info['coredata']['dc:description'] ) {
       paper['abstract'] = info['coredata']['dc:description'].trim();
     }
