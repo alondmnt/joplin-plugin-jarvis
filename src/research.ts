@@ -47,23 +47,27 @@ async function search_papers(prompt: string, n: number, settings: JarvisSettings
   // calculates the number of pages needed to fetch n results
   let pages = Math.ceil(n / 25);
 
-  for (let i = 0; i < pages; i++) {
+  for (let p = 0; p < pages; p++) {
     const url = `https://api.elsevier.com/content/search/scopus?query=${query}&count=25&start=${start}&sort=-relevancy,-citedby-count,-pubyear`;
     let response = await fetch(url, options);
 
-    if (!response.ok) {
-      if (pages > retries) {
+    let jsonResponse: Response;
+    let papers: any[];
+    if (response.ok) {
+      jsonResponse = await response.json();
+      papers = jsonResponse['search-results']['entry'];
+    }
+
+    if (!response.ok || papers[0].hasOwnProperty('error')) {
+      if (p > retries) {
         return null;
       }
-      console.log('retrying search query');
       query = await get_paper_search_query(prompt, settings);
       pages += 1;
-      continue
+      continue;
     }
 
     try {
-      const jsonResponse = await response.json();
-      const papers = jsonResponse['search-results']['entry'];
       for (let i = 0; i < papers.length; i++) {
         try {
           const info: PaperInfo = {
@@ -83,7 +87,12 @@ async function search_papers(prompt: string, n: number, settings: JarvisSettings
           continue;
         }
       }
+
       start += 25;
+      if ( jsonResponse['search-results']['opensearch:totalResults'] < start ) {
+        break;
+      }
+
     } catch (error) {
       console.log(error);
     }
