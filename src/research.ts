@@ -243,7 +243,8 @@ async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Prom
     const info = jsonResponse['full-text-retrieval-response'];
     if ( info['originalText'] ) {
       paper['abstract'] = info['originalText']
-        .split('Discussion').at(-1).split('References').at(0)
+        .split('Discussion|Conclusions').at(-1)
+        .split('References').at(0).split('Acknowledgements').at(0)
         .slice(0, 0.75*4*settings.max_tokens).trim();
     } else if ( info['coredata']['dc:description'] ) {
       paper['abstract'] = info['coredata']['dc:description'].trim();
