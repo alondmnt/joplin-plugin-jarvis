@@ -19,16 +19,16 @@ export async function do_research(prompt: string, n_papers: number,
 
   const papers = await search_papers(prompt, n_papers, settings).then(
     (ids) => sample_and_summarize_papers(ids, paper_tokens, prompt, settings));
+
   if (papers.length == 0) {
     return 'No relevant papers found. Consider expanding your paper space, resending your prompt, or adjusting it.'
   }
-
-  const full_prompt = get_full_prompt(papers, prompt);
   if (only_search) {
     return '';
   }
-  const research = await query_completion(full_prompt, settings);
 
+  const full_prompt = get_full_prompt(papers, prompt);
+  const research = await query_completion(full_prompt, settings);
   return research;
 }
 
