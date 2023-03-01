@@ -105,11 +105,22 @@ async function search_papers(prompt: string, n: number, settings: JarvisSettings
 }
 
 async function get_paper_search_query(prompt: string, settings: JarvisSettings): Promise<string> {
-  const query = await query_completion(
-    `write a bibliographic search query for scientific papers that will be helpful
-    to generate a response to the following prompt:\n${prompt}`, settings);
-  await joplin.commands.execute('replaceSelection', '\nsearching for: ' + query + '\n\n');
-  return query;
+  const response = await query_completion(
+    `you are writing an academic text.
+    first, list a few research questions that arise from the prompt below.
+    then, output a single Scopus search query that will be helpful to answer these research questions.
+    PROMPT:\n${prompt}
+    use the following format for the response.
+    RESEARCH QUESTIONS:
+    1. [main question]
+    2. [secondary question]
+    3. [additional question]
+    QUERY:
+    [search query]`, settings);
+
+  await joplin.commands.execute('replaceSelection', response + '\n\n');
+
+  return response.split('QUERY: ')[1];
 }
 
 async function sample_and_summarize_papers(papers: PaperInfo[], max_tokens: number,
