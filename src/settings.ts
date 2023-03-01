@@ -100,7 +100,7 @@ export async function register_settings() {
             description: 'Your Springer API Key (optional, only needed for resarch)',
         },
         'model': {
-            value: 'text-davinci-003',
+            value: 'gpt-3.5-turbo',
             type: SettingItemType.String,
             isEnum: true,
             section: 'jarvis',
@@ -108,6 +108,7 @@ export async function register_settings() {
             label: 'Model',
             description: 'The model to use for asking Jarvis',
             options: {
+                'gpt-3.5-turbo': 'gpt-3.5-turbo',
                 'text-davinci-003': 'text-davinci-003',
                 'text-davinci-002': 'text-davinci-002',
                 'text-curie-001': 'text-curie-001',

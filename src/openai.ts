@@ -1,11 +1,11 @@
 import joplin from 'api';
 import { JarvisSettings } from './settings';
 
-
 export async function query_completion(
     prompt: string, settings: JarvisSettings, adjust_max_tokens: number = 0): Promise<string> {
-  const responseParams = {
-    prompt: prompt,
+
+  let url: string = '';
+  let responseParams: any = {
     model: settings.model,
     max_tokens: settings.max_tokens - Math.ceil(prompt.length / 4) - adjust_max_tokens,
     temperature: settings.temperature,
@@ -13,7 +13,20 @@ export async function query_completion(
     frequency_penalty: settings.frequency_penalty,
     presence_penalty: settings.presence_penalty,
   }
-  const response = await fetch('https://api.openai.com/v1/completions', {
+
+  if (settings.model.includes('gpt-3.5-turbo')) {
+    url = 'https://api.openai.com/v1/chat/completions';
+    responseParams = {...responseParams,
+      messages: [{role: 'user', content: prompt}],
+    }
+  } else {
+    url = 'https://api.openai.com/v1/completions';
+    responseParams = {...responseParams,
+      prompt: prompt,
+    }
+  }
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -24,8 +37,11 @@ export async function query_completion(
   const data = await response.json();
 
   // output completion
-  if (data.choices) {
+  if (data.choices[0].text) {
     return data.choices[0].text;
+  }
+  if (data.choices[0].message.content) {
+    return data.choices[0].message.content;
   }
 
   // display error message
