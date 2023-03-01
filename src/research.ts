@@ -19,6 +19,9 @@ export async function do_research(prompt: string, n_papers: number,
 
   const papers = await search_papers(prompt, n_papers, settings).then(
     (ids) => sample_and_summarize_papers(ids, paper_tokens, prompt, settings));
+  if (papers.length == 0) {
+    return 'No relevant papers found. Consider expanding your paper space, resending your prompt, or adjusting it.'
+  }
 
   const full_prompt = get_full_prompt(papers, prompt);
   if (only_search) {
@@ -129,7 +132,7 @@ async function sample_and_summarize_papers(papers: PaperInfo[], max_tokens: numb
     }
     // wait for the next summary to be ready
     papers[i] = await promises[i];
-    if ( !papers[i]['summary'] ) { continue; }
+    if ( papers[i]['summary'].length == 0 ) { continue; }
 
     // we only summarize papers up to a total length of max_tokens
     if (tokens + papers[i]['summary'].length / 4 > max_tokens) { 
@@ -160,11 +163,20 @@ async function get_paper_summary(paper: PaperInfo,
   paper = await get_paper_abstract(paper, settings);
   if ( !paper['abstract'] ) { return paper; }
 
+  const user_temp = settings.temperature;
+  settings.temperature = 0.3;
   const response = await query_completion(
-    `summarize concisely in one paragraph containing short sentences
-    the following paper, focusing on information relevant to the prompt.
+    `first, decide if the paper is relevant to answering the prompt.
+    if it isn't return: NOT RELEVANT.
+    if it is relevant do not say RELEVANT and return a summary of the relevant parts of the content.
     prompt:\n${prompt}
-    abstract:\n${paper['abstract']}`, settings);
+    content:\n${paper['abstract']}`, settings);
+  settings.temperature = user_temp;
+
+  if (response.includes('NOT RELEVANT') || (response.trim().length == 0)) {
+    paper['summary'] = '';
+    return paper;
+  }
 
   paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.replace('\n', '')}`;
   paper['compression'] = paper['summary'].length / paper['abstract'].length;
