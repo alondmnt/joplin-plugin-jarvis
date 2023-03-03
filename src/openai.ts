@@ -37,10 +37,10 @@ export async function query_completion(
   const data = await response.json();
 
   // output completion
-  if (data.choices[0].text) {
+  if (data.hasOwnProperty('choices') && (data.choices[0].text)) {
     return data.choices[0].text;
   }
-  if (data.choices[0].message.content) {
+  if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
     return data.choices[0].message.content;
   }
 
