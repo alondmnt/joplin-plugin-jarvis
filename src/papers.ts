@@ -108,7 +108,6 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
   await joplin.commands.execute('replaceSelection', response + '\n\n');
 
   const query = response.split(/QUESTIONS:|QUERY:/g);
-  console.log(query);
   return {query: query[2].trim(),
           questions: query[1].trim()};
 }
@@ -170,7 +169,7 @@ async function get_paper_summary(paper: PaperInfo,
     return paper;
   }
 
-  paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.replace(/\n/g, ' ')}`;
+  paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.replace(/\n+/g, ' ')}`;
   paper['compression'] = paper['summary'].length / paper['abstract'].length;
 
   let cite = `- ${paper['author']} et al., [${paper['title']}](https://doi.org/${paper['doi']}), ${paper['journal']}, ${paper['year']}, cited: ${paper['citation_count']}.\n`;
@@ -215,15 +214,17 @@ async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
 
   if (!response.ok) { return paper; }
 
+  let jsonResponse: any;
   try {
-    const jsonResponse = await response.json();
+    jsonResponse = await response.json();
     const info = jsonResponse['message'];
-    if ( info['abstract'] ) {
+    if ( info.hasOwnProperty('abstract') && (typeof info['abstract'] === 'string') ) {
       paper['abstract'] = info['abstract'].trim();
     }
   }
   catch (error) {
-    // console.log(error);
+    console.log(error);
+    console.log(jsonResponse);
   }
   return paper;
 }
@@ -243,20 +244,22 @@ async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Prom
 
   if (!response.ok) { return paper; }
 
+  let jsonResponse: any;
   try {
-    const jsonResponse = await response.json();
+    jsonResponse = await response.json();
     const info = jsonResponse['full-text-retrieval-response'];
-    if ( info['originalText'] ) {
+    if ( (info['originalText']) && (typeof info['originalText'] === 'string') ) {
       paper['abstract'] = info['originalText']
-        .split(/Discussion|Conclusions/gmi).at(-1)
-        .split(/References/gmi).at(0).split(/Acknowledgements/gmi).at(0)
+        .split(/Discussion|Conclusion/gmi).slice(-1)[0]
+        .split(/References/gmi).slice(0)[0].split(/Acknowledgements/gmi).slice(0)[0]
         .slice(0, 0.75*4*settings.max_tokens).trim();
     } else if ( info['coredata']['dc:description'] ) {
       paper['abstract'] = info['coredata']['dc:description'].trim();
     }
   }
   catch (error) {
-    // console.log(error);
+    console.log(error);
+    console.log(jsonResponse);
   }
   return paper;
 }
@@ -276,15 +279,17 @@ async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Prom
 
   if (!response.ok) { return paper; }
 
+  let jsonResponse: any;
   try {
-    const jsonResponse = await response.json()
+    jsonResponse = await response.json()
     const info = jsonResponse['abstracts-retrieval-response']['coredata'];
     if ( info['dc:description'] ) {
       paper['abstract'] = info['dc:description'].trim();
     }
   }
   catch (error) {
-    // console.log(error);
+    console.log(error);
+    console.log(jsonResponse);
   }
   return paper;
 }
@@ -305,15 +310,18 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
 
   if (!response.ok) { return paper; }
 
+  let jsonResponse: any;
   try {
-    const jsonResponse = await response.json()
+    jsonResponse = await response.json()
+    if (jsonResponse['records'].length == 0) { return paper; }
     const info = jsonResponse['records'][0]['abstract'];
     if ( info ) {
       paper['abstract'] = info.trim();
     }
   }
   catch (error) {
-    // console.log(error);
+    console.log(error);
+    console.log(jsonResponse);
   }
   return paper;
 }
