@@ -27,7 +27,8 @@ function get_full_prompt(papers: PaperInfo[], prompt: string, query: Query): str
     `write a response to the prompt. address the research questions you identified.
     use all relevant papers out of the following ones, and cite what you use in the response.
     do not cited papers other than these ones, but you may add additional uncited information that might be considered common knowledge.
-    try to explain the definitions of domain-specific terms.\n\n`;
+    try to explain acronyms and definitions of domain-specific terms.
+    finally, add a section of FOLLOW-UP QUESTIONS to the response.\n\n`;
   for (let i = 0; i < papers.length; i++) {
     full_prompt += papers[i]['summary'] + '\n\n';
   }
