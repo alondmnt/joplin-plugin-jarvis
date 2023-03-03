@@ -47,9 +47,7 @@ export async function research_with_jarvis(dialogHandle: string) {
     settings.include_paper_summary = true;
   }
 
-  const completion = await do_research(prompt, n_papers, paper_tokens, only_search, settings);
-
-  await joplin.commands.execute('replaceSelection', completion);
+  await do_research(prompt, n_papers, paper_tokens, only_search, settings);
 }
 
 // this function takes the last tokens from the current note and uses them as a completion prompt

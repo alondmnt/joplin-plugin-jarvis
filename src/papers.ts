@@ -98,16 +98,18 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
     then, output a single Scopus search query that will be helpful to answer these research questions.
     PROMPT:\n${prompt}
     use the following format for the response.
-    RESEARCH QUESTIONS:
+    # Research questions
+
     1. [main question]
     2. [secondary question]
     3. [additional question]
-    QUERY:
+    # Query
+
     [search query]`, settings);
 
   await joplin.commands.execute('replaceSelection', response + '\n\n');
 
-  const query = response.split(/QUESTIONS:|QUERY:/g);
+  const query = response.split(/# Research questions|# Query/g);
   return {query: query[2].trim(),
           questions: query[1].trim()};
 }
