@@ -13,11 +13,10 @@ export async function do_research(prompt: string, n_papers: number,
   papers = await sample_and_summarize_papers(papers, paper_tokens, query, settings);
 
   if (papers.length == 0) {
-    return 'No relevant papers found. Consider expanding your paper space, resending your prompt, or adjusting it.'
+    await joplin.commands.execute('replaceSelection',
+      'No relevant papers found. Consider expanding your paper space, resending your prompt, or adjusting it.')
   }
-  if (only_search) {
-    return '';
-  }
+  if (only_search) { return; }
 
   const full_prompt = get_full_prompt(papers, prompt, query);
   const research = await query_completion(full_prompt, settings);
