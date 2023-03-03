@@ -1,12 +1,14 @@
 import { query_completion } from './openai';
 import { JarvisSettings } from './settings';
 import { PaperInfo, search_papers, sample_and_summarize_papers } from './papers';
+import joplin from 'api';
 
 export async function do_research(prompt: string, n_papers: number,
     paper_tokens: number, only_search: boolean, settings: JarvisSettings): Promise<string> {
 
-  const papers = await search_papers(prompt, n_papers, settings).then(
-    (ids) => sample_and_summarize_papers(ids, paper_tokens, prompt, settings));
+  let [papers, query] = await search_papers(prompt, n_papers, settings)
+  await joplin.commands.execute('replaceSelection', 'REFERENCES:\n');
+  papers = await sample_and_summarize_papers(papers, paper_tokens, query, settings);
 
   if (papers.length == 0) {
     return 'No relevant papers found. Consider expanding your paper space, resending your prompt, or adjusting it.'

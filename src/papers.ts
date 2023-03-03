@@ -14,7 +14,12 @@ export interface PaperInfo {
   compression: number;
 }
 
-export async function search_papers(prompt: string, n: number, settings: JarvisSettings): Promise<PaperInfo[]> {
+export interface Query {
+  query: string;
+  questions: string;
+}
+
+export async function search_papers(prompt: string, n: number, settings: JarvisSettings): Promise<[PaperInfo[], Query]> {
   const headers = {
     'Accept': 'application/json',
     'X-ELS-APIKey': settings.scopus_api_key,
@@ -33,7 +38,7 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
   let pages = Math.ceil(n / 25);
 
   for (let p = 0; p < pages; p++) {
-    const url = `https://api.elsevier.com/content/search/scopus?query=${query}&count=25&start=${start}&sort=-relevancy,-citedby-count,-pubyear`;
+    const url = `https://api.elsevier.com/content/search/scopus?query=${query.query}&count=25&start=${start}&sort=-relevancy,-citedby-count,-pubyear`;
     let response = await fetch(url, options);
 
     let jsonResponse: Response;
@@ -83,10 +88,10 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
     }
   }
 
-  return results.slice(0, n);
+  return [results.slice(0, n), query];
 }
 
-async function get_paper_search_query(prompt: string, settings: JarvisSettings): Promise<string> {
+async function get_paper_search_query(prompt: string, settings: JarvisSettings): Promise<Query> {
   const response = await query_completion(
     `you are writing an academic text.
     first, list a few research questions that arise from the prompt below.
@@ -102,11 +107,14 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
 
   await joplin.commands.execute('replaceSelection', response + '\n\n');
 
-  return response.split('QUERY: ')[1];
+  const query = response.split(/QUESTIONS:|QUERY:/g);
+  console.log(query);
+  return {query: query[2].trim(),
+          questions: query[1].trim()};
 }
 
 export async function sample_and_summarize_papers(papers: PaperInfo[], max_tokens: number,
-    query: string, settings: JarvisSettings): Promise<PaperInfo[]> {
+    query: Query, settings: JarvisSettings): Promise<PaperInfo[]> {
   let results: PaperInfo[] = [];
   let tokens = 0;
 
@@ -140,18 +148,21 @@ export async function sample_and_summarize_papers(papers: PaperInfo[], max_token
 }
 
 async function get_paper_summary(paper: PaperInfo,
-    prompt: string, settings: JarvisSettings): Promise<PaperInfo> {
+    query: Query, settings: JarvisSettings): Promise<PaperInfo> {
   paper = await get_paper_abstract(paper, settings);
   if ( !paper['abstract'] ) { return paper; }
 
   const user_temp = settings.temperature;
   settings.temperature = 0.3;
-  const response = await query_completion(
-    `first, decide if the paper is relevant to answering the prompt.
-    if it isn't return: NOT RELEVANT.
-    if it is relevant do not say RELEVANT and return a summary of the relevant parts of the content.
-    prompt:\n${prompt}
-    content:\n${paper['abstract']}`, settings);
+  const prompt = `you are a helpful assistant doing a literature review.
+    if the study below contains any information that pertains to topics discussed in the research questions below,
+    return a summary in a single paragraph of the relevant parts of the study.
+    only if the study is completely unrelated, even broadly, to these questions,
+    return: 'NOT RELEVANT.' and explain why it is not helpful.
+    QUESTIONS:\n${query.questions}
+    STUDY:\n${paper['abstract']}`
+  const response = await query_completion(prompt, settings);
+  //  consider the study's aim, hypotheses, methods / procedures, results / outcomes, limitations and implications.
   settings.temperature = user_temp;
 
   if (response.includes('NOT RELEVANT') || (response.trim().length == 0)) {
@@ -159,12 +170,12 @@ async function get_paper_summary(paper: PaperInfo,
     return paper;
   }
 
-  paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.replace('\n', '')}`;
+  paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.replace(/\n/g, ' ')}`;
   paper['compression'] = paper['summary'].length / paper['abstract'].length;
 
   let cite = `- ${paper['author']} et al., [${paper['title']}](https://doi.org/${paper['doi']}), ${paper['journal']}, ${paper['year']}, cited: ${paper['citation_count']}.\n`;
   if (settings.include_paper_summary) {
-    cite += `\t- ${paper['summary'].replace('\n', '')}\n`;
+    cite += `\t- ${paper['summary']}\n`;
   }
   await joplin.commands.execute('replaceSelection', cite);
   return paper;
