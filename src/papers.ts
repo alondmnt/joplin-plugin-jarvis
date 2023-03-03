@@ -205,6 +205,7 @@ async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
   const options = {
     method: 'GET',
     headers: headers,
+    timeout: 5000,
   };
 
   let response: Response;
@@ -236,6 +237,7 @@ async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Prom
   const options = {
     method: 'GET',
     headers: headers,
+    timeout: 5000,
   };
   let response = await fetch(url, options);
 
@@ -268,6 +270,7 @@ async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Prom
   const options = {
     method: 'GET',
     headers: headers,
+    timeout: 5000,
   };
   let response = await fetch(url, options);
 
@@ -296,6 +299,7 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
   const options = {
     method: 'GET',
     headers: headers,
+    timeout: 5000,
   };
   let response = await fetch(url, options);
 
