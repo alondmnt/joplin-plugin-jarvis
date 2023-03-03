@@ -9,7 +9,7 @@ export interface PaperInfo {
   journal: string;
   doi: string;
   citation_count: number;
-  abstract: string;
+  text: string;
   summary: string;
   compression: number;
 }
@@ -67,7 +67,7 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
             journal: papers[i]['prism:publicationName'],
             doi: papers[i]['prism:doi'],
             citation_count: parseInt(papers[i]['citedby-count'], 10),
-            abstract: papers[i]['dc:description'],
+            text: papers[i]['dc:description'],
             summary: '',
             compression: 1,
           }
@@ -148,8 +148,8 @@ export async function sample_and_summarize_papers(papers: PaperInfo[], max_token
 
 async function get_paper_summary(paper: PaperInfo,
     query: Query, settings: JarvisSettings): Promise<PaperInfo> {
-  paper = await get_paper_abstract(paper, settings);
-  if ( !paper['abstract'] ) { return paper; }
+  paper = await get_paper_text(paper, settings);
+  if ( !paper['text'] ) { return paper; }
 
   const user_temp = settings.temperature;
   settings.temperature = 0.3;
@@ -159,7 +159,7 @@ async function get_paper_summary(paper: PaperInfo,
     only if the study is completely unrelated, even broadly, to these questions,
     return: 'NOT RELEVANT.' and explain why it is not helpful.
     QUESTIONS:\n${query.questions}
-    STUDY:\n${paper['abstract']}`
+    STUDY:\n${paper['text']}`
   const response = await query_completion(prompt, settings);
   //  consider the study's aim, hypotheses, methods / procedures, results / outcomes, limitations and implications.
   settings.temperature = user_temp;
@@ -170,7 +170,7 @@ async function get_paper_summary(paper: PaperInfo,
   }
 
   paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.replace(/\n+/g, ' ')}`;
-  paper['compression'] = paper['summary'].length / paper['abstract'].length;
+  paper['compression'] = paper['summary'].length / paper['text'].length;
 
   let cite = `- ${paper['author']} et al., [${paper['title']}](https://doi.org/${paper['doi']}), ${paper['journal']}, ${paper['year']}, cited: ${paper['citation_count']}.\n`;
   if (settings.include_paper_summary) {
@@ -180,15 +180,15 @@ async function get_paper_summary(paper: PaperInfo,
   return paper;
 }
 
-async function get_paper_abstract(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
+async function get_paper_text(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
   let info = await get_scidir_info(paper, settings);  // ScienceDirect (Elsevier), full text or abstract
-  if (info['abstract']) { return info; }
+  if (info['text']) { return info; }
   else {
     info = await get_springer_info(paper, settings);  // Springer, abstract
-    if (info['abstract']) { return info; }
+    if (info['text']) { return info; }
     else {
       info = await get_scopus_info(paper, settings);  // Scopus, abstract
-      if (info['asbtract']) { return info; }
+      if (info['text']) { return info; }
       else {
         return await get_crossref_info(paper);  // Crossref, abstract
       }
@@ -219,7 +219,7 @@ async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
     jsonResponse = await response.json();
     const info = jsonResponse['message'];
     if ( info.hasOwnProperty('abstract') && (typeof info['abstract'] === 'string') ) {
-      paper['abstract'] = info['abstract'].trim();
+      paper['text'] = info['abstract'].trim();
     }
   }
   catch (error) {
@@ -249,12 +249,12 @@ async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Prom
     jsonResponse = await response.json();
     const info = jsonResponse['full-text-retrieval-response'];
     if ( (info['originalText']) && (typeof info['originalText'] === 'string') ) {
-      paper['abstract'] = info['originalText']
+      paper['text'] = info['originalText']
         .split(/Discussion|Conclusion/gmi).slice(-1)[0]
         .split(/References/gmi).slice(0)[0].split(/Acknowledgements/gmi).slice(0)[0]
         .slice(0, 0.75*4*settings.max_tokens).trim();
     } else if ( info['coredata']['dc:description'] ) {
-      paper['abstract'] = info['coredata']['dc:description'].trim();
+      paper['text'] = info['coredata']['dc:description'].trim();
     }
   }
   catch (error) {
@@ -284,7 +284,7 @@ async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Prom
     jsonResponse = await response.json()
     const info = jsonResponse['abstracts-retrieval-response']['coredata'];
     if ( info['dc:description'] ) {
-      paper['abstract'] = info['dc:description'].trim();
+      paper['text'] = info['dc:description'].trim();
     }
   }
   catch (error) {
@@ -316,7 +316,7 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
     if (jsonResponse['records'].length == 0) { return paper; }
     const info = jsonResponse['records'][0]['abstract'];
     if ( info ) {
-      paper['abstract'] = info.trim();
+      paper['text'] = info.trim();
     }
   }
   catch (error) {
