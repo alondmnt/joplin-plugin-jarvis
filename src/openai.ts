@@ -59,8 +59,8 @@ export async function query_completion(
 
   // adjust max tokens
   if ((max_tokens != null) &&
-      (data.error.message.includes('reduce your prompt'))) {
-    adjust_max_tokens = parseInt(max_tokens[1]) - parseInt(max_tokens[0]);
+      (data.error.message.includes('reduce'))) {
+    adjust_max_tokens = parseInt(max_tokens[1]) - parseInt(max_tokens[0]) + 1;
   }
 
   // retry
