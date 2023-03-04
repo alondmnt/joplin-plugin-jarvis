@@ -14,7 +14,8 @@ export async function do_research(prompt: string, n_papers: number,
 
   if (papers.length == 0) {
     await joplin.commands.execute('replaceSelection',
-      'No relevant papers found. Consider expanding your paper space, resending your prompt, or adjusting it.')
+      'No relevant papers found. Consider expanding your paper space, resending your prompt, or adjusting it.\n')
+    return;
   }
   if (only_search) { return; }
 
