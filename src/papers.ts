@@ -206,13 +206,14 @@ async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
   const options = {
     method: 'GET',
     headers: headers,
-    timeout: 5000,
   };
-
-  let response: Response;
+  let response: any;
   try {
-    response = await fetch(url, options);
-  } catch (error) { return paper; }
+    response = await with_timeout(5000, fetch(url, options));
+  } catch {
+    console.log('TIMEOUT crossref');
+    return paper;
+  }
 
   if (!response.ok) { return paper; }
 
@@ -240,9 +241,14 @@ async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Prom
   const options = {
     method: 'GET',
     headers: headers,
-    timeout: 5000,
   };
-  let response = await fetch(url, options);
+  let response: any;
+  try {
+    response = await with_timeout(5000, fetch(url, options));
+  } catch {
+    console.log('TIMEOUT scidir');
+    return paper;
+  }
 
   if (!response.ok) { return paper; }
 
@@ -275,9 +281,14 @@ async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Prom
   const options = {
     method: 'GET',
     headers: headers,
-    timeout: 5000,
   };
-  let response = await fetch(url, options);
+  let response: any;
+  try {
+    response = await with_timeout(5000, fetch(url, options));
+  } catch {
+    console.log('TIMEOUT scopus');
+    return paper;
+  }
 
   if (!response.ok) { return paper; }
 
@@ -306,9 +317,14 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
   const options = {
     method: 'GET',
     headers: headers,
-    timeout: 5000,
   };
-  let response = await fetch(url, options);
+  let response: any;
+  try {
+    response = await with_timeout(5000, fetch(url, options));
+  } catch {
+    console.log('TIMEOUT springer');
+    return paper;
+  }
 
   if (!response.ok) { return paper; }
 
@@ -326,4 +342,13 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
     console.log(jsonResponse);
   }
   return paper;
+}
+
+function with_timeout(msecs: number, promise: Promise<Response>) {
+  const timeout = new Promise((resolve, reject) => {
+    setTimeout(() => {
+      reject(new Error("timeout"));
+    }, msecs);
+  });
+  return Promise.race([timeout, promise]);
 }
