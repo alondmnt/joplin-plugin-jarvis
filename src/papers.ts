@@ -111,7 +111,7 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
     [search query]`, settings);
 
   await joplin.commands.execute('replaceSelection',
-    response.replace('## Research questions', '## Prompt\n\n' + prompt + '\n\n## Research questions') + '\n\n');
+    response.trim().replace('## Research questions', '## Prompt\n\n' + prompt + '\n\n## Research questions') + '\n\n');
 
   const query = response.split(/# Research questions|# Query/g);
   return {query: query[2].trim(),
