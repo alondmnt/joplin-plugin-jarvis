@@ -25,7 +25,7 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
     'X-ELS-APIKey': settings.scopus_api_key,
   };
   const options = {
-    method: 'GET',
+    method: 'GET', 
     headers: headers,
   };
 
@@ -95,7 +95,7 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
   const response = await query_completion(
     `you are writing an academic text.
     first, list a few research questions that arise from the prompt below.
-    then, output a single Scopus search query that will be helpful to answer these research questions.
+    then, output a single Scopus search query that will be helpful to answer the prompt and these research questions.
     PROMPT:\n${prompt}
     use the following format for the response.
     # Research questions
