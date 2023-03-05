@@ -111,9 +111,9 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
     [search query]`, settings);
 
   await joplin.commands.execute('replaceSelection',
-    response.trim().replace('## Research questions', '## Prompt\n\n' + prompt + '\n\n## Research questions') + '\n\n');
+    response.trim().replace(/## Research questions/gi, '## Prompt\n\n' + prompt + '\n\n## Research questions') + '\n\n');
 
-  const query = response.split(/# Research questions|# Query/g);
+  const query = response.split(/# Research questions|# Query/gi);
   return {query: query[2].trim(),
           questions: query[1].trim()};
 }
@@ -132,7 +132,7 @@ export async function sample_and_summarize_papers(papers: PaperInfo[], max_token
       // try to get a summary for the next 5 papers asynchonously
       for (let j = 0; j < 5; j++) {
         if (i + j < papers.length) {
-          promises.push(get_paper_summary(papers[i + j], query, settings));
+          promises.push(get_paper_summary(papers[i + j], query.questions, settings));
         }
       }
     }
@@ -153,7 +153,7 @@ export async function sample_and_summarize_papers(papers: PaperInfo[], max_token
 }
 
 async function get_paper_summary(paper: PaperInfo,
-    query: Query, settings: JarvisSettings): Promise<PaperInfo> {
+    questions: string, settings: JarvisSettings): Promise<PaperInfo> {
   paper = await get_paper_text(paper, settings);
   if ( !paper['text'] ) { return paper; }
 
@@ -164,7 +164,7 @@ async function get_paper_summary(paper: PaperInfo,
     return a summary in a single paragraph of the relevant parts of the study.
     only if the study is completely unrelated, even broadly, to these questions,
     return: 'NOT RELEVANT.' and explain why it is not helpful.
-    QUESTIONS:\n${query.questions}
+    QUESTIONS:\n${questions}
     STUDY:\n${paper['text']}`
   const response = await query_completion(prompt, settings);
   //  consider the study's aim, hypotheses, methods / procedures, results / outcomes, limitations and implications.
