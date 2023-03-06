@@ -1,19 +1,19 @@
 import joplin from 'api';
 import { query_completion } from './openai';
 import { JarvisSettings } from './settings';
-import { Query } from './papers';
+import { SearchParams } from './papers';
 
 export interface WikiInfo {
-  title: string;
-  year: number;
-  id: number;
-  excerpt: string;
-  text: string;
+  title?: string;
+  year?: number;
+  id?: number;
+  excerpt?: string;
+  text?: string;
   summary: string;
 }
 
 // return a summary of the top relevant wikipedia page
-export async function search_wikipedia(prompt: string, query: Query, settings: JarvisSettings): Promise<WikiInfo> {
+export async function search_wikipedia(prompt: string, search: SearchParams, settings: JarvisSettings): Promise<WikiInfo> {
   const search_term = await get_wikipedia_search_query(prompt, settings);
 
   const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&origin=*&format=json&srlimit=20&srsearch=${search_term}`;
@@ -36,9 +36,9 @@ export async function search_wikipedia(prompt: string, query: Query, settings: J
     pages.push(get_wikipedia_page(page, 'excerpt', 'exintro'));
   }
 
-  let best_page = await get_best_page(pages, results.length, query, settings);
+  let best_page = await get_best_page(pages, results.length, search, settings);
   best_page = await get_wikipedia_page(best_page, 'text', 'explaintext');
-  best_page = await get_page_summary(best_page, query.questions, settings);
+  best_page = await get_page_summary(best_page, search.questions, settings);
   return best_page;
 }
 
@@ -49,7 +49,7 @@ async function get_wikipedia_search_query(prompt: string, settings: JarvisSettin
     use the following format.
     TOPIC: [main topic]`, settings);
 
-  return response.split('TOPIC: ')[1].replace(/"/g, '').trim();
+  return response.split(/TOPIC: /gi)[1].replace(/"/g, '').trim();
 }
 
 // get the full text (or other extract) of a wikipedia page
@@ -70,12 +70,12 @@ async function get_wikipedia_page(page: WikiInfo, field:string = 'text', section
   return page;
 }
 
-async function get_best_page(pages: Promise<WikiInfo>[], n: number, query: Query, settings: JarvisSettings): Promise<WikiInfo> {
+async function get_best_page(pages: Promise<WikiInfo>[], n: number, search: SearchParams, settings: JarvisSettings): Promise<WikiInfo> {
   // TODO: we could do this by comparing 2 pages each time and keeping the max, at the cost of more queries
   let prompt = `you are a helpful assistant doing a literature review.
     we are searching for the single most relevant Wikipedia page to introduce the topics discussed in the research questions below.
     return only the index of the most relevant page in the format: [index number].
-    QUESTIONS:\n${query.questions}\n
+    QUESTIONS:\n${search.questions}\n
     PAGES:\n`;
   for (let i = 0; i < n; i++) {
     const page = await pages[i];

@@ -14,12 +14,13 @@ export interface PaperInfo {
   compression: number;
 }
 
-export interface Query {
-  query: string;
+export interface SearchParams {
+  prompt: string;
+  queries: string[];
   questions: string;
 }
 
-export async function search_papers(prompt: string, n: number, settings: JarvisSettings): Promise<[PaperInfo[], Query]> {
+export async function search_papers(prompt: string, n: number, settings: JarvisSettings): Promise<[PaperInfo[], SearchParams]> {
   const headers = {
     'Accept': 'application/json',
     'X-ELS-APIKey': settings.scopus_api_key,
@@ -29,16 +30,32 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
     headers: headers,
   };
 
-  let query = await get_paper_search_query(prompt, settings);
-  const retries = 2;
-  let start = 0;
-  let results: PaperInfo[] = [];
+  let search = await get_paper_search_query(prompt, settings);
 
   // calculates the number of pages needed to fetch n results
   let pages = Math.ceil(n / 25);
 
+  // run multiple queries and remove duplicates
+  let results: PaperInfo[] = [];
+  let dois: Set<string> = new Set();
+  for (let q = 0; q < search.queries.length; q++) {
+    (await run_scopus_query(search.queries[q], pages, n, options)).map((paper) => {
+      if (!dois.has(paper.doi)) {
+        results.push(paper);
+        dois.add(paper.doi);
+      }
+    });
+  }
+
+  return [results, search];
+}
+
+async function run_scopus_query(query: string, pages: number, papers: number, options: any): Promise<PaperInfo[]> {
+  let start = 0;
+  let results: PaperInfo[] = [];
+
   for (let p = 0; p < pages; p++) {
-    const url = `https://api.elsevier.com/content/search/scopus?query=${query.query}&count=25&start=${start}&sort=-relevancy,-citedby-count,-pubyear`;
+    const url = `https://api.elsevier.com/content/search/scopus?query=${query}&count=25&start=${start}&sort=-relevancy,-citedby-count,-pubyear`;
     let response = await fetch(url, options);
 
     let jsonResponse: Response;
@@ -49,11 +66,7 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
     }
 
     if (!response.ok || papers[0].hasOwnProperty('error')) {
-      if (p > retries) {
-        return null;
-      }
-      query = await get_paper_search_query(prompt, settings);
-      pages += 1;
+      start += 25;
       continue;
     }
 
@@ -88,14 +101,18 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
     }
   }
 
-  return [results.slice(0, n), query];
+  return results.slice(0, papers);
 }
 
-async function get_paper_search_query(prompt: string, settings: JarvisSettings): Promise<Query> {
+async function get_paper_search_query(prompt: string, settings: JarvisSettings): Promise<SearchParams> {
   const response = await query_completion(
     `you are writing an academic text.
     first, list a few research questions that arise from the prompt below.
-    then, output a single Scopus search query that will be helpful to answer the prompt and these research questions.
+    generate a few valid Scopus search queries for each research question, and the prompt, using standard Scopus operators.
+    if necessary, you can use additional operators to filter the results, like the publication year, language, subject area, or DOI (when provided).
+    try to use various search strategies in the multiple queries. for example, you could search for an intersection between two concepts,
+    or you could search for each concept independently and then compare the results.
+    try to keep the search queries short and simple.
     PROMPT:\n${prompt}
     use the following format for the response.
     # [Title of the paper]
@@ -108,18 +125,25 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
 
     ## Query
 
-    [search query]`, settings);
+    1. [Scopus search query]
+    2. [Scopus search query]
+    3. [Scopus search query]
+    `, settings);
 
   await joplin.commands.execute('replaceSelection',
     response.trim().replace(/## Research questions/gi, '## Prompt\n\n' + prompt + '\n\n## Research questions') + '\n\n');
 
   const query = response.split(/# Research questions|# Query/gi);
-  return {query: query[2].trim(),
-          questions: query[1].trim()};
+
+  return {
+    prompt: prompt,
+    queries: query[2].trim().split('\n').map((q) => { return q.substring(q.indexOf(' ') + 1) }),
+    questions: query[1].trim()
+  };
 }
 
 export async function sample_and_summarize_papers(papers: PaperInfo[], max_tokens: number,
-    query: Query, settings: JarvisSettings): Promise<PaperInfo[]> {
+    search: SearchParams, settings: JarvisSettings): Promise<PaperInfo[]> {
   let results: PaperInfo[] = [];
   let tokens = 0;
 
@@ -132,7 +156,7 @@ export async function sample_and_summarize_papers(papers: PaperInfo[], max_token
       // try to get a summary for the next 5 papers asynchonously
       for (let j = 0; j < 5; j++) {
         if (i + j < papers.length) {
-          promises.push(get_paper_summary(papers[i + j], query.questions, settings));
+          promises.push(get_paper_summary(papers[i + j], search.questions, settings));
         }
       }
     }

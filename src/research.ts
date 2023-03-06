@@ -1,20 +1,21 @@
 import joplin from 'api';
 import { query_completion } from './openai';
 import { JarvisSettings } from './settings';
-import { PaperInfo, Query, search_papers, sample_and_summarize_papers } from './papers';
+import { PaperInfo, SearchParams, search_papers, sample_and_summarize_papers } from './papers';
 import { WikiInfo, search_wikipedia } from './wikipedia';
 
 export async function do_research(prompt: string, n_papers: number,
     paper_tokens: number, use_wikipedia: boolean, only_search: boolean, settings: JarvisSettings) {
 
-  let [papers, query] = await search_papers(prompt, n_papers, settings)
+  let [papers, search] = await search_papers(prompt, n_papers, settings)
+
   await joplin.commands.execute('replaceSelection', '## References\n\n');
-  let wiki = null;
+  let wiki_search: Promise<WikiInfo>;
   if ( use_wikipedia ) {
     // start search in parallel to paper summary
-    wiki = search_wikipedia(prompt, query, settings);
+    wiki_search = search_wikipedia(prompt, search, settings);
   }
-  papers = await sample_and_summarize_papers(papers, paper_tokens, query, settings);
+  papers = await sample_and_summarize_papers(papers, paper_tokens, search, settings);
 
   if (papers.length == 0) {
     await joplin.commands.execute('replaceSelection',
@@ -23,13 +24,17 @@ export async function do_research(prompt: string, n_papers: number,
   }
   if (only_search) { return; }
 
-  if ( use_wikipedia ) { wiki = await wiki; } else { wiki = { 'summary': '' } };
-  const full_prompt = get_full_prompt(papers, wiki, prompt, query);
+  let wiki: WikiInfo;
+  if ( use_wikipedia ) {
+    wiki = await wiki_search;
+  } else { wiki = { summary: '' }; }
+
+  const full_prompt = get_full_prompt(papers, wiki, search);
   const research = await query_completion(full_prompt, settings);
   await joplin.commands.execute('replaceSelection', '\n## Review\n\n' + research.trim());
 }
 
-function get_full_prompt(papers: PaperInfo[], wiki: WikiInfo, prompt: string, query: Query): string {
+function get_full_prompt(papers: PaperInfo[], wiki: WikiInfo, search: SearchParams): string {
   let full_prompt = 
     `write a response to the prompt. address the research questions.
     use all relevant papers listed below, and cite what you use in the response.
@@ -40,7 +45,7 @@ function get_full_prompt(papers: PaperInfo[], wiki: WikiInfo, prompt: string, qu
   for (let i = 0; i < papers.length; i++) {
     full_prompt += papers[i]['summary'] + '\n\n';
   }
-  full_prompt += `## Prompt\n\n${prompt}\n`
-  full_prompt += `## Research questions\n\n${query.questions}\n`;
+  full_prompt += `## Prompt\n\n${search.prompt}\n`
+  full_prompt += `## Research questions\n\n${search.questions}\n`;
   return full_prompt;
 }
