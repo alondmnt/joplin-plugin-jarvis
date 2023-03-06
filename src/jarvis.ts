@@ -151,7 +151,7 @@ await joplin.views.dialogs.setHtml(dialogHandle, `
     </div>
     <div>
       <label for="n_papers">Paper space</label>
-      <input type="range" title="Search the top 100 papers and sample from them" name="n_papers" id="n_papers" size="25" min="0" max="500" value="100" step="10"
+      <input type="range" title="Search the top 50 papers and sample from them" name="n_papers" id="n_papers" size="25" min="0" max="500" value="50" step="10"
        oninput="title='Search the top ' + value + ' papers and sample from them'" />
     </div>
     <div>
