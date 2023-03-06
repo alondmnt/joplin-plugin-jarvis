@@ -190,13 +190,13 @@ async function get_paper_text(paper: PaperInfo, settings: JarvisSettings): Promi
   let info = await get_scidir_info(paper, settings);  // ScienceDirect (Elsevier), full text or abstract
   if (info['text']) { return info; }
   else {
-    info = await get_springer_info(paper, settings);  // Springer, abstract
+    info = await get_crossref_info(paper);  // Crossref, abstract
     if (info['text']) { return info; }
     else {
-      info = await get_scopus_info(paper, settings);  // Scopus, abstract
+      info = await get_springer_info(paper, settings);  // Springer, abstract
       if (info['text']) { return info; }
       else {
-        return await get_crossref_info(paper);  // Crossref, abstract
+        return await get_scopus_info(paper, settings);  // Scopus, abstract
       }
     }
   }
