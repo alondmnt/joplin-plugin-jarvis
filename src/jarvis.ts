@@ -171,7 +171,7 @@ await joplin.views.dialogs.setHtml(dialogHandle, `
       </label>
       <label for="only_search">
       <input type="checkbox" title="Show prompt" id="only_search" name="only_search" />
-      Only perform search, don't generate a response, and ignore paper tokens
+      Only perform search, don't generate a review, and ignore paper tokens
       </label>
     </div>
   </form>
