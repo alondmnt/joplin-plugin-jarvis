@@ -15,6 +15,7 @@ export interface JarvisSettings {
     presence_penalty: number;
     include_prompt: boolean;
     include_paper_summary: boolean;
+    use_wikipedia: boolean;
     instruction: string;
     scope: string;
     role: string;
@@ -56,6 +57,7 @@ export async function get_settings(): Promise<JarvisSettings> {
         presence_penalty: (await joplin.settings.value('presence_penalty')) / 10,
         include_prompt: await joplin.settings.value('include_prompt'),
         include_paper_summary: await joplin.settings.value('include_paper_summary'),
+        use_wikipedia: await joplin.settings.value('use_wikipedia'),
         instruction: await parse_dropdown_setting('instruction'),
         scope: await parse_dropdown_setting('scope'),
         role: await parse_dropdown_setting('role'),
@@ -195,6 +197,13 @@ export async function register_settings() {
             section: 'jarvis',
             public: true,
             label: 'Include paper summary in response to research prompts',
+        },
+        'use_wikipedia': {
+            value: true,
+            type: SettingItemType.Bool,
+            section: 'jarvis',
+            public: true,
+            label: 'Include Wikipedia search in research prompts',
         },
         'chat_prefix': {
             value: '',

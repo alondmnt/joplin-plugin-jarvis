@@ -40,6 +40,7 @@ export async function research_with_jarvis(dialogHandle: string) {
   settings.max_tokens = parseInt(result.formData.ask.max_tokens, 10);
   const prompt = result.formData.ask.prompt;
   const n_papers = parseInt(result.formData.ask.n_papers);
+  const use_wikipedia = result.formData.ask.use_wikipedia;
   const only_search = result.formData.ask.only_search;
   let paper_tokens = Math.ceil(parseInt(result.formData.ask.paper_tokens) / 100 * settings.max_tokens);
   if (only_search) {
@@ -47,7 +48,7 @@ export async function research_with_jarvis(dialogHandle: string) {
     settings.include_paper_summary = true;
   }
 
-  await do_research(prompt, n_papers, paper_tokens, only_search, settings);
+  await do_research(prompt, n_papers, paper_tokens, use_wikipedia, only_search, settings);
 }
 
 // this function takes the last tokens from the current note and uses them as a completion prompt
@@ -140,7 +141,7 @@ export async function get_completion_params(
 export async function get_research_params(
   dialogHandle: string, settings:JarvisSettings): Promise<DialogResult> {
 let defaultPrompt = await joplin.commands.execute('selectedText');
-const include_prompt = settings.include_prompt ? 'checked' : '';
+const user_wikipedia = settings.use_wikipedia ? 'checked' : '';
 
 await joplin.views.dialogs.setHtml(dialogHandle, `
   <form name="ask">
@@ -164,10 +165,15 @@ await joplin.views.dialogs.setHtml(dialogHandle, `
        oninput="title='Prompt + response length = ' + value" />
     </div>
     <div>
+      <label for="use_wikipedia">
+      <input type="checkbox" title="Use Wikipedia" id="use_wikipedia" name="use_wikipedia" ${user_wikipedia} />
+      Search Wikipedia
+      </label>
       <label for="only_search">
       <input type="checkbox" title="Show prompt" id="only_search" name="only_search" />
       Only perform search, don't generate a response, and ignore paper tokens
-    </label>
+      </label>
+    </div>
   </form>
   `);
 
