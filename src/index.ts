@@ -45,7 +45,7 @@ joplin.plugins.register({
       {commandName: 'jarvis.ask', accelerator: 'CmdOrCtrl+Shift+J'},
       {commandName: 'jarvis.chat', accelerator: 'CmdOrCtrl+Shift+C'},
       {commandName: 'jarvis.research', accelerator: 'CmdOrCtrl+Shift+R'},
-      {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+Alt+J'}
+      {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+E'}
       ], MenuItemLocation.Tools
     );
 	},
