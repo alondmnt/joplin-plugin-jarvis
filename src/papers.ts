@@ -123,7 +123,7 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
     2. [secondary question]
     3. [additional question]
 
-    ## Query
+    ## Queries
 
     1. [Scopus search query]
     2. [Scopus search query]
@@ -133,7 +133,7 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
   await joplin.commands.execute('replaceSelection',
     response.trim().replace(/## Research questions/gi, '## Prompt\n\n' + prompt + '\n\n## Research questions') + '\n\n');
 
-  const query = response.split(/# Research questions|# Query/gi);
+  const query = response.split(/# Research questions|# Queries/gi);
 
   return {
     prompt: prompt,
