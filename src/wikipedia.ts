@@ -130,7 +130,7 @@ async function get_page_summary(page: WikiInfo, questions: string, settings: Jar
 
   page['summary'] = `(Wikipedia, ${page['year']}) ${summary.replace(/\n+/g, ' ')}`;
 
-  let cite = `- Wikipedia, [${page['title']}](https://en.wikipedia.org/wiki/${page['title'].replace(' ', '_')}), ${page['year']}.\n`;
+  let cite = `- Wikipedia, [${page['title']}](https://en.wikipedia.org/wiki/${page['title'].replace(/ /g, '_')}), ${page['year']}.\n`;
   if (settings.include_paper_summary) {
     cite += `\t- ${page['summary']}\n`;
   }
