@@ -9,7 +9,7 @@ export async function do_research(prompt: string, n_papers: number,
 
   let [papers, search] = await search_papers(prompt, n_papers, settings)
 
-  await joplin.commands.execute('replaceSelection', '## References\n\n');
+  await joplin.commands.execute('replaceSelection', search.response);
   let wiki_search: Promise<WikiInfo>;
   if ( use_wikipedia && (papers.length > 0) ) {
     // start search in parallel to paper summary

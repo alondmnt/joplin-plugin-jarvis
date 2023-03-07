@@ -16,11 +16,13 @@ export interface PaperInfo {
 
 export interface SearchParams {
   prompt: string;
+  response: string;
   queries: string[];
   questions: string;
 }
 
-export async function search_papers(prompt: string, n: number, settings: JarvisSettings): Promise<[PaperInfo[], SearchParams]> {
+export async function search_papers(prompt: string, n: number, settings: JarvisSettings,
+    min_results: number = 10, retries: number = 2): Promise<[PaperInfo[], SearchParams]> {
   const headers = {
     'Accept': 'application/json',
     'X-ELS-APIKey': settings.scopus_api_key,
@@ -47,6 +49,10 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
     });
   }
 
+  if ( (results.length < min_results) && (retries > 0) ) {
+    console.log(`search ${retries - 1}`);
+    return search_papers(prompt, n, settings, min_results, retries - 1);
+  }
   return [results, search];
 }
 
@@ -130,13 +136,11 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
     3. [Scopus search query]
     `, settings);
 
-  await joplin.commands.execute('replaceSelection',
-    response.trim().replace(/## Research questions/gi, '## Prompt\n\n' + prompt + '\n\n## Research questions') + '\n\n');
-
   const query = response.split(/# Research questions|# Queries/gi);
 
   return {
     prompt: prompt,
+    response: response.trim().replace(/## Research questions/gi, '## Prompt\n\n' + prompt + '\n\n## Research questions') + '\n\n## References\n\n',
     queries: query[2].trim().split('\n').map((q) => { return q.substring(q.indexOf(' ') + 1) }),
     questions: query[1].trim()
   };
