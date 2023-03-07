@@ -15,6 +15,7 @@ export interface WikiInfo {
 // return a summary of the top relevant wikipedia page
 export async function search_wikipedia(prompt: string, search: SearchParams, settings: JarvisSettings): Promise<WikiInfo> {
   const search_term = await get_wikipedia_search_query(prompt, settings);
+  if ( !search_term ) { return { summary: '' }; }
 
   const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&origin=*&format=json&srlimit=20&srsearch=${search_term}`;
   let response = await fetch(url);
@@ -49,7 +50,12 @@ async function get_wikipedia_search_query(prompt: string, settings: JarvisSettin
     use the following format.
     TOPIC: [main topic]`, settings);
 
-  return response.split(/TOPIC: /gi)[1].replace(/"/g, '').trim();
+  try {
+    return response.split(/TOPIC:/gi)[1].replace(/"/g, '').trim();
+  } catch {
+    console.log(`bad wikipedia search query:\n${response}`);
+    return null;
+  }
 }
 
 // get the full text (or other extract) of a wikipedia page
