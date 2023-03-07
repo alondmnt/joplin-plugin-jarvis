@@ -114,11 +114,11 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
   const response = await query_completion(
     `you are writing an academic text.
     first, list a few research questions that arise from the prompt below.
-    generate a few valid Scopus search queries for each research question, and the prompt, using standard Scopus operators.
-    if necessary, you can use additional operators to filter the results, like the publication year, language, subject area, or DOI (when provided).
-    try to use various search strategies in the multiple queries. for example, you could search for an intersection between two concepts,
-    or you could search for each concept independently and then compare the results.
-    try to keep the search queries short and simple.
+    next, generate a few valid Scopus search queries, based on the questions and prompt, using standard Scopus operators.
+    try to use various search strategies in the multiple queries. for example, if asked to compare topics A and B, you could search for ("A" AND "B"),
+    and you could also search for ("A" OR "B") and then compare the results.
+    only if explicitly required in the prompt, you can use additional operators to filter the results, like the publication year, language, subject area, or DOI (when provided).
+    try to keep the search queries short and simple, and not too specific (consider ambiguations).
     PROMPT:\n${prompt}
     use the following format for the response.
     # [Title of the paper]
