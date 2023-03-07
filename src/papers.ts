@@ -37,17 +37,19 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
   // calculates the number of pages needed to fetch n results
   let pages = Math.ceil(n / 25);
 
-  // run multiple queries and remove duplicates
+  // run multiple queries in parallel and remove duplicates
   let results: PaperInfo[] = [];
   let dois: Set<string> = new Set();
-  for (let q = 0; q < search.queries.length; q++) {
-    (await run_scopus_query(search.queries[q], pages, n, options)).map((paper) => {
+  (await Promise.all(
+      search.queries.map((query) => run_scopus_query(query, pages, n, options))
+    )).forEach((query) => {
+    query.forEach((paper) => {
       if (!dois.has(paper.doi)) {
         results.push(paper);
         dois.add(paper.doi);
       }
     });
-  }
+  });
 
   if ( (results.length < min_results) && (retries > 0) ) {
     console.log(`search ${retries - 1}`);
