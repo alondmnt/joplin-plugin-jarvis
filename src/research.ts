@@ -38,7 +38,7 @@ function get_full_prompt(papers: PaperInfo[], wiki: WikiInfo, search: SearchPara
   let full_prompt = 
     `write a response to the prompt. address the research questions.
     use all relevant papers listed below, and cite what you use in the response.
-    do not cite papers other than these ones, but you may add additional uncited information that might be considered common knowledge.
+    DO NOT cite papers other than the provided ones, but you may add additional uncited information that might be considered common knowledge.
     try to explain acronyms and definitions of domain-specific terms.
     finally, add a section of "## Follow-up questions" to the response.\n\n`;
   full_prompt += wiki['summary'] + '\n\n';
