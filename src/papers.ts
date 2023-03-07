@@ -217,16 +217,21 @@ async function get_paper_summary(paper: PaperInfo,
 }
 
 async function get_paper_text(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
+  if (paper['text']) { return paper; }  // already have the text
   let info = await get_scidir_info(paper, settings);  // ScienceDirect (Elsevier), full text or abstract
   if (info['text']) { return info; }
   else {
-    info = await get_crossref_info(paper);  // Crossref, abstract
+    info = await get_semantic_scholar_info(paper, settings);  // Semantic Scholar, full text
     if (info['text']) { return info; }
     else {
-      info = await get_springer_info(paper, settings);  // Springer, abstract
+      info = await get_crossref_info(paper);  // Crossref, abstract
       if (info['text']) { return info; }
       else {
-        return await get_scopus_info(paper, settings);  // Scopus, abstract
+        info = await get_springer_info(paper, settings);  // Springer, abstract
+        if (info['text']) { return info; }
+        else {
+          return await get_scopus_info(paper, settings);  // Scopus, abstract
+        }
       }
     }
   }
@@ -267,6 +272,8 @@ async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
 }
 
 async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
+  if (!settings.scopus_api_key) { return paper; }
+
   const url = `https://api.elsevier.com/content/article/doi/${paper['doi']}`;
   const headers = {
     'Accept': 'application/json',
@@ -307,6 +314,8 @@ async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Prom
 }
 
 async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
+  if (!settings.scopus_api_key) { return paper; }
+
   const url = `https://api.elsevier.com/content/abstract/doi/${paper['doi']}`;
   const headers = {
     'Accept': 'application/json',
@@ -367,6 +376,40 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
     jsonResponse = await response.json()
     if (jsonResponse['records'].length == 0) { return paper; }
     const info = jsonResponse['records'][0]['abstract'];
+    if ( info ) {
+      paper['text'] = info.trim();
+    }
+  }
+  catch (error) {
+    console.log(error);
+    console.log(jsonResponse);
+  }
+  return paper;
+}
+
+async function get_semantic_scholar_info(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
+  const url = `https://api.semanticscholar.org/v1/paper/DOI:${paper['doi']}?fields=abstract`;
+  const headers = {
+    'Accept': 'application/json',
+  };
+  const options = {
+    method: 'GET',
+    headers: headers,
+  };
+  let response: any;
+  try {
+    response = await with_timeout(5000, fetch(url, options));
+  } catch {
+    console.log('TIMEOUT semantic_scholar');
+    return paper;
+  }
+
+  if (!response.ok) { return paper; }
+
+  let jsonResponse: any;
+  try {
+    jsonResponse = await response.json()
+    const info = jsonResponse['abstract'];
     if ( info ) {
       paper['text'] = info.trim();
     }
