@@ -1,6 +1,6 @@
 import joplin from "api";
 import { query_completion } from './openai';
-import { JarvisSettings } from './settings';
+import { JarvisSettings, search_prompts } from './settings';
 
 export interface PaperInfo {
   title: string;
@@ -23,25 +23,20 @@ export interface SearchParams {
 
 export async function search_papers(prompt: string, n: number, settings: JarvisSettings,
     min_results: number = 10, retries: number = 2): Promise<[PaperInfo[], SearchParams]> {
-  const headers = {
-    'Accept': 'application/json',
-    'X-ELS-APIKey': settings.scopus_api_key,
-  };
-  const options = {
-    method: 'GET', 
-    headers: headers,
-  };
 
-  let search = await get_paper_search_query(prompt, settings);
-
-  // calculates the number of pages needed to fetch n results
-  let pages = Math.ceil(n / 25);
+  const search = await get_search_queries(prompt, settings);
 
   // run multiple queries in parallel and remove duplicates
   let results: PaperInfo[] = [];
   let dois: Set<string> = new Set();
   (await Promise.all(
-      search.queries.map((query) => run_scopus_query(query, pages, n, options))
+      search.queries.map((query) => {
+        if ( settings.paper_search_engine == 'scopus' ) {
+          return run_scopus_query(query, n, settings);
+        } else if ( settings.paper_search_engine == 'semantic_scholar' ) {
+          return run_semantic_scholar_query(query, n, settings);
+        }
+      })
     )).forEach((query) => {
     query.forEach((paper) => {
       if (!dois.has(paper.doi)) {
@@ -58,7 +53,71 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
   return [results, search];
 }
 
-async function run_scopus_query(query: string, pages: number, papers: number, options: any): Promise<PaperInfo[]> {
+async function run_semantic_scholar_query(query: string, papers: number, settings: JarvisSettings): Promise<PaperInfo[]> {
+  const options = {
+    method: 'GET', 
+    headers:{ 'Accept': 'application/json' },
+  };
+
+  // calculates the number of pages needed to fetch n results
+  let limit = Math.min(papers, 100);
+  let pages = Math.ceil(papers / limit);
+
+  let start = 0;
+  let results: PaperInfo[] = [];
+
+  for (let p = 0; p < pages; p++) {
+    const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${query}&limit=${limit}&page=${start}&fields=abstract,authors,title,year,venue,citationCount,externalIds`;
+    let response = await fetch(url, options);
+
+    let jsonResponse: Response;
+    let papers: any[];
+    if (response.ok) {
+      jsonResponse = await response.json();
+      papers = jsonResponse['data'];
+    }
+
+    if ( !response.ok ) {
+      start += 25;
+      continue;
+    }
+
+    try {
+      for (let i = 0; i < papers.length; i++) {
+          const info: PaperInfo = {
+            title: papers[i]['title'],
+            author: papers[i]['authors'][0]['name'].split(' ').slice(1).join(' '),  // last name
+            year: parseInt(papers[i]['year'], 10),
+            journal: papers[i]['venue'],
+            doi: papers[i]['externalIds']['DOI'],
+            citation_count: papers[i]['citationCount'],
+            text: papers[i]['abstract'],
+            summary: '',
+            compression: 1,
+          }
+          results.push(info);
+        }
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  return results.slice(0, papers);
+}
+
+async function run_scopus_query(query: string, papers: number, settings: JarvisSettings): Promise<PaperInfo[]> {
+  const headers = {
+    'Accept': 'application/json',
+    'X-ELS-APIKey': settings.scopus_api_key,
+  };
+  const options = {
+    method: 'GET', 
+    headers: headers,
+  };
+
+  // calculates the number of pages needed to fetch n results
+  let pages = Math.ceil(papers / 25);
+
   let start = 0;
   let results: PaperInfo[] = [];
 
@@ -112,15 +171,11 @@ async function run_scopus_query(query: string, pages: number, papers: number, op
   return results.slice(0, papers);
 }
 
-async function get_paper_search_query(prompt: string, settings: JarvisSettings): Promise<SearchParams> {
+async function get_search_queries(prompt: string, settings: JarvisSettings): Promise<SearchParams> {
   const response = await query_completion(
     `you are writing an academic text.
     first, list a few research questions that arise from the prompt below.
-    next, generate a few valid Scopus search queries, based on the questions and prompt, using standard Scopus operators.
-    try to use various search strategies in the multiple queries. for example, if asked to compare topics A and B, you could search for ("A" AND "B"),
-    and you could also search for ("A" OR "B") and then compare the results.
-    only if explicitly required in the prompt, you can use additional operators to filter the results, like the publication year, language, subject area, or DOI (when provided).
-    try to keep the search queries short and simple, and not too specific (consider ambiguations).
+    ${search_prompts[settings.paper_search_engine]}
     PROMPT:\n${prompt}
     use the following format for the response.
     # [Title of the paper]
@@ -133,9 +188,9 @@ async function get_paper_search_query(prompt: string, settings: JarvisSettings):
 
     ## Queries
 
-    1. [Scopus search query]
-    2. [Scopus search query]
-    3. [Scopus search query]
+    1. [search query]
+    2. [search query]
+    3. [search query]
     `, settings);
 
   const query = response.split(/# Research questions|# Queries/gi);

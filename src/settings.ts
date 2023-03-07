@@ -13,6 +13,7 @@ export interface JarvisSettings {
     top_p: number;
     frequency_penalty: number;
     presence_penalty: number;
+    paper_search_engine: string;
     include_prompt: boolean;
     include_paper_summary: boolean;
     use_wikipedia: boolean;
@@ -22,6 +23,21 @@ export interface JarvisSettings {
     reasoning: string;
     chat_prefix: string;
     chat_suffix: string;
+}
+
+export const search_prompts = {
+    'scopus': `
+        next, generate a few valid Scopus search queries, based on the questions and prompt, using standard Scopus operators.
+        try to use various search strategies in the multiple queries. for example, if asked to compare topics A and B, you could search for ("A" AND "B"),
+        and you could also search for ("A" OR "B") and then compare the results.
+        only if explicitly required in the prompt, you can use additional operators to filter the results, like the publication year, language, subject area, or DOI (when provided).
+        try to keep the search queries short and simple, and not too specific (consider ambiguations).`,
+    'semantic_scholar': `
+        next, generate a few valid Semantic Scholar search queries, based on the questions and prompt, by concatenating with "+" a few keywords.
+        try to use various search strategies in the multiple queries. for example, if asked to compare topics A and B, you could search for A+B,
+        and you could also search for A or B in separate queries and then compare the results.
+        only if explicitly required in the prompt, you can use additional fields to filter the results, such as &year=, &publicationTypes=, &fieldsOfStudy=.
+        keep the search queries short and simple.`,
 }
 
 function parse_dropdown_json(json: any): string {
@@ -55,6 +71,7 @@ export async function get_settings(): Promise<JarvisSettings> {
         top_p: (await joplin.settings.value('top_p')) / 100,
         frequency_penalty: (await joplin.settings.value('frequency_penalty')) / 10,
         presence_penalty: (await joplin.settings.value('presence_penalty')) / 10,
+        paper_search_engine: await joplin.settings.value('paper_search_engine'),
         include_prompt: await joplin.settings.value('include_prompt'),
         include_paper_summary: await joplin.settings.value('include_paper_summary'),
         use_wikipedia: await joplin.settings.value('use_wikipedia'),
@@ -82,24 +99,6 @@ export async function register_settings() {
             public: true,
             label: 'OpenAI API Key',
             description: 'Your OpenAI API Key',
-        },
-        'scopus_api_key': {
-            value: '',
-            type: SettingItemType.String,
-            secure: true,
-            section: 'jarvis',
-            public: true,
-            label: 'Scopus API Key',
-            description: 'Your Elsevier/Scopus API Key (optional, only needed for resarch)',
-        },
-        'springer_api_key': {
-            value: '',
-            type: SettingItemType.String,
-            secure: true,
-            section: 'jarvis',
-            public: true,
-            label: 'Springer API Key',
-            description: 'Your Springer API Key (optional, only needed for resarch)',
         },
         'model': {
             value: 'gpt-3.5-turbo',
@@ -191,12 +190,36 @@ export async function register_settings() {
             public: true,
             label: 'Include prompt in response',
         },
-        'include_paper_summary': {
-            value: false,
-            type: SettingItemType.Bool,
+        'scopus_api_key': {
+            value: '',
+            type: SettingItemType.String,
+            secure: true,
             section: 'jarvis',
             public: true,
-            label: 'Include paper summary in response to research prompts',
+            label: 'Scopus API Key',
+            description: 'Your Elsevier/Scopus API Key (optional for resarch)',
+        },
+        'springer_api_key': {
+            value: '',
+            type: SettingItemType.String,
+            secure: true,
+            section: 'jarvis',
+            public: true,
+            label: 'Springer API Key',
+            description: 'Your Springer API Key (optional for resarch)',
+        },
+        'paper_search_engine': {
+            value: 'semantic_scholar',
+            type: SettingItemType.String,
+            isEnum: true,
+            section: 'jarvis',
+            public: true,
+            label: 'Paper search engine',
+            description: 'The search engine to use for research prompts',
+            options: {
+                'semantic_scholar': 'Semantic Scholar',
+                'scopus': 'Scopus',
+            }
         },
         'use_wikipedia': {
             value: true,
@@ -204,6 +227,13 @@ export async function register_settings() {
             section: 'jarvis',
             public: true,
             label: 'Include Wikipedia search in research prompts',
+        },
+        'include_paper_summary': {
+            value: false,
+            type: SettingItemType.Bool,
+            section: 'jarvis',
+            public: true,
+            label: 'Include paper summary in response to research prompts',
         },
         'chat_prefix': {
             value: '',
