@@ -25,14 +25,19 @@ export interface JarvisSettings {
     chat_suffix: string;
 }
 
+export const search_engines = {
+        'Semantic Scholar': 'Semantic Scholar',
+        'Scopus': 'Scopus',
+}
+
 export const search_prompts = {
-    'scopus': `
+    'Scopus': `
         next, generate a few valid Scopus search queries, based on the questions and prompt, using standard Scopus operators.
         try to use various search strategies in the multiple queries. for example, if asked to compare topics A and B, you could search for ("A" AND "B"),
         and you could also search for ("A" OR "B") and then compare the results.
         only if explicitly required in the prompt, you can use additional operators to filter the results, like the publication year, language, subject area, or DOI (when provided).
         try to keep the search queries short and simple, and not too specific (consider ambiguations).`,
-    'semantic_scholar': `
+    'Semantic Scholar': `
         next, generate a few valid Semantic Scholar search queries, based on the questions and prompt, by concatenating with "+" a few keywords.
         try to use various search strategies in the multiple queries. for example, if asked to compare topics A and B, you could search for A+B,
         and you could also search for A or B in separate queries and then compare the results.
@@ -40,10 +45,15 @@ export const search_prompts = {
         keep the search queries short and simple.`,
 }
 
-function parse_dropdown_json(json: any): string {
+export function parse_dropdown_json(json: any, selected?: string): string {
     let options = '';
     for (let [key, value] of Object.entries(json)) {
-        options += `<option value="${value}">${key}</option>`;
+        // add "selected" if value equals selected
+        if (selected && value == selected) {
+            options += `<option value="${value}" selected>${key}</option>`;
+        } else {
+            options += `<option value="${value}">${key}</option>`;
+        }
     }
     return options;
 }
@@ -209,17 +219,14 @@ export async function register_settings() {
             description: 'Your Springer API Key (optional for resarch)',
         },
         'paper_search_engine': {
-            value: 'semantic_scholar',
+            value: 'Semantic Scholar',
             type: SettingItemType.String,
             isEnum: true,
             section: 'jarvis',
             public: true,
             label: 'Paper search engine',
             description: 'The search engine to use for research prompts',
-            options: {
-                'semantic_scholar': 'Semantic Scholar',
-                'scopus': 'Scopus',
-            }
+            options: search_engines,
         },
         'use_wikipedia': {
             value: true,

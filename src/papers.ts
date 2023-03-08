@@ -31,9 +31,9 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
   let dois: Set<string> = new Set();
   (await Promise.all(
       search.queries.map((query) => {
-        if ( settings.paper_search_engine == 'scopus' ) {
+        if ( settings.paper_search_engine == 'Scopus' ) {
           return run_scopus_query(query, n, settings);
-        } else if ( settings.paper_search_engine == 'semantic_scholar' ) {
+        } else if ( settings.paper_search_engine == 'Semantic Scholar' ) {
           return run_semantic_scholar_query(query, n, settings);
         }
       })

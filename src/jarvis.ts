@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
-import { get_settings, JarvisSettings } from './settings';
+import { get_settings, JarvisSettings, search_engines, parse_dropdown_json } from './settings';
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
 
@@ -26,10 +26,6 @@ export async function ask_jarvis(dialogHandle: string) {
 
 export async function research_with_jarvis(dialogHandle: string) {
   const settings = await get_settings();
-  if (settings.scopus_api_key === '') {
-    joplin.views.dialogs.showMessageBox('Please set your Scopus API key in the settings.');
-    return;
-  }
 
   const result = await get_research_params(dialogHandle, settings);
 
@@ -40,7 +36,14 @@ export async function research_with_jarvis(dialogHandle: string) {
   settings.max_tokens = parseInt(result.formData.ask.max_tokens, 10);
   const prompt = result.formData.ask.prompt;
   const n_papers = parseInt(result.formData.ask.n_papers);
+
+  settings.paper_search_engine = result.formData.ask.search_engine;
+  if ((settings.paper_search_engine === 'Scopus') && (settings.scopus_api_key === '')) {
+    joplin.views.dialogs.showMessageBox('Please set your Scopus API key in the settings.');
+    return;
+  }
   const use_wikipedia = result.formData.ask.use_wikipedia;
+
   const only_search = result.formData.ask.only_search;
   let paper_tokens = Math.ceil(parseInt(result.formData.ask.paper_tokens) / 100 * settings.max_tokens);
   if (only_search) {
@@ -165,9 +168,13 @@ await joplin.views.dialogs.setHtml(dialogHandle, `
        oninput="title='Prompt + response length = ' + value" />
     </div>
     <div>
-      <label for="use_wikipedia">
+    <label for="search_engine">
+      Search engine: 
+      <select title="Search engine" name="search_engine" id="search_engine">
+        ${parse_dropdown_json(search_engines, settings.paper_search_engine)}
+      </select>
       <input type="checkbox" title="Use Wikipedia" id="use_wikipedia" name="use_wikipedia" ${user_wikipedia} />
-      Search Wikipedia
+      Wikipedia
       </label>
       <label for="only_search">
       <input type="checkbox" title="Show prompt" id="only_search" name="only_search" />
