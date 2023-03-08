@@ -7,10 +7,10 @@ import { WikiInfo, search_wikipedia } from './wikipedia';
 export async function do_research(prompt: string, n_papers: number,
     paper_tokens: number, use_wikipedia: boolean, only_search: boolean, settings: JarvisSettings) {
 
-  let [papers, search] = await search_papers(prompt, n_papers, settings)
+  let [papers, search] = await search_papers(prompt, n_papers, settings);
 
   await joplin.commands.execute('replaceSelection', search.response);
-  let wiki_search: Promise<WikiInfo>;
+  let wiki_search: Promise<WikiInfo> = Promise.resolve({ summary: '' });
   if ( use_wikipedia && (papers.length > 0) ) {
     // start search in parallel to paper summary
     wiki_search = search_wikipedia(prompt, search, settings);
@@ -24,12 +24,7 @@ export async function do_research(prompt: string, n_papers: number,
   }
   if (only_search) { return; }
 
-  let wiki: WikiInfo;
-  if ( use_wikipedia ) {
-    wiki = await wiki_search;
-  } else { wiki = { summary: '' }; }
-
-  const full_prompt = get_full_prompt(papers, wiki, search);
+  const full_prompt = get_full_prompt(papers, await wiki_search, search);
   const research = await query_completion(full_prompt, settings);
   await joplin.commands.execute('replaceSelection', '\n## Review\n\n' + research.trim());
 }
@@ -45,7 +40,7 @@ function get_full_prompt(papers: PaperInfo[], wiki: WikiInfo, search: SearchPara
   for (let i = 0; i < papers.length; i++) {
     full_prompt += papers[i]['summary'] + '\n\n';
   }
-  full_prompt += `## Prompt\n\n${search.prompt}\n`
+  full_prompt += `## Prompt\n\n${search.prompt}\n`;
   full_prompt += `## Research questions\n\n${search.questions}\n`;
   return full_prompt;
 }

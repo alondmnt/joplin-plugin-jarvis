@@ -4,7 +4,6 @@ import { get_settings, JarvisSettings, search_engines, parse_dropdown_json } fro
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
 
-
 export async function ask_jarvis(dialogHandle: string) {
   const settings = await get_settings();
   const result = await get_completion_params(dialogHandle, settings);

@@ -4,13 +4,14 @@ import { JarvisSettings } from './settings';
 import { SearchParams } from './papers';
 
 export interface WikiInfo {
+  [key: string]: any;
   title?: string;
   year?: number;
   id?: number;
   excerpt?: string;
   text?: string;
   summary: string;
-}
+};
 
 // return a summary of the top relevant wikipedia page
 export async function search_wikipedia(prompt: string, search: SearchParams, settings: JarvisSettings): Promise<WikiInfo> {
@@ -20,11 +21,11 @@ export async function search_wikipedia(prompt: string, search: SearchParams, set
   const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&origin=*&format=json&srlimit=20&srsearch=${search_term}`;
   let response = await fetch(url);
 
-  if (!response.ok) { return null; }
+  if (!response.ok) { return { summary: '' }; }
 
   let pages: Promise<WikiInfo>[] = [];
-  const jsonResponse = await response.json();
-  const results = jsonResponse['query']['search']
+  const jsonResponse: any = await response.json();
+  const results = jsonResponse['query']['search'];
   for (let i = 0; i < results.length; i++) {
     if (!results[i]['pageid']) { continue; }
     let page: WikiInfo = {
@@ -34,7 +35,7 @@ export async function search_wikipedia(prompt: string, search: SearchParams, set
       excerpt: '',
       text: '',
       summary: '',
-    }
+    };
     pages.push(get_wikipedia_page(page, 'excerpt', 'exintro'));
   }
 
@@ -55,7 +56,7 @@ async function get_wikipedia_search_query(prompt: string, settings: JarvisSettin
     return response.split(/TOPIC:/gi)[1].replace(/"/g, '').trim();
   } catch {
     console.log(`bad wikipedia search query:\n${response}`);
-    return null;
+    return '';
   }
 }
 
@@ -71,7 +72,7 @@ async function get_wikipedia_page(page: WikiInfo, field:string = 'text', section
   if (!response.ok) { return page; }
 
   const jsonResponse = await response.json();
-  const info = jsonResponse['query']['pages'][page['id']];
+  const info = jsonResponse['query']['pages'][page['id'] as number];
   page[field] = info['extract'].replace(/<[^>]*>/g, '').trim();  // remove html tags
 
   return page;
@@ -86,6 +87,7 @@ async function get_best_page(pages: Promise<WikiInfo>[], n: number, search: Sear
     PAGES:\n`;
   for (let i = 0; i < n; i++) {
     const page = await pages[i];
+    if ( ! page['excerpt'] ) { continue; }
     if ( prompt.length + page['excerpt'].length > 0.9*4*settings.max_tokens ) {
       console.log(`stopping at ${i+1} pages due to max_tokens`);
       break;
@@ -94,7 +96,12 @@ async function get_best_page(pages: Promise<WikiInfo>[], n: number, search: Sear
     prompt += `${i}. ${page['title']}: ${page['excerpt']}\n\n`;
   }
   const response = await query_completion(prompt, settings);
-  return await pages[parseInt(response.match(/\d+/)[0])];
+  const index = response.match(/\d+/);
+  if (index) {
+    return await pages[parseInt(index[0])];
+  } else {
+    return { summary: '' };
+  }
 }
 
 async function get_page_summary(page: WikiInfo, questions: string, settings: JarvisSettings): Promise<WikiInfo> {
@@ -109,7 +116,7 @@ async function get_page_summary(page: WikiInfo, questions: string, settings: Jar
     and output the revised summary in the reponse.
     do not remove in the response any information from the summary.
     QUESTIONS:\n${questions}
-    TEXT:`
+    TEXT:`;
 
   let summary = 'empty summary.';
   const summary_step = 0.75*4*settings.max_tokens;
@@ -131,7 +138,8 @@ async function get_page_summary(page: WikiInfo, questions: string, settings: Jar
 
   page['summary'] = `(Wikipedia, ${page['year']}) ${summary.replace(/\n+/g, ' ')}`;
 
-  let cite = `- Wikipedia, [${page['title']}](https://en.wikipedia.org/wiki/${page['title'].replace(/ /g, '_')}), ${page['year']}.\n`;
+  const wikilink = page['title'] ? page['title'].replace(/ /g, '_') : '';
+  let cite = `- Wikipedia, [${page['title']}](https://en.wikipedia.org/wiki/${wikilink}), ${page['year']}.\n`;
   if (settings.include_paper_summary) {
     cite += `\t- ${page['summary']}\n`;
   }

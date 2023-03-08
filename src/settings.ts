@@ -1,7 +1,6 @@
 import joplin from 'api';
 import { SettingItemType } from 'api/types';
 import prompts = require('./assets/prompts.json');
-
 export interface JarvisSettings {
     openai_api_key: string;
     scopus_api_key: string;
@@ -23,14 +22,14 @@ export interface JarvisSettings {
     reasoning: string;
     chat_prefix: string;
     chat_suffix: string;
-}
+};
 
-export const search_engines = {
+export const search_engines: { [engine: string] : string; } = {
         'Semantic Scholar': 'Semantic Scholar',
         'Scopus': 'Scopus',
-}
+};
 
-export const search_prompts = {
+export const search_prompts: { [engine: string] : string; } = {
     'Scopus': `
         next, generate a few valid Scopus search queries, based on the questions and prompt, using standard Scopus operators.
         try to use various search strategies in the multiple queries. for example, if asked to compare topics A and B, you could search for ("A" AND "B"),
@@ -43,7 +42,7 @@ export const search_prompts = {
         and you could also search for A or B in separate queries and then compare the results.
         only if explicitly required in the prompt, you can use additional fields to filter the results, such as &year=, &publicationTypes=, &fieldsOfStudy=.
         keep the search queries short and simple.`,
-}
+};
 
 export function parse_dropdown_json(json: any, selected?: string): string {
     let options = '';
@@ -91,7 +90,7 @@ export async function get_settings(): Promise<JarvisSettings> {
         reasoning: await parse_dropdown_setting('reasoning'),
         chat_prefix: (await joplin.settings.value('chat_prefix')).replace(/\\n/g, '\n'),
         chat_suffix: (await joplin.settings.value('chat_suffix')).replace(/\\n/g, '\n'),
-    }
+    };
 }
 
 export async function register_settings() {

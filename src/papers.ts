@@ -12,14 +12,14 @@ export interface PaperInfo {
   text: string;
   summary: string;
   compression: number;
-}
+};
 
 export interface SearchParams {
   prompt: string;
   response: string;
   queries: string[];
   questions: string;
-}
+};
 
 export async function search_papers(prompt: string, n: number, settings: JarvisSettings,
     min_results: number = 10, retries: number = 2): Promise<[PaperInfo[], SearchParams]> {
@@ -30,19 +30,20 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
   let results: PaperInfo[] = [];
   let dois: Set<string> = new Set();
   (await Promise.all(
-      search.queries.map((query) => {
-        if ( settings.paper_search_engine == 'Scopus' ) {
-          return run_scopus_query(query, n, settings);
-        } else if ( settings.paper_search_engine == 'Semantic Scholar' ) {
-          return run_semantic_scholar_query(query, n, settings);
-        }
-      })
-    )).forEach((query) => {
-    query.forEach((paper) => {
-      if (!dois.has(paper.doi)) {
-        results.push(paper);
-        dois.add(paper.doi);
+    search.queries.map((query) => {
+      if ( settings.paper_search_engine == 'Scopus' ) {
+        return run_scopus_query(query, n, settings);
+      } else if ( settings.paper_search_engine == 'Semantic Scholar' ) {
+        return run_semantic_scholar_query(query, n);
       }
+    })
+    )).forEach((query) => {
+      if ( !query ) { return; }
+      query.forEach((paper) => {
+        if (!dois.has(paper.doi)) {
+          results.push(paper);
+          dois.add(paper.doi);
+        }
     });
   });
 
@@ -53,7 +54,7 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
   return [results, search];
 }
 
-async function run_semantic_scholar_query(query: string, papers: number, settings: JarvisSettings): Promise<PaperInfo[]> {
+async function run_semantic_scholar_query(query: string, papers: number): Promise<PaperInfo[]> {
   const options = {
     method: 'GET', 
     headers:{ 'Accept': 'application/json' },
@@ -70,8 +71,8 @@ async function run_semantic_scholar_query(query: string, papers: number, setting
     const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${query}&limit=${limit}&page=${start}&fields=abstract,authors,title,year,venue,citationCount,externalIds`;
     let response = await fetch(url, options);
 
-    let jsonResponse: Response;
-    let papers: any[];
+    let jsonResponse: any;
+    let papers: any[] = [];
     if (response.ok) {
       jsonResponse = await response.json();
       papers = jsonResponse['data'];
@@ -94,7 +95,7 @@ async function run_semantic_scholar_query(query: string, papers: number, setting
             text: papers[i]['abstract'],
             summary: '',
             compression: 1,
-          }
+          };
           results.push(info);
         }
     } catch (error) {
@@ -125,8 +126,8 @@ async function run_scopus_query(query: string, papers: number, settings: JarvisS
     const url = `https://api.elsevier.com/content/search/scopus?query=${query}&count=25&start=${start}&sort=-relevancy,-citedby-count,-pubyear`;
     let response = await fetch(url, options);
 
-    let jsonResponse: Response;
-    let papers: any[];
+    let jsonResponse: any;
+    let papers: any[] = [];
     if (response.ok) {
       jsonResponse = await response.json();
       papers = jsonResponse['search-results']['entry'];
@@ -150,7 +151,7 @@ async function run_scopus_query(query: string, papers: number, settings: JarvisS
             text: papers[i]['dc:description'],
             summary: '',
             compression: 1,
-          }
+          };
           results.push(info);
         } catch {
           console.log('skipped', papers[i]);
@@ -198,7 +199,7 @@ async function get_search_queries(prompt: string, settings: JarvisSettings): Pro
   return {
     prompt: prompt,
     response: response.trim().replace(/## Research questions/gi, '## Prompt\n\n' + prompt + '\n\n## Research questions') + '\n\n## References\n\n',
-    queries: query[2].trim().split('\n').map((q) => { return q.substring(q.indexOf(' ') + 1) }),
+    queries: query[2].trim().split('\n').map((q) => { return q.substring(q.indexOf(' ') + 1); }),
     questions: query[1].trim()
   };
 }
@@ -250,7 +251,7 @@ async function get_paper_summary(paper: PaperInfo,
     only if the study is completely unrelated, even broadly, to these questions,
     return: 'NOT RELEVANT.' and explain why it is not helpful.
     QUESTIONS:\n${questions}
-    STUDY:\n${paper['text']}`
+    STUDY:\n${paper['text']}`;
   const response = await query_completion(prompt, settings);
   //  consider the study's aim, hypotheses, methods / procedures, results / outcomes, limitations and implications.
   settings.temperature = user_temp;
@@ -392,7 +393,7 @@ async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Prom
 
   let jsonResponse: any;
   try {
-    jsonResponse = await response.json()
+    jsonResponse = await response.json();
     const info = jsonResponse['abstracts-retrieval-response']['coredata'];
     if ( info['dc:description'] ) {
       paper['text'] = info['dc:description'].trim();
@@ -428,7 +429,7 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
 
   let jsonResponse: any;
   try {
-    jsonResponse = await response.json()
+    jsonResponse = await response.json();
     if (jsonResponse['records'].length == 0) { return paper; }
     const info = jsonResponse['records'][0]['abstract'];
     if ( info ) {
@@ -463,7 +464,7 @@ async function get_semantic_scholar_info(paper: PaperInfo, settings: JarvisSetti
 
   let jsonResponse: any;
   try {
-    jsonResponse = await response.json()
+    jsonResponse = await response.json();
     const info = jsonResponse['abstract'];
     if ( info ) {
       paper['text'] = info.trim();
