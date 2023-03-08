@@ -26,6 +26,7 @@ export async function search_wikipedia(prompt: string, search: SearchParams, set
   const jsonResponse = await response.json();
   const results = jsonResponse['query']['search']
   for (let i = 0; i < results.length; i++) {
+    if (!results[i]['pageid']) { continue; }
     let page: WikiInfo = {
       title: results[i]['title'],
       year: parseInt(results[i]['timestamp'].split('-')[0]),
