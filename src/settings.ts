@@ -242,12 +242,12 @@ export async function register_settings() {
             label: 'Include paper summary in response to research prompts',
         },
         'chat_prefix': {
-            value: '',
+            value: '\\n\\nJarvis: ',
             type: SettingItemType.String,
             section: 'jarvis',
             public: true,
             label: 'Prefix to add to each chat prompt (before the response).',
-            description: 'e.g., "\\n\\nJarvis:"',
+            description: 'e.g., "\\n\\nJarvis: "',
         },
         'chat_suffix': {
             value: '\\n\\nUser: ',

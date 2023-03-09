@@ -17,7 +17,10 @@ export async function query_completion(
   if (settings.model.includes('gpt-3.5-turbo')) {
     url = 'https://api.openai.com/v1/chat/completions';
     responseParams = {...responseParams,
-      messages: [{role: 'user', content: prompt}],
+      messages: [
+        {role: 'system', content: 'You are Jarvis, the helpful assistant.'},
+        {role: 'user', content: prompt}
+      ],
     };
   } else {
     url = 'https://api.openai.com/v1/completions';
