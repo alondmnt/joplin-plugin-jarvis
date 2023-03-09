@@ -1,9 +1,9 @@
 label,value,tokens
-Help Me Write,"You are helping a user write conent based on a prompt. Output in markdown format. Do not use links. Do not include literal content from the given prompt.
+Help Me Write,"You are helping a user write content based on a prompt. Output in markdown format. Do not use links. Do not include literal content from the given prompt.
 Use this format, replacing text in brackets with the result. Do not include the brackets in the output: 
 
 Output in [Identified language of the prompt]: 
-[Output based on the prompt, in markdown format.]",89.25
+[Output based on the prompt, in markdown format.]",89.5
 Continue Writing,"You are helping a user write content based on a prompt. Output how the prompt continues. Output in markdown format. Do not use links.
 Use this format, replacing text in brackets with the result. Do not include the brackets in the output:
 
