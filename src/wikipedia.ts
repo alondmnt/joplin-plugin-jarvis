@@ -66,6 +66,7 @@ async function get_wikipedia_search_query(prompt: string, settings: JarvisSettin
 
 // get the full text (or other extract) of a wikipedia page
 async function get_wikipedia_page(page: WikiInfo, field:string = 'text', section: string = 'explaintext'): Promise<WikiInfo> {
+  if ( !page['id'] ) { return page; }
   const url = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&${section}&format=json&pageids=${page['id']}`;
   const options = {
     method: 'GET',
