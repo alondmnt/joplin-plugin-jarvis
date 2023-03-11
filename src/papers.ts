@@ -365,11 +365,26 @@ async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Prom
     jsonResponse = await response.json();
     const info = jsonResponse['full-text-retrieval-response'];
     if ( (info['originalText']) && (typeof info['originalText'] === 'string') ) {
-      paper['text'] = info['originalText']
-        .split(/Discussion|Conclusion/gmi).slice(-1)[0]
-        .split(/References/gmi).slice(0)[0].split(/Acknowledgements/gmi).slice(0)[0]
-        .slice(0, 0.75*4*settings.max_tokens).trim();
-    } else if ( info['coredata']['dc:description'] ) {
+
+      try {
+        const regex = new RegExp(/Discussion|Conclusion/gmi);
+        if (regex.test(info['originalText'])) {
+          // get end of main text
+          paper['text'] = info['originalText']
+            .split(/\bReferences/gmi).slice(-2)[0]
+            .split(/Acknowledgments|Acknowledgements/gmi).slice(-2)[0]
+            .split(regex).slice(-1)[0];
+
+        } else {
+          // get start of main text
+          paper['text'] = info['originalText'].split(/http/gmi)[-1];  // remove preceding urls
+        }
+        paper['text'] = paper['text'].slice(0, 0.75*4*settings.max_tokens).trim();
+      } catch {
+        paper['text'] = '';
+      }
+    }
+    if ( !paper['text'] && info['coredata']['dc:description'] ) {
       paper['text'] = info['coredata']['dc:description'].trim();
     }
   }
