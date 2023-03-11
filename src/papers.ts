@@ -4,7 +4,7 @@ import { JarvisSettings, search_prompts } from './settings';
 
 export interface PaperInfo {
   title: string;
-  author: string[];
+  author: string;
   year: number;
   journal: string;
   doi: string;
@@ -85,19 +85,30 @@ async function run_semantic_scholar_query(query: string, papers: number): Promis
 
     try {
       for (let i = 0; i < papers.length; i++) {
-          const info: PaperInfo = {
-            title: papers[i]['title'],
-            author: papers[i]['authors'][0]['name'].split(' ').slice(1).join(' '),  // last name
-            year: parseInt(papers[i]['year'], 10),
-            journal: papers[i]['venue'],
-            doi: papers[i]['externalIds']['DOI'],
-            citation_count: papers[i]['citationCount'],
-            text: papers[i]['abstract'],
-            summary: '',
-            compression: 1,
-          };
-          results.push(info);
+        let journal: string = papers[i]['venue'];
+        if ( !journal ) {
+          if ( papers[i]['journal'] ) {
+            journal = papers[i]['journal']['name'];
+          } else { journal = 'Unknown'; }
         }
+        let author = 'Unknown';
+        if ( papers[i]['authors'][0] ) {
+          author = papers[i]['authors'][0]['name'].split(' ').slice(1).join(' ');  // last name
+        }
+
+        const info: PaperInfo = {
+          title: papers[i]['title'],
+          author: author,
+          year: parseInt(papers[i]['year'], 10),
+          journal: journal,
+          doi: papers[i]['externalIds']['DOI'],
+          citation_count: papers[i]['citationCount'],
+          text: papers[i]['abstract'],
+          summary: '',
+          compression: 1,
+        };
+        results.push(info);
+      }
     } catch (error) {
       console.log(error);
     }
