@@ -19,7 +19,11 @@ export async function search_wikipedia(prompt: string, search: SearchParams, set
   if ( !search_term ) { return { summary: '' }; }
 
   const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&origin=*&format=json&srlimit=20&srsearch=${search_term}`;
-  let response = await fetch(url);
+  const options = {
+    method: 'GET',
+    headers: {'Accept': 'application/json'},
+  };
+  let response = await fetch(url, options);
 
   if (!response.ok) { return { summary: '' }; }
 
