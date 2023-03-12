@@ -139,7 +139,7 @@ export async function register_settings() {
       description: 'The temperature of the model. 0 is the least creative. 10 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text.',
     },
     'max_tokens': {
-      value: 256,
+      value: 4000,
       type: SettingItemType.Int,
       minimum: 16,
       maximum: 4096,
