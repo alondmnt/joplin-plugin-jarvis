@@ -130,7 +130,7 @@ async function get_page_summary(page: WikiInfo, questions: string, settings: Jar
     summary = await query_completion(prompt + text + '\nSUMMARY:' + summary + '\nRESPONSE:', settings);
   }
   const decision = await query_completion(
-    `if the sollowing summary is not relevant to any of the research questions below, return "NOT RELEVANT" and explain.
+    `if the following summary is not relevant to any of the research questions below, return "NOT RELEVANT" and explain.
     SUMMARY:\n${summary}
     QUESTIONS:\n${questions}`,
     settings);
