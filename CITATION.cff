@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Diament"
+  given-names: "Alon"
+  orcid: "https://orcid.org/0000-0002-3939-5703"
+title: "Jarvis: AI note-taking assistant"
+version: 0.3.0
+doi: 10.5281/zenodo.7726285
+date-released: 2023-03-13
+url: "https://github.com/alondmnt/joplin-plugin-jarvis"
