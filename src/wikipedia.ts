@@ -118,7 +118,7 @@ async function get_page_summary(page: WikiInfo, questions: string, settings: Jar
   const prompt = 
     `here are research questions, a text, and a summary.
     add to the summary information from the text that is relevant to the questions,
-    and output the revised summary in the reponse.
+    and output the revised summary in the response.
     in the response, do not remove any information from the summary.
     QUESTIONS:\n${questions}
     TEXT:`;
