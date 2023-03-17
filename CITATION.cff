@@ -5,7 +5,7 @@ authors:
   given-names: "Alon"
   orcid: "https://orcid.org/0000-0002-3939-5703"
 title: "Jarvis: AI note-taking assistant"
-version: 0.3.0
-doi: 10.5281/zenodo.7726285
-date-released: 2023-03-13
+version: 0.3.1
+doi: 10.5281/zenodo.7746815
+date-released: 2023-03-17
 url: "https://github.com/alondmnt/joplin-plugin-jarvis"
