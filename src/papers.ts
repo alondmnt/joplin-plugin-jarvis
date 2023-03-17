@@ -144,7 +144,7 @@ async function run_scopus_query(query: string, papers: number, settings: JarvisS
       papers = jsonResponse['search-results']['entry'];
     }
 
-    if (!response.ok || papers[0].hasOwnProperty('error')) {
+    if (!response.ok || !papers || papers[0].hasOwnProperty('error')) {
       start += 25;
       continue;
     }
