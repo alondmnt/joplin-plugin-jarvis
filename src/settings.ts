@@ -128,10 +128,10 @@ export async function register_settings() {
       }
     },
     'temp': {
-      value: 9,
+      value: 10,
       type: SettingItemType.Int,
       minimum: 0,
-      maximum: 10,
+      maximum: 20,
       step: 1,
       section: 'jarvis',
       public: true,
