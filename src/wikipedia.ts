@@ -112,30 +112,36 @@ async function get_best_page(pages: Promise<WikiInfo>[], n: number, search: Sear
 async function get_page_summary(page: WikiInfo, questions: string, settings: JarvisSettings): Promise<WikiInfo> {
   if ( (!page['text']) || (page['text'].length == 0) ) { return page; }
 
-  const user_temp = settings.temperature;
-  settings.temperature = 0.3;
+  const user_p = settings.top_p;
+  settings.top_p = 0.2;  // make the model more focused
 
   const prompt = 
-    `here are research questions, a text, and a summary.
-    add to the summary information from the text that is relevant to the questions,
+    `here is a section from an article, research questions, and a draft summary of the complete article.
+    if the section is not relevant to answering these questions, return the original summary unchanged in the response.
+    otherwise, add to the summary information from the section that is relevant to the questions,
     and output the revised summary in the response.
-    in the response, do not remove any information from the summary.
-    QUESTIONS:\n${questions}
-    TEXT:`;
+    in the response, do not remove any relevant information that already exists in the summary,
+    and describe how the article as a whole answers the given questions.`;
 
   let summary = 'empty summary.';
   const summary_step = 0.75*4*settings.max_tokens;
   for (let i=0; i<page['text'].length; i+=summary_step) {
     const text = page['text'].slice(i, i+summary_step);
-    summary = await query_completion(prompt + text + '\nSUMMARY:' + summary + '\nRESPONSE:', settings);
+    summary = await query_completion(
+      `${prompt}
+       SECTION: ${text}
+       QUESTIONS: ${questions}
+       SUMMARY: ${summary}
+       RESPONSE:`, settings);
   }
   const decision = await query_completion(
-    `if the following summary is not relevant to any of the research questions below, return "NOT RELEVANT" and explain.
+    `decide if the following summary is relevant to any of the research questions below.
+    only if it is not relevant to any of them, return "NOT RELEVANT", and explain why.
     SUMMARY:\n${summary}
     QUESTIONS:\n${questions}`,
     settings);
 
-  settings.temperature = user_temp;
+  settings.top_p = user_p;
 
   if ((decision.includes('NOT RELEVANT')) || (summary.trim().length == 0)) {
     return page;
