@@ -25,6 +25,17 @@ export interface JarvisSettings {
   chat_suffix: string;
 };
 
+export const model_max_tokens: { [model: string] : number; } = {
+  'gpt-4': 8192,
+  'gpt-4-32k': 32768,
+  'gpt-3.5-turbo': 4096,
+  'text-davinci-003': 4096,
+  'text-davinci-002': 2048,
+  'text-curie-001': 2048,
+  'text-babbage-001': 2048,
+  'text-ada-001': 2048,
+};
+
 export const search_engines: { [engine: string] : string; } = {
   'Semantic Scholar': 'Semantic Scholar',
   'Scopus': 'Scopus',
@@ -70,13 +81,20 @@ async function parse_dropdown_setting(name: string): Promise<string> {
 }
 
 export async function get_settings(): Promise<JarvisSettings> {
+  const model = await joplin.settings.value('model');
+  let max_tokens = await joplin.settings.value('max_tokens');
+  if (max_tokens > model_max_tokens[model]) {
+    await joplin.settings.setValue('max_tokens', model_max_tokens[model]);
+    max_tokens = model_max_tokens[model];
+  }
+
   return {
     openai_api_key: await joplin.settings.value('openai_api_key'),
     scopus_api_key: await joplin.settings.value('scopus_api_key'),
     springer_api_key: await joplin.settings.value('springer_api_key'),
-    model: await joplin.settings.value('model'),
+    model: model,
     temperature: (await joplin.settings.value('temp')) / 10,
-    max_tokens: await joplin.settings.value('max_tokens'),
+    max_tokens: max_tokens,
     memory_tokens: await joplin.settings.value('memory_tokens'),
     top_p: (await joplin.settings.value('top_p')) / 100,
     frequency_penalty: (await joplin.settings.value('frequency_penalty')) / 10,
@@ -119,6 +137,8 @@ export async function register_settings() {
       label: 'Model',
       description: 'The model to use for asking Jarvis',
       options: {
+        'gpt-4': 'gpt-4',
+        'gpt-4-32k': 'gpt-4-32k',
         'gpt-3.5-turbo': 'gpt-3.5-turbo',
         'text-davinci-003': 'text-davinci-003',
         'text-davinci-002': 'text-davinci-002',
@@ -142,7 +162,7 @@ export async function register_settings() {
       value: 4000,
       type: SettingItemType.Int,
       minimum: 16,
-      maximum: 4096,
+      maximum: 32768,
       step: 16,
       section: 'jarvis',
       public: true,
@@ -150,7 +170,7 @@ export async function register_settings() {
       description: 'The maximum number of tokens to generate. Higher values will result in more text, but can also result in more nonsensical text.',
     },
     'memory_tokens': {
-      value: 128,
+      value: 512,
       type: SettingItemType.Int,
       minimum: 16,
       maximum: 4096,

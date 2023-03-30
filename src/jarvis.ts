@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
-import { get_settings, JarvisSettings, search_engines, parse_dropdown_json } from './settings';
+import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, model_max_tokens } from './settings';
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
 
@@ -115,7 +115,7 @@ export async function get_completion_params(
         <textarea name="prompt">${defaultPrompt}</textarea>
       </div>
       <div>
-        <input type="range" title="Prompt + response length = ${settings.max_tokens}" name="max_tokens" id="max_tokens" size="25" min="256" max="4096" value="${settings.max_tokens}" step="128"
+        <input type="range" title="Prompt + response length = ${settings.max_tokens}" name="max_tokens" id="max_tokens" size="25" min="256" max="${model_max_tokens[settings.model]}" value="${settings.max_tokens}" step="128"
          oninput="title='Prompt + response length = ' + value" />
       </div>
       <div>
@@ -163,7 +163,7 @@ await joplin.views.dialogs.setHtml(dialogHandle, `
     </div>
     <div>
       <label for="max_tokens">Max tokens</label>
-      <input type="range" title="Prompt + response length = ${settings.max_tokens}" name="max_tokens" id="max_tokens" size="25" min="256" max="4096" value="${settings.max_tokens}" step="128"
+      <input type="range" title="Prompt + response length = ${settings.max_tokens}" name="max_tokens" id="max_tokens" size="25" min="256" max="${model_max_tokens[settings.model]}" value="${settings.max_tokens}" step="128"
        oninput="title='Prompt + response length = ' + value" />
     </div>
     <div>

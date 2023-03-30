@@ -15,7 +15,7 @@ export async function query_completion(
     presence_penalty: settings.presence_penalty,
   }
 
-  if (settings.model.includes('gpt-3.5-turbo')) {
+  if (settings.model.includes('gpt-3.5') || settings.model.includes('gpt-4')) {
     url = 'https://api.openai.com/v1/chat/completions';
     responseParams = {...responseParams,
       messages: [
