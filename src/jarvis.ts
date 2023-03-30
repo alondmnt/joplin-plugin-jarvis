@@ -70,6 +70,7 @@ export async function chat_with_jarvis() {
   // get last tokens
   prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
 
+  await replace_selection('\n\nGenerating response...');
   let completion = await query_completion(prompt + settings.chat_prefix, settings);
   await replace_selection(settings.chat_prefix + completion + settings.chat_suffix);
 }
