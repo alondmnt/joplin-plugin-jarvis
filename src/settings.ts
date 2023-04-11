@@ -227,7 +227,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Scopus API Key',
-      description: 'Your Elsevier/Scopus API Key (optional for resarch)',
+      description: 'Your Elsevier/Scopus API Key (optional for research)',
     },
     'springer_api_key': {
       value: '',
@@ -236,7 +236,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Springer API Key',
-      description: 'Your Springer API Key (optional for resarch)',
+      description: 'Your Springer API Key (optional for research)',
     },
     'paper_search_engine': {
       value: 'Semantic Scholar',
