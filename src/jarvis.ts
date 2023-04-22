@@ -1,8 +1,10 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
+import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, model_max_tokens } from './settings';
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
+import { BlockEmbedding, clac_note_embeddings, find_nearest_notes, load_model, update_embeddings } from './embeddings';
 
 export async function ask_jarvis(dialogHandle: string) {
   const settings = await get_settings();
@@ -88,6 +90,38 @@ export async function edit_with_jarvis(dialogHandle: string) {
   settings.max_tokens = parseInt(result.formData.ask.max_tokens, 10);
   let edit = await query_edit(selection, result.formData.ask.prompt, settings);
   await joplin.commands.execute('replaceSelection', edit);
+}
+
+export async function refresh_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder): Promise<BlockEmbedding[]> {
+  const cycle = 10;  // notes, TODO: add to settings
+  const period = 30;  // sec, TODO: add to settings
+  // maybe the rate-limiter is not necessary because calculating embeddings is slow
+  let notes: any;
+  let page = 0;
+  let new_embeddings: BlockEmbedding[] = [];
+  // iterate over all notes
+  do {
+    console.log(`page ${page}`);
+    page += 1;
+    // TODO: filter by tag and other criteria
+    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict'], page: page });
+    if (notes.items) {
+      new_embeddings = new_embeddings.concat( await update_embeddings(db, embeddings, notes.items, model) );
+    }
+    // rate limiter
+    if (notes.has_more && (page % cycle) == 0) {
+      await new Promise(res => setTimeout(res, period * 1000));
+    }
+  } while(notes.has_more);
+
+  return new_embeddings;
+}
+
+export async function embed_note(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
+  const note = await joplin.workspace.selectedNote();
+  const selected = await joplin.commands.execute('selectedText');
+  const nearest = await find_nearest_notes(embeddings, selected, 10, model);
+  console.log(nearest);
 }
 
 export async function get_completion_params(
