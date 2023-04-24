@@ -3,7 +3,7 @@ import { MenuItemLocation } from 'api/types';
 import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, embed_note, refresh_db, research_with_jarvis } from './jarvis';
 import { get_settings, register_settings } from './settings';
 import { BlockEmbedding, load_model } from './embeddings';
-import { connect_to_db, get_all_embeddings, init_db } from './db';
+import { connect_to_db, get_all_embeddings, init_db, clear_db } from './db';
 
 joplin.plugins.register({
 	onStart: async function() {
@@ -55,6 +55,14 @@ joplin.plugins.register({
       label: 'Refresh Jarvis DB',
       execute: async () => {
         embeddings = await refresh_db(db, embeddings, model);
+      }
+    });
+
+    joplin.commands.register({
+      name: 'jarvis.clearDB',
+      label: 'Clear Jarvis DB',
+      execute: async () => {
+        await clear_db(db);
       }
     });
 

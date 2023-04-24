@@ -182,3 +182,24 @@ export async function get_note_status(db: any, note_id: string, hash: string): P
     });
   });
 }
+
+// delete everything from DB
+export async function clear_db(db: any): Promise<void> {
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run(`DELETE FROM embeddings`, (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          db.run(`DELETE FROM notes`, (err) => {
+            if (err) {
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        }
+      });
+    });
+  });
+}
