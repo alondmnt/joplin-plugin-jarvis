@@ -2,6 +2,9 @@ import joplin from 'api';
 import { BlockEmbedding } from './embeddings';
 const sqlite3 = joplin.require('sqlite3');
 
+// TODO: get from settings or from package
+const model = {name: 'Universal Sentence Encoder', version: '1.3.3', id: 1};
+
 // connect to the database
 export async function connect_to_db(): Promise<any> {
   const plugin_dir = await joplin.plugins.dataDir();
@@ -15,22 +18,33 @@ export async function init_db(db: any): Promise<void> {
   }
   // create the table for embeddings
   db.exec(`CREATE TABLE embeddings (
-    id INTEGER PRIMARY KEY,
+    idx INTEGER PRIMARY KEY,
     line INTEGER NOT NULL,
     level INTEGER NOT NULL,
     title TEXT,
-    embedding BLOB NOT NULL
+    embedding BLOB NOT NULL,
+    note_idx INTEGER NOT NULL REFERENCES notes(idx),
+    model_idx INTEGER NOT NULL REFERENCES models(idx)
   )`);
 
   // create the table for note hashes
   db.exec(`CREATE TABLE notes (
     idx INTEGER PRIMARY KEY,
     note_id TEXT NOT NULL UNIQUE,
-    hash TEXT NOT NULL
+    hash TEXT NOT NULL,
+    UNIQUE (note_id, hash)
   )`);
 
-  // add a foreign key constraint to connect the two tables
-  db.exec(`ALTER TABLE embeddings ADD COLUMN note_idx INTEGER REFERENCES notes(idx)`);
+  // create the table for model metadata
+  db.exec(`CREATE TABLE models (
+    idx INTEGER PRIMARY KEY,
+    model_name TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    UNIQUE (model_name, model_version)
+  )`);
+
+  // add the model metadata
+  db.exec(`INSERT INTO models (model_name, model_version) VALUES ('${model.name}', '${model.version}')`);
 }
 
 // check if the embeddings and notes tables exist
@@ -137,9 +151,9 @@ export async function insert_note_embeddings(db: any, embeds: Promise<BlockEmbed
           reject(err);
         } else {
           // insert the new embeddings
-          const stmt = db.prepare(`INSERT INTO embeddings (note_idx, line, level, title, embedding) VALUES (?, ?, ?, ?, ?)`);
+          const stmt = db.prepare(`INSERT INTO embeddings (note_idx, line, level, title, embedding, model_idx) VALUES (?, ?, ?, ?, ?, ?)`);
           for (let embd of embeddings) {
-            stmt.run([new_row_id, embd.line, embd.level, embd.title, Buffer.from(embd.embedding.buffer)]);
+            stmt.run([new_row_id, embd.line, embd.level, embd.title, Buffer.from(embd.embedding.buffer), model.id]);
           }
           stmt.finalize();
           resolve();
