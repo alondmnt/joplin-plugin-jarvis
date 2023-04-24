@@ -25,7 +25,7 @@ export async function init_db(db: any): Promise<void> {
   // create the table for note hashes
   db.exec(`CREATE TABLE notes (
     idx INTEGER PRIMARY KEY,
-    note_id TEXT NOT NULL,
+    note_id TEXT NOT NULL UNIQUE,
     hash TEXT NOT NULL
   )`);
 
@@ -124,21 +124,22 @@ export async function insert_note_embeddings(db: any, embeds: Promise<BlockEmbed
 
   return new Promise((resolve, reject) => {
     db.serialize(async () => {
-      if (await note_is_up_to_date(db, embeddings[0].id, embeddings[0].hash)) {
+      const note_status = await get_note_status(db, embeddings[0].id, embeddings[0].hash);
+      if (note_status.isUpToDate) {
         // no need to update the embeddings
         resolve();
       }
       console.log(`updating embeddings for note ${embeddings[0].id}`)
-      const db_id = await insert_note(db, embeddings[0].id, embeddings[0].hash);  // insert or update
+      const new_row_id = await insert_note(db, embeddings[0].id, embeddings[0].hash);  // insert or update
       // delete the old embeddings
-      db.run(`DELETE FROM embeddings WHERE note_idx = ?`, [db_id], (err) => {
+      db.run(`DELETE FROM embeddings WHERE note_idx = ?`, [note_status.rowID], (err) => {
         if (err) {
           reject(err);
         } else {
           // insert the new embeddings
           const stmt = db.prepare(`INSERT INTO embeddings (note_idx, line, level, title, embedding) VALUES (?, ?, ?, ?, ?)`);
           for (let embd of embeddings) {
-            stmt.run([db_id, embd.line, embd.level, embd.title, Buffer.from(embd.embedding.buffer)]);
+            stmt.run([new_row_id, embd.line, embd.level, embd.title, Buffer.from(embd.embedding.buffer)]);
           }
           stmt.finalize();
           resolve();
@@ -152,16 +153,16 @@ export async function insert_note_embeddings(db: any, embeds: Promise<BlockEmbed
 // if it does, compare its hash with the hash of the note in the database.
 // if the hashes are the same return true, otherwise return false.
 // if it does not exist in the database, return false.
-export async function note_is_up_to_date(db: any, note_id: string, hash: string): Promise<boolean> {
+export async function get_note_status(db: any, note_id: string, hash: string): Promise<{isUpToDate: boolean, rowID: number | null}> {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
-      db.get(`SELECT hash FROM notes WHERE note_id = ?`, [note_id], (err, row: {hash: string}) => {
+      db.get(`SELECT idx, hash FROM notes WHERE note_id = ?`, [note_id], (err, row: {idx: number, hash: string}) => {
         if (err) {
           reject(err);
         } else if (row) {
-          resolve(row.hash === hash);
+          resolve({ isUpToDate: row.hash === hash, rowID: row.idx });
         } else {
-          resolve(false);
+          resolve({ isUpToDate: false, rowID: null });
         }
       });
     });
