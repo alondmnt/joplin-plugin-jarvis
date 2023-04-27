@@ -1,8 +1,8 @@
 import joplin from 'api';
 import { MenuItemLocation } from 'api/types';
-import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, embed_note, refresh_db, research_with_jarvis } from './jarvis';
+import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, refresh_db, research_with_jarvis } from './jarvis';
 import { get_settings, register_settings } from './settings';
-import { BlockEmbedding, load_model } from './embeddings';
+import { load_model } from './embeddings';
 import { connect_to_db, get_all_embeddings, init_db, clear_db } from './db';
 
 joplin.plugins.register({
@@ -11,12 +11,18 @@ joplin.plugins.register({
 
     await register_settings();
 
-    // await new Promise(res => setTimeout(res, 10 * 1000));
+    await new Promise(res => setTimeout(res, 5 * 1000));
     const settings = await get_settings();
     const model = await load_model(settings);
     const db = await connect_to_db();
     await init_db(db);
     let embeddings = await get_all_embeddings(db);
+
+    const panel = await joplin.views.panels.create('jarvis.relatedNotes');
+    await joplin.views.panels.addScript(panel, './webview.css');
+    await joplin.views.panels.addScript(panel, './webview.js');
+    // TODO: move to an init_panel function
+    await joplin.views.panels.setHtml(panel, '<div class="container"><p class="semantic-title">RELATED NOTES</p></div>');
 
     joplin.commands.register({
       name: 'jarvis.ask',
@@ -67,10 +73,10 @@ joplin.plugins.register({
     });
 
     joplin.commands.register({
-      name: 'jarvis.embed',
-      label: 'Embed selection with Jarvis',
+      name: 'jarvis.findNotes',
+      label: 'Find related notes with Jarvis',
       execute: async () => {
-        embed_note(embeddings, model);
+        find_notes(panel, embeddings, model);
       }
     });
 
@@ -79,8 +85,22 @@ joplin.plugins.register({
       {commandName: 'jarvis.chat', accelerator: 'CmdOrCtrl+Shift+C'},
       {commandName: 'jarvis.research', accelerator: 'CmdOrCtrl+Shift+R'},
       {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+E'},
-      {commandName: 'jarvis.embed', accelerator: 'CmdOrCtrl+Shift+I'}
+      {commandName: 'jarvis.findNotes', accelerator: 'CmdOrCtrl+Alt+F'}
       ], MenuItemLocation.Tools
     );
+
+    await joplin.views.panels.onMessage(panel, async (message) => {
+      if (message.name === 'openRelatedNote') {
+        await joplin.commands.execute('openNote', message.note);
+        // Navigate to the line
+        if (message.line > 0) {
+          await new Promise(res => setTimeout(res, 500));
+          await joplin.commands.execute('editor.execCommand', {
+            name: 'sidebar_cm_scrollToLine',
+            args: [message.line - 1]
+          });
+        }
+      }
+    });
 	},
 });

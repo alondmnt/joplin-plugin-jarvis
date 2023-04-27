@@ -4,7 +4,8 @@ import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, model_max_tokens } from './settings';
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
-import { BlockEmbedding, clac_note_embeddings, find_nearest_notes, load_model, update_embeddings } from './embeddings';
+import { BlockEmbedding, find_nearest_notes, update_embeddings } from './embeddings';
+import { update_panel } from './panel';
 
 export async function ask_jarvis(dialogHandle: string) {
   const settings = await get_settings();
@@ -93,7 +94,7 @@ export async function edit_with_jarvis(dialogHandle: string) {
 }
 
 export async function refresh_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder): Promise<BlockEmbedding[]> {
-  const cycle = 10;  // notes, TODO: add to settings
+  const cycle = 10;  // pages, TODO: add to settings
   const period = 30;  // sec, TODO: add to settings
   // maybe the rate-limiter is not necessary because calculating embeddings is slow
   let notes: any;
@@ -117,11 +118,18 @@ export async function refresh_db(db: any, embeddings: BlockEmbedding[], model: u
   return new_embeddings;
 }
 
-export async function embed_note(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
+export async function find_notes(panel: string, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
+  const threshold = 0.7;  // TODO: move to settings
+
   const note = await joplin.workspace.selectedNote();
-  const selected = await joplin.commands.execute('selectedText');
-  const nearest = await find_nearest_notes(embeddings, selected, 10, model);
-  console.log(nearest);
+  let selected = await joplin.commands.execute('selectedText');
+  if (selected.length == 0) {
+    selected = note.body;
+  }
+  const nearest = (await find_nearest_notes(embeddings, note.id, selected, threshold, model));
+
+  // write results to panel
+  await update_panel(panel, nearest);
 }
 
 export async function get_completion_params(
