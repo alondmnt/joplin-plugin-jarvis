@@ -57,26 +57,28 @@ joplin.plugins.register({
     });
 
     joplin.commands.register({
-      name: 'jarvis.refreshDB',
-      label: 'Refresh Jarvis DB',
+      name: 'jarvis.notes.db.refresh',
+      label: 'Refresh Jarvis note DB',
       execute: async () => {
         embeddings = await refresh_db(db, embeddings, model);
       }
     });
 
     joplin.commands.register({
-      name: 'jarvis.clearDB',
-      label: 'Clear Jarvis DB',
+      name: 'jarvis.notes.db.clear',
+      label: 'Clear Jarvis note DB',
       execute: async () => {
         await clear_db(db);
       }
     });
 
     joplin.commands.register({
-      name: 'jarvis.findNotes',
+      name: 'jarvis.notes.find',
       label: 'Find related notes with Jarvis',
       execute: async () => {
-        find_notes(panel, embeddings, model);
+        if (await joplin.views.panels.visible(panel)) {
+          find_notes(panel, embeddings, model);
+        }
       }
     });
 
@@ -85,16 +87,18 @@ joplin.plugins.register({
       {commandName: 'jarvis.chat', accelerator: 'CmdOrCtrl+Shift+C'},
       {commandName: 'jarvis.research', accelerator: 'CmdOrCtrl+Shift+R'},
       {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+E'},
-      {commandName: 'jarvis.findNotes', accelerator: 'CmdOrCtrl+Alt+F'}
+      {commandName: 'jarvis.notes.find', accelerator: 'CmdOrCtrl+Alt+F'}
       ], MenuItemLocation.Tools
     );
+
+    joplin.views.menuItems.create('jarvis.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
 
     await joplin.views.panels.onMessage(panel, async (message) => {
       if (message.name === 'openRelatedNote') {
         await joplin.commands.execute('openNote', message.note);
         // Navigate to the line
         if (message.line > 0) {
-          await new Promise(res => setTimeout(res, 500));
+          await new Promise(res => setTimeout(res, 1000));
           await joplin.commands.execute('editor.execCommand', {
             name: 'sidebar_cm_scrollToLine',
             args: [message.line - 1]
