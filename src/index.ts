@@ -1,5 +1,6 @@
 import joplin from 'api';
 import { MenuItemLocation } from 'api/types';
+import * as debounce from 'lodash.debounce';
 import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, refresh_db, research_with_jarvis } from './jarvis';
 import { get_settings, register_settings } from './settings';
 import { load_model } from './embeddings';
@@ -7,11 +8,15 @@ import { connect_to_db, get_all_embeddings, init_db, clear_db } from './db';
 
 joplin.plugins.register({
 	onStart: async function() {
+    const delay_startup = 5;  // seconds
+    const delay_panel = 1;
+    const delay_scroll = 1;
+
     const dialogAsk = await joplin.views.dialogs.create('jarvis.ask.dialog');
 
     await register_settings();
 
-    await new Promise(res => setTimeout(res, 5 * 1000));
+    await new Promise(res => setTimeout(res, delay_startup * 1000));
     const settings = await get_settings();
     const model = await load_model(settings);
     const db = await connect_to_db();
@@ -72,12 +77,14 @@ joplin.plugins.register({
       }
     });
 
+    const find_notes_debounce = debounce(find_notes, delay_panel * 1000);
+
     joplin.commands.register({
       name: 'jarvis.notes.find',
       label: 'Find related notes with Jarvis',
       execute: async () => {
         if (await joplin.views.panels.visible(panel)) {
-          find_notes(panel, embeddings, model);
+          find_notes_debounce(panel, embeddings, model);
         }
       }
     });
@@ -93,12 +100,18 @@ joplin.plugins.register({
 
     joplin.views.menuItems.create('jarvis.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
 
+    await joplin.workspace.onNoteSelectionChange(async () => {
+      if (await joplin.views.panels.visible(panel)) {
+        find_notes_debounce(panel, embeddings, model);
+      }
+    });
+
     await joplin.views.panels.onMessage(panel, async (message) => {
       if (message.name === 'openRelatedNote') {
         await joplin.commands.execute('openNote', message.note);
         // Navigate to the line
         if (message.line > 0) {
-          await new Promise(res => setTimeout(res, 1000));
+          await new Promise(res => setTimeout(res, delay_scroll * 1000));
           await joplin.commands.execute('editor.execCommand', {
             name: 'sidebar_cm_scrollToLine',
             args: [message.line - 1]

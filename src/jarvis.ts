@@ -126,6 +126,8 @@ export async function refresh_db(db: any, embeddings: BlockEmbedding[], model: u
     }
   } while(notes.has_more);
 
+  find_notes(panel, new_embeddings, model);
+
   return new_embeddings;
 }
 
