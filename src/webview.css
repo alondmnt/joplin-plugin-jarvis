@@ -42,6 +42,11 @@ html {
   text-decoration: none;
 }
 
+.semantic-progress {
+  width: 95%;
+  margin-left: 5px;
+}
+
 .semantic-section a:active, a:hover {
   font-weight: bold;
 }

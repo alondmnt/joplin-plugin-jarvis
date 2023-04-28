@@ -60,7 +60,7 @@ joplin.plugins.register({
       name: 'jarvis.notes.db.refresh',
       label: 'Refresh Jarvis note DB',
       execute: async () => {
-        embeddings = await refresh_db(db, embeddings, model);
+        embeddings = await refresh_db(db, embeddings, model, panel);
       }
     });
 

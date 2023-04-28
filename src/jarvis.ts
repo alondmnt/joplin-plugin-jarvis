@@ -5,7 +5,7 @@ import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, mode
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
 import { BlockEmbedding, find_nearest_notes, update_embeddings } from './embeddings';
-import { update_panel } from './panel';
+import { update_panel, update_progress_bar } from './panel';
 
 export async function ask_jarvis(dialogHandle: string) {
   const settings = await get_settings();
@@ -93,21 +93,32 @@ export async function edit_with_jarvis(dialogHandle: string) {
   await joplin.commands.execute('replaceSelection', edit);
 }
 
-export async function refresh_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder): Promise<BlockEmbedding[]> {
+export async function refresh_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string): Promise<BlockEmbedding[]> {
   const cycle = 10;  // pages, TODO: add to settings
   const period = 30;  // sec, TODO: add to settings
   // maybe the rate-limiter is not necessary because calculating embeddings is slow
   let notes: any;
   let page = 0;
   let new_embeddings: BlockEmbedding[] = [];
+  let total_notes = 0;
+  let processed_notes = 0;
+  // count all notes
+  do {
+    page += 1;
+    notes = await joplin.data.get(['notes'], { fields: ['id'], page: page });
+    total_notes += notes.items.length;
+  } while(notes.has_more);
+
+  page = 0;
   // iterate over all notes
   do {
-    console.log(`page ${page}`);
     page += 1;
     // TODO: filter by tag and other criteria
     notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict'], page: page });
     if (notes.items) {
       new_embeddings = new_embeddings.concat( await update_embeddings(db, embeddings, notes.items, model) );
+      processed_notes += notes.items.length;
+      update_progress_bar(panel, processed_notes, total_notes)
     }
     // rate limiter
     if (notes.has_more && (page % cycle) == 0) {

@@ -23,3 +23,15 @@ export async function update_panel(panel: string, nearest: NoteEmbedding[]) {
   `).join('')}
 `);
 }
+
+export async function update_progress_bar(panel: string, processed: number, total: number) {
+  await joplin.views.panels.setHtml(panel, `
+  <html>
+  <div class="container">
+    <p class="semantic-title">RELATED NOTES</p>
+    <p class="semantic-note">Updating note database...</p>
+    <progress class="semantic-progress" value="${processed}" max="${total}"></progress>
+    <p class="semantic-note">Total notes processed: ${processed} / ${total}</p>
+  </div>
+  `);
+}

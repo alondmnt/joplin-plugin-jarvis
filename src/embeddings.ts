@@ -29,7 +29,7 @@ export async function load_model(settings: JarvisSettings): Promise<use.Universa
 }
 
 // calculate the embeddings for a note
-export async function clac_note_embeddings(note: any, model: use.UniversalSentenceEncoder): Promise<BlockEmbedding[]> {
+export async function calc_note_embeddings(note: any, model: use.UniversalSentenceEncoder): Promise<BlockEmbedding[]> {
   const hash = calc_hash(note.body);
   // separate blocks using the note's headings
   const blocks = note.body.split(/(?=^#+\s)/gm).map(
@@ -54,7 +54,6 @@ export async function clac_note_embeddings(note: any, model: use.UniversalSenten
       return embd;
     }
   );
-  console.log(blocks);
   return Promise.all(blocks);
 }
 
@@ -69,24 +68,39 @@ export async function calc_block_embeddings(model: use.UniversalSentenceEncoder,
   return vec;
 }
 
-// given the current embeddings of all notes, update the embeddings of notes that have changed based on their hash
-export async function update_embeddings(db: any, embeddings: BlockEmbedding[], notes: any[], model: use.UniversalSentenceEncoder):
-  Promise<BlockEmbedding[]> {
-  const new_embeddings = await Promise.all(notes.map(async (note: any) => {
-    const hash = calc_hash(note.body);
-    // find all embeddings of the note
-    const old_embd = embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
-    // if the note hasn't changed, return the old embeddings
-    if ((old_embd.length > 0) && (old_embd[0].hash === hash)) {
-      return old_embd;
-    }
-    // otherwise, calculate the new embeddings
-    const new_embd = clac_note_embeddings(note, model);
-    // insert into DB
-    insert_note_embeddings(db, new_embd);
+// async function to process a single note
+async function process_note(note: any, embeddings: BlockEmbedding[],
+    model: use.UniversalSentenceEncoder, db: any): Promise<BlockEmbedding[]> {
+  const hash = calc_hash(note.body);
+  const old_embd = embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
 
-    return new_embd
-  }));
+  // if the note hasn't changed, return the old embeddings
+  if ((old_embd.length > 0) && (old_embd[0].hash === hash)) {
+    // Call the callback function to update the progress bar
+    return old_embd;
+  }
+
+  // otherwise, calculate the new embeddings
+  const new_embd = calc_note_embeddings(note, model);
+
+  // insert new embeddings into DB
+  insert_note_embeddings(db, new_embd);
+
+  return new_embd;
+}
+
+export async function update_embeddings(db: any, embeddings: BlockEmbedding[],
+    notes: any[], model: use.UniversalSentenceEncoder): Promise<BlockEmbedding[]> {
+  const total_notes = notes.length;
+  let processed_notes = 0;
+
+  // map over the notes array and create an array of promises
+  // by calling process_note() with a callback to update progress
+  const notes_promises = notes.map(note => process_note(note, embeddings, model, db));
+
+  // wait for all promises to resolve and store the result in new_embeddings
+  const new_embeddings = await Promise.all(notes_promises);
+
   return [].concat(...new_embeddings);
 }
 

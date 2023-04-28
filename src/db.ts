@@ -143,7 +143,6 @@ export async function insert_note_embeddings(db: any, embeds: Promise<BlockEmbed
         // no need to update the embeddings
         resolve();
       }
-      console.log(`updating embeddings for note ${embeddings[0].id}`)
       const new_row_id = await insert_note(db, embeddings[0].id, embeddings[0].hash);  // insert or update
       // delete the old embeddings
       db.run(`DELETE FROM embeddings WHERE note_idx = ?`, [note_status.rowID], (err) => {
