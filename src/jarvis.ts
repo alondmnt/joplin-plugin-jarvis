@@ -93,7 +93,7 @@ export async function edit_with_jarvis(dialogHandle: string) {
   await joplin.commands.execute('replaceSelection', edit);
 }
 
-export async function refresh_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string): Promise<BlockEmbedding[]> {
+export async function update_note_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string): Promise<BlockEmbedding[]> {
   const cycle = 10;  // pages, TODO: add to settings
   const period = 30;  // sec, TODO: add to settings
   // maybe the rate-limiter is not necessary because calculating embeddings is slow
