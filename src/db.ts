@@ -77,7 +77,6 @@ async function db_tables_exist(db: any): Promise<boolean> {
 // first, join the notes table and the embeddings table.
 // then, return all embeddings in a BlockEmbedding array.
 export async function get_all_embeddings(db: any): Promise<BlockEmbedding[]> {
-  console.log('getting all embeddings...')
   return new Promise((resolve, reject) => {
     db.serialize(() => {
       db.all(`SELECT note_id, hash, line, level, title, embedding FROM notes JOIN embeddings ON notes.idx = embeddings.note_idx`,
@@ -124,8 +123,8 @@ export async function insert_note(db: any, note_id: string, hash: string): Promi
 // insert new embeddings for a single note into the database. check if the note hash changed.
 // if the hash changed, delete all the embeddings for that note and insert the new ones.
 // if the note has no embeddings, insert the new ones.
-export async function insert_note_embeddings(db: any, embeds: Promise<BlockEmbedding[]>): Promise<void> {
-  const embeddings = await embeds;
+export async function insert_note_embeddings(db: any, embeds: BlockEmbedding[]): Promise<void> {
+  const embeddings = embeds;
   // check that embeddings contain a single note_id
   if (embeddings.length === 0) {
     return;

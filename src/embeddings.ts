@@ -29,32 +29,110 @@ export async function load_model(settings: JarvisSettings): Promise<use.Universa
 }
 
 // calculate the embeddings for a note
-export async function calc_note_embeddings(note: any, model: use.UniversalSentenceEncoder): Promise<BlockEmbedding[]> {
+export async function calc_note_embeddings(note: any, model: use.UniversalSentenceEncoder, max_block_size: number): Promise<BlockEmbedding[]> {
   const hash = calc_hash(note.body);
-  // separate blocks using the note's headings
-  const blocks = note.body.split(/(?=^#+\s)/gm).map(
-    async (block: string): Promise<BlockEmbedding> => {
-      const line = note.body.split(block)[0].split(/\r?\n/).length;
-      const embedding = await calc_block_embeddings(model, [block]);
-      let embd: BlockEmbedding = {
-        id: note.id,
-        hash: hash,
-        line: line,
-        level: 0,
-        title: note.title,
-        embedding: embedding,
-        similarity: 0,
+  let level = 0;
+  let title = note.title;
+
+  // separate blocks using the note's headings, but avoid splitting within code sections
+  const regex = /(^```[\s\S]*?```$)|(^#+\s.*)/gm;
+  const blocks: BlockEmbedding[][] = note.body.split(regex).filter(Boolean).map(
+    async (block: string): Promise<BlockEmbedding[]> => {
+
+      // parse the heading title and level from the main block
+      // use the last known level/title as a default
+      const is_code_block = block.startsWith("```");
+      if (is_code_block) {
+        const parse_heading = block.match(/```(.*)/);
+        if (parse_heading) { title = parse_heading[1] + ' '; }
+        title += 'code block';
+      } else {
+        const parse_heading = block.match(/^(#+)\s(.*)/);
+        if (parse_heading) {
+          level = parse_heading[1].length;
+          title = parse_heading[2];
+          console.log(parse_heading, level, title);
+        }
       }
-      // parse the heading title and level no. from each block
-      const heading = block.match(/^(#+)\s(.*)/);
-      if (heading) {
-        embd.level = heading[1].length;
-        embd.title = heading[2];
-      }
-      return embd;
+
+      const sub_blocks = split_block_to_max_size(block, max_block_size, is_code_block);
+
+      const sub_embd = sub_blocks.map(async (sub: string): Promise<BlockEmbedding> => {
+        // I'm not sure why we need all the -1's here, but it seems to work
+        const line = note.body.substring(0, note.body.indexOf(sub) - 1).split(/\r?\n/).length - 1;
+        return {
+          id: note.id,
+          hash: hash,
+          line: line,
+          level: level,
+          title: title,
+          embedding: await calc_block_embeddings(model, [sub]),
+          similarity: 0,
+        };
+      });
+      return Promise.all(sub_embd);
     }
   );
-  return Promise.all(blocks);
+
+  return Promise.all(blocks).then(blocks => [].concat(...blocks));
+}
+
+function split_block_to_max_size(block: string, max_size: number, is_code_block: boolean): string[] {
+  if (is_code_block) {
+    return split_code_block_by_lines(block, max_size);
+  } else {
+    return split_text_block_by_sentences_and_newlines(block, max_size);
+  }
+}
+
+function split_code_block_by_lines(block: string, max_size: number): string[] {
+  const lines = block.split(/\r?\n/);
+  const blocks: string[] = [];
+  let current_block = "";
+  let current_size = 0;
+
+  lines.forEach(line => {
+    const words = line.split(/\s+/).length;
+    if (current_size + words <= max_size) {
+      current_block += line + "\n";
+      current_size += words;
+    } else {
+      blocks.push(current_block);
+      current_block = line + "\n";
+      current_size = words;
+    }
+  });
+
+  if (current_block) {
+    blocks.push(current_block);
+  }
+
+  return blocks;
+}
+
+function split_text_block_by_sentences_and_newlines(block: string, max_size: number): string[] {
+  const segments = block.match(/[^\.!\?\n]+[\.!\?\n]+/g) || [];
+  let current_size = 0;
+  let current_block = "";
+  const blocks: string[] = [];
+
+  segments.forEach(segment => {
+    const words = segment.split(/\s+/).length;
+    if (current_size + words <= max_size) {
+      current_block += segment;
+      current_size += words;
+    } else {
+      blocks.push(current_block);
+      current_block = segment;
+      current_size = words;
+    }
+  });
+
+  if (current_block) {
+    blocks.push(current_block);
+  }
+
+  return blocks;
 }
 
 // calculate the embedding for a block of text
@@ -69,8 +147,9 @@ export async function calc_block_embeddings(model: use.UniversalSentenceEncoder,
 }
 
 // async function to process a single note
-async function process_note(note: any, embeddings: BlockEmbedding[],
+async function update_note(note: any, embeddings: BlockEmbedding[],
     model: use.UniversalSentenceEncoder, db: any): Promise<BlockEmbedding[]> {
+  const max_block_size = 512 / 1.5;  // max no. of words per block
   const hash = calc_hash(note.body);
   const old_embd = embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
 
@@ -81,22 +160,19 @@ async function process_note(note: any, embeddings: BlockEmbedding[],
   }
 
   // otherwise, calculate the new embeddings
-  const new_embd = calc_note_embeddings(note, model);
+  const new_embd = await calc_note_embeddings(note, model, max_block_size);
 
   // insert new embeddings into DB
-  insert_note_embeddings(db, new_embd);
+  await insert_note_embeddings(db, new_embd);
 
   return new_embd;
 }
 
 export async function update_embeddings(db: any, embeddings: BlockEmbedding[],
     notes: any[], model: use.UniversalSentenceEncoder): Promise<BlockEmbedding[]> {
-  const total_notes = notes.length;
-  let processed_notes = 0;
-
   // map over the notes array and create an array of promises
   // by calling process_note() with a callback to update progress
-  const notes_promises = notes.map(note => process_note(note, embeddings, model, db));
+  const notes_promises = notes.map(note => update_note(note, embeddings, model, db));
 
   // wait for all promises to resolve and store the result in new_embeddings
   const new_embeddings = await Promise.all(notes_promises);

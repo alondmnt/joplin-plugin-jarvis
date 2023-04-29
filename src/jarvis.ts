@@ -108,6 +108,7 @@ export async function refresh_db(db: any, embeddings: BlockEmbedding[], model: u
     notes = await joplin.data.get(['notes'], { fields: ['id'], page: page });
     total_notes += notes.items.length;
   } while(notes.has_more);
+  update_progress_bar(panel, 0, total_notes);
 
   page = 0;
   // iterate over all notes
@@ -118,7 +119,7 @@ export async function refresh_db(db: any, embeddings: BlockEmbedding[], model: u
     if (notes.items) {
       new_embeddings = new_embeddings.concat( await update_embeddings(db, embeddings, notes.items, model) );
       processed_notes += notes.items.length;
-      update_progress_bar(panel, processed_notes, total_notes)
+      update_progress_bar(panel, processed_notes, total_notes);
     }
     // rate limiter
     if (notes.has_more && (page % cycle) == 0) {
