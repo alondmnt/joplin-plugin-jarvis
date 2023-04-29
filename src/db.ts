@@ -181,6 +181,28 @@ export async function get_note_status(db: any, note_id: string, hash: string): P
   });
 }
 
+// delete a note and its embeddings from the database.
+export async function delete_note_and_embeddings(db: any, note_id: string): Promise<void> {
+  const note_status = await get_note_status(db, note_id, '');
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run(`DELETE FROM notes WHERE note_id = ?`, [note_id], (err) => {
+        if (err) {
+          reject(err);
+        } else if (note_status.rowID !== null) {
+          db.run(`DELETE FROM embeddings WHERE note_idx = ?`, [note_status.rowID], (err) => {
+            if (err) {
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        }
+      });
+    });
+  });
+}
+
 // delete everything from DB
 export async function clear_db(db: any): Promise<void> {
   return new Promise((resolve, reject) => {

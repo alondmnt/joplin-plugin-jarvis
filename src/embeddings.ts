@@ -3,7 +3,7 @@ import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { createHash } from 'crypto';
 import { JarvisSettings } from './settings';
-import { insert_note_embeddings } from './db';
+import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 
 export interface BlockEmbedding {
   id: string;  // note id
@@ -51,7 +51,6 @@ export async function calc_note_embeddings(note: any, model: use.UniversalSenten
         if (parse_heading) {
           level = parse_heading[1].length;
           title = parse_heading[2];
-          console.log(parse_heading, level, title);
         }
       }
 
@@ -149,7 +148,18 @@ export async function calc_block_embeddings(model: use.UniversalSentenceEncoder,
 // async function to process a single note
 async function update_note(note: any, embeddings: BlockEmbedding[],
     model: use.UniversalSentenceEncoder, db: any): Promise<BlockEmbedding[]> {
-  const max_block_size = 512 / 1.5;  // max no. of words per block
+  if (note.is_conflict) {
+    return [];
+  }
+  const note_tags = (await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] }))
+    .items.map((t: any) => t.title);
+  if (note_tags.includes('exclude.from.jarvis')) {
+    console.log(`Excluding note ${note.id} from Jarvis`);
+    delete_note_and_embeddings(db, note.id);
+    return [];
+  }
+
+  const max_block_size = 512 / 1.5;  // max no. of words per block, TODO: add to settings
   const hash = calc_hash(note.body);
   const old_embd = embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
 
