@@ -8,17 +8,17 @@ import { connect_to_db, get_all_embeddings, init_db, clear_db } from './db';
 
 joplin.plugins.register({
 	onStart: async function() {
-    const delay_startup = 5;  // seconds
-    const delay_panel = 1;
-    const delay_scroll = 1;
-    const delay_db_update = 60;
+    await register_settings();
+    const settings = await get_settings();
 
     const dialogAsk = await joplin.views.dialogs.create('jarvis.ask.dialog');
 
-    await register_settings();
+    const delay_startup = 5;  // seconds
+    const delay_panel = 1;
+    const delay_scroll = 1;
+    const delay_db_update = 60 * settings.notes_db_update_delay;
 
     await new Promise(res => setTimeout(res, delay_startup * 1000));
-    const settings = await get_settings();
     const model = await load_model(settings);
     const db = await connect_to_db();
     await init_db(db);
@@ -28,7 +28,7 @@ joplin.plugins.register({
     await joplin.views.panels.addScript(panel, './webview.css');
     await joplin.views.panels.addScript(panel, './webview.js');
     // TODO: move to an init_panel function
-    await joplin.views.panels.setHtml(panel, '<div class="container"><p class="jarvis-semantic-title">RELATED NOTES</p></div>');
+    await joplin.views.panels.setHtml(panel, `<div class="container"><p class="jarvis-semantic-title">${settings.notes_panel_title}</p></div>`);
 
     const find_notes_debounce = debounce(find_notes, delay_panel * 1000);
     const update_note_db_debounce = debounce(update_note_db, delay_db_update * 1000, {leading: true, trailing: false});
@@ -105,7 +105,9 @@ joplin.plugins.register({
     await joplin.workspace.onNoteSelectionChange(async () => {
       if (await joplin.views.panels.visible(panel)) {
         find_notes_debounce(panel, embeddings, model);
-        update_note_db_debounce(db, embeddings, model, panel);
+        if (delay_db_update > 0) {
+          update_note_db_debounce(db, embeddings, model, panel);
+        }
       }
     });
 

@@ -94,9 +94,10 @@ export async function edit_with_jarvis(dialogHandle: string) {
 }
 
 export async function update_note_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string): Promise<BlockEmbedding[]> {
-  const cycle = 10;  // pages, TODO: add to settings
-  const period = 30;  // sec, TODO: add to settings
-  // maybe the rate-limiter is not necessary because calculating embeddings is slow
+  const settings = await get_settings();
+  const cycle = 10;  // pages
+  const period = 10;  // sec
+
   let notes: any;
   let page = 0;
   let new_embeddings: BlockEmbedding[] = [];
@@ -108,18 +109,17 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
     notes = await joplin.data.get(['notes'], { fields: ['id'], page: page });
     total_notes += notes.items.length;
   } while(notes.has_more);
-  update_progress_bar(panel, 0, total_notes);
+  update_progress_bar(panel, 0, total_notes, settings);
 
   page = 0;
   // iterate over all notes
   do {
     page += 1;
-    // TODO: filter by tag and other criteria
     notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict'], page: page });
     if (notes.items) {
       new_embeddings = new_embeddings.concat( await update_embeddings(db, embeddings, notes.items, model) );
       processed_notes += notes.items.length;
-      update_progress_bar(panel, processed_notes, total_notes);
+      update_progress_bar(panel, processed_notes, total_notes, settings);
     }
     // rate limiter
     if (notes.has_more && (page % cycle) == 0) {
@@ -133,17 +133,17 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
 }
 
 export async function find_notes(panel: string, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
-  const threshold = 0.7;  // TODO: move to settings
+  const settings = await get_settings();
 
   const note = await joplin.workspace.selectedNote();
   let selected = await joplin.commands.execute('selectedText');
   if (selected.length == 0) {
     selected = note.body;
   }
-  const nearest = (await find_nearest_notes(embeddings, note.id, selected, threshold, model));
+  const nearest = (await find_nearest_notes(embeddings, note.id, selected, model, settings));
 
   // write results to panel
-  await update_panel(panel, nearest);
+  await update_panel(panel, nearest, settings);
 }
 
 export async function get_completion_params(

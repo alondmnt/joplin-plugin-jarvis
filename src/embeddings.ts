@@ -2,7 +2,7 @@ import joplin from 'api';
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { createHash } from 'crypto';
-import { JarvisSettings } from './settings';
+import { JarvisSettings, get_settings } from './settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 
 export interface BlockEmbedding {
@@ -19,7 +19,7 @@ export interface NoteEmbedding {
   id: string;  // note id
   title: string;  // note title
   embeddings: BlockEmbedding[];  // block embeddings
-  average_sim: number;  // average similarity to the prompt
+  similarity: number;  // average similarity to the prompt
 }
 
 tf.setBackend('webgl');
@@ -203,8 +203,7 @@ export async function update_embeddings(db: any, embeddings: BlockEmbedding[],
 
 // given a list of embeddings, find the nearest ones to the query
 export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, query: string,
-  threshold: number, model: use.UniversalSentenceEncoder):
-  Promise<NoteEmbedding[]> {
+  model: use.UniversalSentenceEncoder, settings: JarvisSettings): Promise<NoteEmbedding[]> {
 
   const query_embedding = await calc_block_embeddings(model, [query]);
 
@@ -214,7 +213,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     embed.similarity = await calc_similarity(query_embedding, embed.embedding);
     return embed;
   }
-  ))).filter((embd) => (embd.similarity >= threshold) && (embd.id !== current_id));
+  ))).filter((embd) => (embd.similarity >= settings.notes_min_similarity) && (embd.id !== current_id));
 
   // group the embeddings by note id
   const grouped = nearest.reduce((acc: {[note_id: string]: BlockEmbedding[]}, embed) => {
@@ -228,14 +227,21 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   // sort the groups by their average similarity
   return (await Promise.all(Object.entries(grouped).map(async ([note_id, note_embed]) => {
     const sorted_embed = note_embed.sort((a, b) => b.similarity - a.similarity);
-    const average_sim = sorted_embed.reduce((acc, embd) => acc + embd.similarity, 0) / sorted_embed.length;
+
+    let agg_sim: number;
+    if (settings.notes_agg_similarity === 'max') {
+      agg_sim = sorted_embed[0].similarity;
+    } else if (settings.notes_agg_similarity === 'avg') {
+      agg_sim = sorted_embed.reduce((acc, embd) => acc + embd.similarity, 0) / sorted_embed.length;
+    }
+
     return {
       id: note_id,
       title: (await joplin.data.get(['notes', note_id], {fields: ['title']})).title,
       embeddings: sorted_embed,
-      average_sim,
+      similarity: agg_sim,
     };
-    }))).sort((a, b) => b.average_sim - a.average_sim);
+    }))).sort((a, b) => b.similarity - a.similarity).slice(0, settings.notes_max_hits);
 }
 
 // calculate the cosine similarity between two embeddings
