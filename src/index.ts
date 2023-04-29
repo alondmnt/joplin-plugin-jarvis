@@ -73,13 +73,13 @@ joplin.plugins.register({
       }
     });
 
-    joplin.commands.register({
-      name: 'jarvis.notes.db.clear',
-      label: 'Clear Jarvis notes DB',
-      execute: async () => {
-        await clear_db(db);
-      }
-    });
+    // joplin.commands.register({
+    //   name: 'jarvis.notes.db.clear',
+    //   label: 'Clear Jarvis notes DB',
+    //   execute: async () => {
+    //     await clear_db(db);
+    //   }
+    // });
 
     joplin.commands.register({
       name: 'jarvis.notes.find',
