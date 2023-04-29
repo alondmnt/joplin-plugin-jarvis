@@ -28,7 +28,7 @@ joplin.plugins.register({
     await joplin.views.panels.addScript(panel, './webview.css');
     await joplin.views.panels.addScript(panel, './webview.js');
     // TODO: move to an init_panel function
-    await joplin.views.panels.setHtml(panel, '<div class="container"><p class="semantic-title">RELATED NOTES</p></div>');
+    await joplin.views.panels.setHtml(panel, '<div class="container"><p class="jarvis-semantic-title">RELATED NOTES</p></div>');
 
     const find_notes_debounce = debounce(find_notes, delay_panel * 1000);
     const update_note_db_debounce = debounce(update_note_db, delay_db_update * 1000, {leading: true, trailing: false});

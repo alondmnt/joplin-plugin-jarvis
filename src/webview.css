@@ -8,7 +8,7 @@ html {
   margin: 5px;
 }
 
-.semantic-title {
+.jarvis-semantic-title {
   color: var(--joplin-color);
   font-size: calc(var(--joplin-font-size) * 1.1);
   font-weight: bold;
@@ -16,7 +16,7 @@ html {
   margin: 5px;
 }
 
-.semantic-note {
+.jarvis-semantic-note {
   margin: 5px;
   text-overflow: clip;
   overflow-x: hidden;
@@ -24,7 +24,7 @@ html {
   white-space: nowrap;
 }
 
-.semantic-section {
+.jarvis-semantic-section {
   margin-left: 10px;
   text-overflow: clip;
   overflow-x: hidden;
@@ -32,26 +32,26 @@ html {
   white-space: nowrap;
 }
 
-.semantic-section a {
+.jarvis-semantic-section a {
   color: var(--joplin-color);
   text-decoration: none;
 }
 
-.semantic-note a {
+.jarvis-semantic-note a {
   color: var(--joplin-color);
   text-decoration: none;
 }
 
-.semantic-progress {
+.jarvis-semantic-progress {
   width: 95%;
   margin-left: 5px;
 }
 
-.semantic-section a:active, a:hover {
+.jarvis-semantic-section a:active, a:hover {
   font-weight: bold;
 }
 
-.semantic-note a:active, a:hover {
+.jarvis-semantic-note a:active, a:hover {
   font-weight: bold;
 }
 
