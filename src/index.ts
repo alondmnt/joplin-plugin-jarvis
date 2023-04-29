@@ -70,6 +70,7 @@ joplin.plugins.register({
       label: 'Update Jarvis notes DB',
       execute: async () => {
         embeddings = await update_note_db(db, embeddings, model, panel);
+        find_notes_debounce(panel, embeddings, model);
       }
     });
 
