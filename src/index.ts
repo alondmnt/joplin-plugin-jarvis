@@ -67,7 +67,7 @@ joplin.plugins.register({
 
     joplin.commands.register({
       name: 'jarvis.notes.db.update',
-      label: 'Update Jarvis note DB',
+      label: 'Update Jarvis notes DB',
       execute: async () => {
         embeddings = await update_note_db(db, embeddings, model, panel);
       }
@@ -75,7 +75,7 @@ joplin.plugins.register({
 
     joplin.commands.register({
       name: 'jarvis.notes.db.clear',
-      label: 'Clear Jarvis note DB',
+      label: 'Clear Jarvis notes DB',
       execute: async () => {
         await clear_db(db);
       }
@@ -85,8 +85,19 @@ joplin.plugins.register({
       name: 'jarvis.notes.find',
       label: 'Find related notes',
       execute: async () => {
+        find_notes_debounce(panel, embeddings, model);
+      }
+    });
+
+    joplin.commands.register({
+      name: 'jarvis.notes.toggle_panel',
+      label: 'Toggle related notes panel',
+      execute: async () => {
         if (await joplin.views.panels.visible(panel)) {
-          find_notes_debounce(panel, embeddings, model);
+          await joplin.views.panels.hide(panel);
+        } else {
+          await joplin.views.panels.show(panel);
+          find_notes_debounce(panel, embeddings, model)
         }
       }
     });
@@ -97,18 +108,18 @@ joplin.plugins.register({
       {commandName: 'jarvis.research', accelerator: 'CmdOrCtrl+Shift+R'},
       {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+E'},
       {commandName: 'jarvis.notes.find', accelerator: 'CmdOrCtrl+Alt+F'},
+      {commandName: 'jarvis.notes.db.update'},
+      {commandName: 'jarvis.notes.toggle_panel'},
       ], MenuItemLocation.Tools
     );
 
     joplin.views.menuItems.create('jarvis.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
 
     await joplin.workspace.onNoteSelectionChange(async () => {
-      if (await joplin.views.panels.visible(panel)) {
         find_notes_debounce(panel, embeddings, model);
         if (delay_db_update > 0) {
           update_note_db_debounce(db, embeddings, model, panel);
         }
-      }
     });
 
     await joplin.views.panels.onMessage(panel, async (message) => {

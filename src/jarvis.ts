@@ -133,6 +133,9 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
 }
 
 export async function find_notes(panel: string, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
+  if (!(await joplin.views.panels.visible(panel))) {
+    return;
+  }
   const settings = await get_settings();
 
   const note = await joplin.workspace.selectedNote();
