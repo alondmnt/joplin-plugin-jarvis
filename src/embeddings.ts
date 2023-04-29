@@ -57,8 +57,7 @@ export async function calc_note_embeddings(note: any, model: use.UniversalSenten
       const sub_blocks = split_block_to_max_size(block, max_block_size, is_code_block);
 
       const sub_embd = sub_blocks.map(async (sub: string): Promise<BlockEmbedding> => {
-        // I'm not sure why we need all the -1's here, but it seems to work
-        const line = note.body.substring(0, note.body.indexOf(sub) - 1).split(/\r?\n/).length - 1;
+        const line = calculate_line_number(note.body, block, sub);
         return {
           id: note.id,
           hash: hash,
@@ -132,6 +131,18 @@ function split_text_block_by_sentences_and_newlines(block: string, max_size: num
   }
 
   return blocks;
+}
+
+function calculate_line_number(note_body: string, sub: string, block: string): number {
+  const block_start = note_body.indexOf(block);
+  const sub_start = block_start + block.indexOf(sub);
+  let line_number = note_body.substring(0, sub_start).split(/\r?\n/).length;
+
+  if (!sub.startsWith("```")) {
+    line_number -= 1;
+  }
+
+  return line_number
 }
 
 // calculate the embedding for a block of text
