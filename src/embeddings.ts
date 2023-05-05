@@ -45,7 +45,7 @@ export async function calc_note_embeddings(note: any, model: use.UniversalSenten
 
       // parse the heading title and level from the main block
       // use the last known level/title as a default
-      const is_code_block = block.startsWith("```");
+      const is_code_block = block.startsWith('```');
       if (is_code_block) {
         const parse_heading = block.match(/```(.*)/);
         if (parse_heading) { title = parse_heading[1] + ' '; }
@@ -96,17 +96,17 @@ function split_block_to_max_size(block: string, max_size: number, is_code_block:
 function split_code_block_by_lines(block: string, max_size: number): string[] {
   const lines = block.split(/\r?\n/);
   const blocks: string[] = [];
-  let current_block = "";
+  let current_block = '';
   let current_size = 0;
 
   lines.forEach(line => {
     const words = line.split(/\s+/).length;
     if (current_size + words <= max_size) {
-      current_block += line + "\n";
+      current_block += line + '\n';
       current_size += words;
     } else {
       blocks.push(current_block);
-      current_block = line + "\n";
+      current_block = line + '\n';
       current_size = words;
     }
   });
@@ -121,7 +121,7 @@ function split_code_block_by_lines(block: string, max_size: number): string[] {
 function split_text_block_by_sentences_and_newlines(block: string, max_size: number): string[] {
   const segments = block.match(/[^\.!\?\n]+[\.!\?\n]+/g) || [];
   let current_size = 0;
-  let current_block = "";
+  let current_block = '';
   const blocks: string[] = [];
 
   segments.forEach(segment => {
@@ -148,7 +148,7 @@ function calculate_line_number(note_body: string, sub: string, block: string): n
   const sub_start = block_start + block.indexOf(sub);
   let line_number = note_body.substring(0, sub_start).split(/\r?\n/).length;
 
-  if (!sub.startsWith("```")) {
+  if (!sub.startsWith('```')) {
     line_number -= 1;
   }
 
@@ -206,6 +206,49 @@ export async function update_embeddings(db: any, embeddings: BlockEmbedding[],
   const new_embeddings = await Promise.all(notes_promises);
 
   return [].concat(...new_embeddings);
+}
+
+export async function extract_blocks_text(embeddings: BlockEmbedding[], max_length: number): Promise<string> {
+  let text: string = '';
+  let embd: BlockEmbedding;
+  for (let i=0; i<embeddings.length; i++) {
+    embd = embeddings[i];
+    if (embd.body_idx < 0) {
+      // unknown position in note (rare case)
+      console.log(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
+      continue;
+    }
+
+    const block_text = (await joplin.data.get(['notes', embd.id], { fields: ['body']}))
+      .body.substring(embd.body_idx, embd.body_idx + embd.length);
+
+    text += `# note ${i+1}:\n` + block_text;
+    if (text.length > max_length) {
+      break;
+    }
+  };
+  return text;
+}
+
+export function extract_blocks_links(embeddings: BlockEmbedding[]): string {
+  let links: string = '';
+  for (let i=0; i<embeddings.length; i++) {
+    if (embeddings[i].level > 0) {
+      links += `[${i+1}](:/${embeddings[i].id}#${get_slug(embeddings[i].title)}), `;
+    } else {
+      links += `[${i+1}](:/${embeddings[i].id}), `;
+    }
+  };
+  return links.substring(0, links.length-2);
+}
+
+function get_slug(title: string): string {
+  return title
+      .toLowerCase()                        // convert to lowercase
+      .replace(/\s+/g, '-')                 // replace spaces with hyphens
+      .replace(/[^a-z0-9\-]+/g, '')         // remove non-alphanumeric characters except hyphens
+      .replace(/-+/g, '-')                  // replace multiple hyphens with a single hyphen
+      .replace(/^-|-$/g, '');               // remove hyphens at the beginning and end of the string
 }
 
 // given a list of embeddings, find the nearest ones to the query

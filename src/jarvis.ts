@@ -4,7 +4,7 @@ import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, model_max_tokens } from './settings';
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
-import { BlockEmbedding, find_nearest_notes, update_embeddings } from './embeddings';
+import { BlockEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, update_embeddings } from './embeddings';
 import { update_panel, update_progress_bar } from './panel';
 
 export async function ask_jarvis(dialogHandle: string) {
@@ -59,23 +59,26 @@ export async function research_with_jarvis(dialogHandle: string) {
 // this function takes the last tokens from the current note and uses them as a completion prompt
 export async function chat_with_jarvis() {
   const settings = await get_settings();
-
-  // get cursor position
-  const cursor = await joplin.commands.execute('editor.execCommand', {
-    name: 'getCursor',
-    args: ['from'],
-  });
-  // get all text up to current cursor
-  let prompt = await joplin.commands.execute('editor.execCommand', {
-    name: 'getRange',
-    args: [{line: 0, ch: 0}, cursor],
-  });
-  // get last tokens
-  prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
+  const prompt = await get_chat_prompt(settings);
 
   await replace_selection('\n\nGenerating response...');
   let completion = await query_completion(prompt + settings.chat_prefix, settings);
   await replace_selection(settings.chat_prefix + completion + settings.chat_suffix);
+}
+
+export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
+  const settings = await get_settings();
+  const prompt = await get_chat_prompt(settings);
+  await replace_selection('\n\nGenerating response...');
+
+  const note = await joplin.workspace.selectedNote();
+  const nearest = await find_nearest_notes(embeddings, note.id, prompt, model, settings, false);
+  const decorate = '\nYou may use any of the following notes to help you with your response, but only if they are relevant to the prompt. Cite the [number] of all the notes that you incorporate.\n\n';
+  const note_text = await extract_blocks_text(nearest[0].embeddings, 4*settings.memory_tokens);
+  const note_links = extract_blocks_links(nearest[0].embeddings);
+
+  let completion = await query_completion(prompt + decorate + note_text + settings.chat_prefix, settings);
+  await replace_selection(settings.chat_prefix + completion + '\n\n' + note_links + settings.chat_suffix);
 }
 
 export async function edit_with_jarvis(dialogHandle: string) {
@@ -95,7 +98,7 @@ export async function edit_with_jarvis(dialogHandle: string) {
 
 export async function update_note_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string): Promise<BlockEmbedding[]> {
   const settings = await get_settings();
-  const cycle = 10;  // pages
+  const cycle = 20;  // pages
   const period = 10;  // sec
 
   let notes: any;
@@ -115,7 +118,7 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
   // iterate over all notes
   do {
     page += 1;
-    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict'], page: page });
+    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict'], page: page, limit: 50 });
     if (notes.items) {
       new_embeddings = new_embeddings.concat( await update_embeddings(db, embeddings, notes.items, model) );
       processed_notes += notes.items.length;
@@ -143,10 +146,27 @@ export async function find_notes(panel: string, embeddings: BlockEmbedding[], mo
   if (selected.length == 0) {
     selected = note.body;
   }
-  const nearest = (await find_nearest_notes(embeddings, note.id, selected, model, settings));
+  const nearest = await find_nearest_notes(embeddings, note.id, selected, model, settings);
 
   // write results to panel
   await update_panel(panel, nearest, settings);
+}
+
+async function get_chat_prompt(settings: JarvisSettings): Promise<string> {
+  // get cursor position
+  const cursor = await joplin.commands.execute('editor.execCommand', {
+    name: 'getCursor',
+    args: ['from'],
+  });
+  // get all text up to current cursor
+  let prompt = await joplin.commands.execute('editor.execCommand', {
+    name: 'getRange',
+    args: [{line: 0, ch: 0}, cursor],
+  });
+  // get last tokens
+  prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
+
+  return prompt
 }
 
 export async function get_completion_params(

@@ -1,7 +1,7 @@
 import joplin from 'api';
 import { MenuItemLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
-import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis } from './jarvis';
+import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes } from './jarvis';
 import { get_settings, register_settings } from './settings';
 import { load_model } from './embeddings';
 import { connect_to_db, get_all_embeddings, init_db, clear_db } from './db';
@@ -100,12 +100,21 @@ joplin.plugins.register({
           await joplin.views.panels.show(panel);
           find_notes_debounce(panel, embeddings, model)
         }
+      },
+    });
+
+    joplin.commands.register({
+      name: 'jarvis.notes.chat',
+      label: 'Chat with your notes',
+      execute: async () => {
+        chat_with_notes(embeddings, model);
       }
     });
 
     joplin.views.menus.create('jarvis', 'Jarvis', [
-      {commandName: 'jarvis.ask', accelerator: 'CmdOrCtrl+Shift+J'},
       {commandName: 'jarvis.chat', accelerator: 'CmdOrCtrl+Shift+C'},
+      {commandName: 'jarvis.notes.chat', accelerator: 'CmdOrCtrl+Alt+C'},
+      {commandName: 'jarvis.ask', accelerator: 'CmdOrCtrl+Shift+J'},
       {commandName: 'jarvis.research', accelerator: 'CmdOrCtrl+Shift+R'},
       {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+E'},
       {commandName: 'jarvis.notes.find', accelerator: 'CmdOrCtrl+Alt+F'},
