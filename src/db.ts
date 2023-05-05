@@ -20,6 +20,8 @@ export async function init_db(db: any): Promise<void> {
   db.exec(`CREATE TABLE embeddings (
     idx INTEGER PRIMARY KEY,
     line INTEGER NOT NULL,
+    body_idx INTEGER NOT NULL,
+    length INTEGER NOT NULL,
     level INTEGER NOT NULL,
     title TEXT,
     embedding BLOB NOT NULL,
@@ -79,8 +81,8 @@ async function db_tables_exist(db: any): Promise<boolean> {
 export async function get_all_embeddings(db: any): Promise<BlockEmbedding[]> {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
-      db.all(`SELECT note_id, hash, line, level, title, embedding FROM notes JOIN embeddings ON notes.idx = embeddings.note_idx`,
-          (err, rows: {note_id: string, hash: string, line: string, level: number, title: string, embedding: Buffer}[]) => {
+      db.all(`SELECT note_id, hash, line, body_idx, length, level, title, embedding FROM notes JOIN embeddings ON notes.idx = embeddings.note_idx`,
+          (err, rows: {note_id: string, hash: string, line: string, body_idx: number, length: number, level: number, title: string, embedding: Buffer}[]) => {
         if (err) {
           reject(err);
         } else {
@@ -92,6 +94,8 @@ export async function get_all_embeddings(db: any): Promise<BlockEmbedding[]> {
               id: row.note_id,
               hash: row.hash,
               line: parseInt(row.line, 10),
+              body_idx: row.body_idx,
+              length: row.length,
               level: row.level,
               title: row.title,
               embedding: embedding,
@@ -149,9 +153,9 @@ export async function insert_note_embeddings(db: any, embeds: BlockEmbedding[]):
           reject(err);
         } else {
           // insert the new embeddings
-          const stmt = db.prepare(`INSERT INTO embeddings (note_idx, line, level, title, embedding, model_idx) VALUES (?, ?, ?, ?, ?, ?)`);
+          const stmt = db.prepare(`INSERT INTO embeddings (note_idx, line, body_idx, length, level, title, embedding, model_idx) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
           for (let embd of embeddings) {
-            stmt.run([new_row_id, embd.line, embd.level, embd.title, Buffer.from(embd.embedding.buffer), model.id]);
+            stmt.run([new_row_id, embd.line, embd.body_idx, embd.length, embd.level, embd.title, Buffer.from(embd.embedding.buffer), model.id]);
           }
           stmt.finalize();
           resolve();

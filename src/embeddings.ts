@@ -11,6 +11,8 @@ export interface BlockEmbedding {
   id: string;  // note id
   hash: string;  // note content hash
   line: number;  // line no. in the note where the block starts
+  body_idx: number;  // index in note.body
+  length: number;  // length of block
   level: number;  // heading level
   title: string;  // heading title
   embedding: Float32Array;  // block embedding
@@ -60,10 +62,16 @@ export async function calc_note_embeddings(note: any, model: use.UniversalSenten
 
       const sub_embd = sub_blocks.map(async (sub: string): Promise<BlockEmbedding> => {
         const line = calculate_line_number(note.body, block, sub);
+        const body_idx = note.body.indexOf(sub);
+        if (body_idx === -1) {
+          console.log(`calc_note_embeddings: block not found in note: ${note.id}\n${sub}`);
+        }
         return {
           id: note.id,
           hash: hash,
           line: line,
+          body_idx: body_idx,
+          length: sub.length,
           level: level,
           title: title,
           embedding: await calc_block_embeddings(model, [sub]),
@@ -207,7 +215,6 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   const query_embeddings = (await calc_note_embeddings(
     {id: 'query', body: query, title: 'query'}, model, max_block_size));
-  // calculate the mean of embeddings
   const rep_embedding = calc_mean_embedding(query_embeddings);
 
   // calculate the similarity between the query and each embedding, and filter by it
