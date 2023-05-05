@@ -2,8 +2,10 @@ import joplin from 'api';
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { createHash } from 'crypto';
-import { JarvisSettings, get_settings } from './settings';
+import { JarvisSettings } from './settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
+
+const max_block_size = 512 / 1.5;  // max no. of words per block, TODO: add to settings
 
 export interface BlockEmbedding {
   id: string;  // note id
@@ -12,14 +14,14 @@ export interface BlockEmbedding {
   level: number;  // heading level
   title: string;  // heading title
   embedding: Float32Array;  // block embedding
-  similarity: number;  // similarity to the prompt
+  similarity: number;  // similarity to the query
 }
 
 export interface NoteEmbedding {
   id: string;  // note id
   title: string;  // note title
   embeddings: BlockEmbedding[];  // block embeddings
-  similarity: number;  // average similarity to the prompt
+  similarity: number;  // representative similarity to the query
 }
 
 tf.setBackend('webgl');
@@ -170,13 +172,11 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
     return [];
   }
 
-  const max_block_size = 512 / 1.5;  // max no. of words per block, TODO: add to settings
   const hash = calc_hash(note.body);
   const old_embd = embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
 
   // if the note hasn't changed, return the old embeddings
   if ((old_embd.length > 0) && (old_embd[0].hash === hash)) {
-    // Call the callback function to update the progress bar
     return old_embd;
   }
 
@@ -192,7 +192,6 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
 export async function update_embeddings(db: any, embeddings: BlockEmbedding[],
     notes: any[], model: use.UniversalSentenceEncoder): Promise<BlockEmbedding[]> {
   // map over the notes array and create an array of promises
-  // by calling process_note() with a callback to update progress
   const notes_promises = notes.map(note => update_note(note, embeddings, model, db));
 
   // wait for all promises to resolve and store the result in new_embeddings
@@ -203,17 +202,31 @@ export async function update_embeddings(db: any, embeddings: BlockEmbedding[],
 
 // given a list of embeddings, find the nearest ones to the query
 export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, query: string,
-  model: use.UniversalSentenceEncoder, settings: JarvisSettings): Promise<NoteEmbedding[]> {
+    model: use.UniversalSentenceEncoder, settings: JarvisSettings, return_grouped_notes: boolean=true):
+    Promise<NoteEmbedding[]> {
 
-  const query_embedding = await calc_block_embeddings(model, [query]);
+  const query_embeddings = (await calc_note_embeddings(
+    {id: 'query', body: query, title: 'query'}, model, max_block_size));
+  // calculate the mean of embeddings
+  const rep_embedding = calc_mean_embedding(query_embeddings);
 
   // calculate the similarity between the query and each embedding, and filter by it
   const nearest = (await Promise.all(embeddings.map(
-  async (embed: BlockEmbedding): Promise<BlockEmbedding> => {
-    embed.similarity = await calc_similarity(query_embedding, embed.embedding);
+    async (embed: BlockEmbedding): Promise<BlockEmbedding> => {
+    embed.similarity = await calc_similarity(rep_embedding, embed.embedding);
     return embed;
   }
   ))).filter((embd) => (embd.similarity >= settings.notes_min_similarity) && (embd.id !== current_id));
+
+  if (!return_grouped_notes) {
+    // return the sorted list of block embeddings in a NoteEmbdedding[] object
+    return [{
+      id: null,
+      title: null,
+      embeddings: nearest.sort((a, b) => b.similarity - a.similarity).slice(0, settings.notes_max_hits),
+      similarity: null,
+    }];
+  }
 
   // group the embeddings by note id
   const grouped = nearest.reduce((acc: {[note_id: string]: BlockEmbedding[]}, embed) => {
@@ -251,6 +264,15 @@ export async function calc_similarity(embedding1: Float32Array, embedding2: Floa
     sim += embedding1[i] * embedding2[i];
   }
   return sim;
+}
+
+function calc_mean_embedding(embeddings: BlockEmbedding[]): Float32Array {
+  return embeddings.reduce((acc, embd) => {
+    for (let i = 0; i < acc.length; i++) {
+      acc[i] += embd.embedding[i];
+    }
+    return acc;
+  }, new Float32Array(embeddings[0].embedding.length)).map(x => x / embeddings.length);
 }
 
 // calculate the hash of a string
