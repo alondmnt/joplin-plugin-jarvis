@@ -37,6 +37,7 @@ export async function calc_note_embeddings(note: any, model: use.UniversalSenten
   const hash = calc_hash(note.body);
   let level = 0;
   let title = note.title;
+  let path = [title, '', '', '', '', '', ''];  // block path
 
   // separate blocks using the note's headings, but avoid splitting within code sections
   const regex = /(^```[\s\S]*?```$)|(^#+\s.*)/gm;
@@ -57,6 +58,8 @@ export async function calc_note_embeddings(note: any, model: use.UniversalSenten
           title = parse_heading[2];
         }
       }
+      if (level > 6) { level = 6; }  // max heading level is 6
+      path[level] = title;
 
       const sub_blocks = split_block_to_max_size(block, max_block_size, is_code_block);
 
@@ -74,7 +77,7 @@ export async function calc_note_embeddings(note: any, model: use.UniversalSenten
           length: sub.length,
           level: level,
           title: title,
-          embedding: await calc_block_embeddings(model, [sub]),
+          embedding: await calc_block_embeddings(model, [path.slice(0, level+1).join('/') + ':' + sub]),
           similarity: 0,
         };
       });
@@ -219,10 +222,10 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[], max_leng
       continue;
     }
 
-    const block_text = (await joplin.data.get(['notes', embd.id], { fields: ['body']}))
-      .body.substring(embd.body_idx, embd.body_idx + embd.length);
+    const note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body']});
+    const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
 
-    text += `# note ${i+1}:\n` + block_text;
+    text += `# note ${i+1}:\n${note.title}/${embd.title}\n` + block_text;
     if (text.length > max_length) {
       break;
     }
