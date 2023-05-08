@@ -35,6 +35,7 @@ export async function load_model(settings: JarvisSettings): Promise<use.Universa
 // calculate the embeddings for a note
 export async function calc_note_embeddings(note: any, model: use.UniversalSentenceEncoder, max_block_size: number): Promise<BlockEmbedding[]> {
   const hash = calc_hash(note.body);
+  note.body = convert_newlines(note.body);
   let level = 0;
   let title = note.title;
   let path = [title, '', '', '', '', '', ''];  // block path
@@ -64,11 +65,7 @@ export async function calc_note_embeddings(note: any, model: use.UniversalSenten
       const sub_blocks = split_block_to_max_size(block, max_block_size, is_code_block);
 
       const sub_embd = sub_blocks.map(async (sub: string): Promise<BlockEmbedding> => {
-        const line = calculate_line_number(note.body, block, sub);
-        const body_idx = note.body.indexOf(sub);
-        if (body_idx === -1) {
-          console.log(`calc_note_embeddings: block not found in note: ${note.id}\n${sub}`);
-        }
+        const [line, body_idx] = calc_line_number(note.body, block, sub);
         return {
           id: note.id,
           hash: hash,
@@ -97,12 +94,13 @@ function split_block_to_max_size(block: string, max_size: number, is_code_block:
 }
 
 function split_code_block_by_lines(block: string, max_size: number): string[] {
-  const lines = block.split(/\r?\n/);
+  const lines = block.split('\n');
   const blocks: string[] = [];
   let current_block = '';
   let current_size = 0;
 
   lines.forEach(line => {
+    // TODO: probably need a better count than words
     const words = line.split(/\s+/).length;
     if (current_size + words <= max_size) {
       current_block += line + '\n';
@@ -146,16 +144,16 @@ function split_text_block_by_sentences_and_newlines(block: string, max_size: num
   return blocks;
 }
 
-function calculate_line_number(note_body: string, sub: string, block: string): number {
+function calc_line_number(note_body: string, block: string, sub: string): [number, number] {
   const block_start = note_body.indexOf(block);
-  const sub_start = block_start + block.indexOf(sub);
-  let line_number = note_body.substring(0, sub_start).split(/\r?\n/).length;
+  const sub_start = Math.max(0, block.indexOf(sub));
+  let line_number = note_body.substring(0, block_start + sub_start).split('\n').length;
 
   if (!sub.startsWith('```')) {
-    line_number -= 1;
+    line_number -= 2;
   }
 
-  return line_number
+  return [line_number, block_start + sub_start];
 }
 
 // calculate the embedding for a block of text
@@ -225,7 +223,11 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[], max_leng
     const note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body']});
     const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
 
-    text += `# note ${i+1}:\n${note.title}/${embd.title}\n` + block_text;
+    text += `# note ${i+1}:\n${note.title}`;
+    if (embd.title !== note.title) {
+      text += `/${embd.title}`;
+    }
+    text += `\n` + block_text;
     if (text.length > max_length) {
       break;
     }
@@ -259,8 +261,11 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     model: use.UniversalSentenceEncoder, settings: JarvisSettings, return_grouped_notes: boolean=true):
     Promise<NoteEmbedding[]> {
 
-  const query_embeddings = (await calc_note_embeddings(
-    {id: 'query', body: query, title: 'query'}, model, max_block_size));
+  const query_embeddings = await calc_note_embeddings(
+    {id: 'query', body: query, title: 'query'}, model, max_block_size);
+  if (query_embeddings.length === 0) {
+    return [];
+  }
   const rep_embedding = calc_mean_embedding(query_embeddings);
 
   // calculate the similarity between the query and each embedding, and filter by it
@@ -331,4 +336,8 @@ function calc_mean_embedding(embeddings: BlockEmbedding[]): Float32Array {
 // calculate the hash of a string
 function calc_hash(text: string): string {
   return createHash('md5').update(text).digest('hex');
+}
+
+function convert_newlines(str: string): string {
+  return str.replace(/\r\n|\r/g, '\n');
 }
