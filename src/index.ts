@@ -67,7 +67,7 @@ joplin.plugins.register({
 
     joplin.commands.register({
       name: 'jarvis.notes.db.update',
-      label: 'Update Jarvis notes DB',
+      label: 'Update Jarvis note DB',
       execute: async () => {
         embeddings = await update_note_db(db, embeddings, model, panel);
         find_notes_debounce(panel, embeddings, model);
@@ -128,7 +128,7 @@ joplin.plugins.register({
     await joplin.workspace.onNoteSelectionChange(async () => {
         find_notes_debounce(panel, embeddings, model);
         if (delay_db_update > 0) {
-          update_note_db_debounce(db, embeddings, model, panel);
+          embeddings = await update_note_db_debounce(db, embeddings, model, panel);
         }
     });
 
