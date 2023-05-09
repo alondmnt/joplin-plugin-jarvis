@@ -42,7 +42,8 @@ export async function init_db(db: any): Promise<void> {
     idx INTEGER PRIMARY KEY,
     model_name TEXT NOT NULL,
     model_version TEXT NOT NULL,
-    UNIQUE (model_name, model_version)
+    embedding_version INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (model_name, model_version, embedding_version)
   )`);
 
   // add the model metadata
