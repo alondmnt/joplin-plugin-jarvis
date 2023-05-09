@@ -69,11 +69,11 @@ export async function chat_with_jarvis() {
 export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
   const settings = await get_settings();
   const prompt = await get_chat_prompt(settings);
-  await replace_selection('\n\nGenerating response...');
+  await replace_selection('\n\nGenerating notes response...');
 
   const note = await joplin.workspace.selectedNote();
   const nearest = await find_nearest_notes(embeddings, note.id, prompt, model, settings, false);
-  const decorate = '\nYou may use any of the following notes to help you with your response, but only if they are relevant to the prompt. Cite the [number] of all the notes that you incorporate.\n\n';
+  const decorate = "\nRespond to the user's prompt above. The following are the user's own notes. You you may refer to the content of any of the notes, and extend it, but only when it is relevant to the prompt. Always cite the [note number] of each note that you use.\n\n";
   const note_text = await extract_blocks_text(nearest[0].embeddings, 4*settings.memory_tokens);
   const note_links = extract_blocks_links(nearest[0].embeddings);
 
