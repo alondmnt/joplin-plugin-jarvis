@@ -126,7 +126,7 @@ joplin.plugins.register({
     joplin.views.menuItems.create('jarvis.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
 
     await joplin.workspace.onNoteSelectionChange(async () => {
-        find_notes_debounce(panel, embeddings, model);
+        await find_notes_debounce(panel, embeddings, model);
         if (delay_db_update > 0) {
           embeddings = await update_note_db_debounce(db, embeddings, model, panel);
         }
