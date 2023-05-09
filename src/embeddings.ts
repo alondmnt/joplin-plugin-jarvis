@@ -29,7 +29,12 @@ export interface NoteEmbedding {
 tf.setBackend('webgl');
 
 export async function load_model(settings: JarvisSettings): Promise<use.UniversalSentenceEncoder> {
-  return await use.load();
+  try {
+    return await use.load();
+  } catch (e) {
+    console.log(`load_model failed: ${e}`);
+    return null;
+  }
 }
 
 // calculate the embeddings for a note

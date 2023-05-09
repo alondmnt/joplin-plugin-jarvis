@@ -2,6 +2,16 @@ import joplin from 'api';
 import { NoteEmbedding } from './embeddings';
 import { JarvisSettings } from './settings';
 
+export async function register_panel(panel: string, settings: JarvisSettings, model: any) {
+  let model_str = '';
+  if (model === null) {
+    model_str = 'Model could not be loaded. Note that Universal Sentence Encoder runs completely locally, but requires network access in order to load the model.';
+  }
+  await joplin.views.panels.addScript(panel, './webview.css');
+  await joplin.views.panels.addScript(panel, './webview.js');
+  await joplin.views.panels.setHtml(panel, `<div class="container"><p class="jarvis-semantic-title">${settings.notes_panel_title}</p><p>${model_str}</p></div>`);
+}
+
 export async function update_panel(panel: string, nearest: NoteEmbedding[], settings: JarvisSettings) {
   // TODO: collapse according to settings
   await joplin.views.panels.setHtml(panel, `

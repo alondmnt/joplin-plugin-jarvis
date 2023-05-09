@@ -67,6 +67,9 @@ export async function chat_with_jarvis() {
 }
 
 export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
+  if (model === null) {
+    return;
+  }
   const settings = await get_settings();
   const prompt = await get_chat_prompt(settings);
   await replace_selection('\n\nGenerating notes response...');
@@ -106,6 +109,9 @@ export async function edit_with_jarvis(dialogHandle: string) {
 }
 
 export async function update_note_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string): Promise<BlockEmbedding[]> {
+  if (model === null) {
+    return embeddings;
+  }
   const settings = await get_settings();
   const cycle = 20;  // pages
   const period = 10;  // sec
@@ -146,6 +152,9 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
 
 export async function find_notes(panel: string, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
   if (!(await joplin.views.panels.visible(panel))) {
+    return;
+  }
+  if (model === null) {
     return;
   }
   const settings = await get_settings();

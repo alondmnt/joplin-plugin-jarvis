@@ -4,7 +4,8 @@ import * as debounce from 'lodash.debounce';
 import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes } from './jarvis';
 import { get_settings, register_settings } from './settings';
 import { load_model } from './embeddings';
-import { connect_to_db, get_all_embeddings, init_db, clear_db } from './db';
+import { connect_to_db, get_all_embeddings, init_db } from './db';
+import { register_panel } from './panel';
 
 joplin.plugins.register({
 	onStart: async function() {
@@ -19,16 +20,13 @@ joplin.plugins.register({
     const delay_db_update = 60 * settings.notes_db_update_delay;
 
     await new Promise(res => setTimeout(res, delay_startup * 1000));
-    const model = await load_model(settings);
+    let model = await load_model(settings);
     const db = await connect_to_db();
     await init_db(db);
     let embeddings = await get_all_embeddings(db);
 
     const panel = await joplin.views.panels.create('jarvis.relatedNotes');
-    await joplin.views.panels.addScript(panel, './webview.css');
-    await joplin.views.panels.addScript(panel, './webview.js');
-    // TODO: move to an init_panel function
-    await joplin.views.panels.setHtml(panel, `<div class="container"><p class="jarvis-semantic-title">${settings.notes_panel_title}</p></div>`);
+    register_panel(panel, settings, model);
 
     const find_notes_debounce = debounce(find_notes, delay_panel * 1000);
     const update_note_db_debounce = debounce(update_note_db, delay_db_update * 1000, {leading: true, trailing: false});
@@ -69,23 +67,21 @@ joplin.plugins.register({
       name: 'jarvis.notes.db.update',
       label: 'Update Jarvis note DB',
       execute: async () => {
+        if (model === null) {
+          model = await load_model(settings);
+        }
         embeddings = await update_note_db(db, embeddings, model, panel);
         find_notes_debounce(panel, embeddings, model);
       }
     });
 
-    // joplin.commands.register({
-    //   name: 'jarvis.notes.db.clear',
-    //   label: 'Clear Jarvis notes DB',
-    //   execute: async () => {
-    //     await clear_db(db);
-    //   }
-    // });
-
     joplin.commands.register({
       name: 'jarvis.notes.find',
       label: 'Find related notes',
       execute: async () => {
+        if (model === null) {
+          model = await load_model(settings);
+        }
         find_notes_debounce(panel, embeddings, model);
       }
     });
@@ -98,6 +94,9 @@ joplin.plugins.register({
           await joplin.views.panels.hide(panel);
         } else {
           await joplin.views.panels.show(panel);
+          if (model === null) {
+            model = await load_model(settings);
+          }
           find_notes_debounce(panel, embeddings, model)
         }
       },
@@ -107,6 +106,9 @@ joplin.plugins.register({
       name: 'jarvis.notes.chat',
       label: 'Chat with your notes',
       execute: async () => {
+        if (model === null) {
+          model = await load_model(settings);
+        }
         chat_with_notes(embeddings, model);
       }
     });
@@ -126,6 +128,9 @@ joplin.plugins.register({
     joplin.views.menuItems.create('jarvis.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
 
     await joplin.workspace.onNoteSelectionChange(async () => {
+        if (model === null) {
+          model = await load_model(settings);
+        }
         await find_notes_debounce(panel, embeddings, model);
         if (delay_db_update > 0) {
           embeddings = await update_note_db_debounce(db, embeddings, model, panel);
