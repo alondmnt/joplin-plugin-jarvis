@@ -223,14 +223,14 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[], max_leng
     const note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body']});
     const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
 
-    text += `# note ${i+1}:\n${note.title}`;
+    let decoration = `# note ${i+1}:\n${note.title}`;
     if (embd.title !== note.title) {
-      text += `/${embd.title}`;
+      decoration += `/${embd.title}`;
     }
-    text += `\n` + block_text;
-    if (text.length > max_length) {
+    if (text.length + decoration.length + block_text.length > max_length) {
       break;
     }
+    text += decoration + '\n' + block_text;
   };
   return text;
 }
