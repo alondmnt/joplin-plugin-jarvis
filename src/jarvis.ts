@@ -183,6 +183,10 @@ async function get_chat_prompt(settings: JarvisSettings): Promise<string> {
   });
   // get last tokens
   prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
+  // strip markdown links and keep the text
+  prompt = prompt.replace(/\[.*?\]\(.*?\)/g, (match) => {
+    return match.substring(1, match.indexOf(']'));
+  });
 
   return prompt
 }
