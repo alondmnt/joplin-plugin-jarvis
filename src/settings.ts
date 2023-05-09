@@ -261,7 +261,7 @@ export async function register_settings() {
       description: 'The period between database updates in minutes. Set to 0 to disable automatic updates. (Requires restart)',
     },
     'notes_min_similarity': {
-      value: 65,
+      value: 50,
       type: SettingItemType.Int,
       minimum: 0,
       maximum: 100,
