@@ -1,8 +1,11 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
+import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, model_max_tokens } from './settings';
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
+import { BlockEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, update_embeddings } from './embeddings';
+import { update_panel, update_progress_bar } from './panel';
 
 export async function ask_jarvis(dialogHandle: string) {
   const settings = await get_settings();
@@ -56,23 +59,38 @@ export async function research_with_jarvis(dialogHandle: string) {
 // this function takes the last tokens from the current note and uses them as a completion prompt
 export async function chat_with_jarvis() {
   const settings = await get_settings();
-
-  // get cursor position
-  const cursor = await joplin.commands.execute('editor.execCommand', {
-    name: 'getCursor',
-    args: ['from'],
-  });
-  // get all text up to current cursor
-  let prompt = await joplin.commands.execute('editor.execCommand', {
-    name: 'getRange',
-    args: [{line: 0, ch: 0}, cursor],
-  });
-  // get last tokens
-  prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
+  const prompt = await get_chat_prompt(settings);
 
   await replace_selection('\n\nGenerating response...');
   let completion = await query_completion(prompt + settings.chat_prefix, settings);
   await replace_selection(settings.chat_prefix + completion + settings.chat_suffix);
+}
+
+export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
+  if (model === null) {
+    return;
+  }
+  const settings = await get_settings();
+  const prompt = await get_chat_prompt(settings);
+  await replace_selection('\n\nGenerating notes response...');
+
+  const note = await joplin.workspace.selectedNote();
+  const nearest = await find_nearest_notes(embeddings, note.id, note.title, prompt, model, settings, false);
+  if (nearest.length === 0) {
+    await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question.' + settings.chat_suffix);
+    return;
+  }
+
+  const note_text = await extract_blocks_text(nearest[0].embeddings, 4*settings.memory_tokens);
+  if (note_text === '') {
+    await replace_selection(settings.chat_prefix + 'Could not include notes due to context limits. Try to increase memory tokens in the settings.' + settings.chat_suffix);
+    return;
+  }
+  const note_links = extract_blocks_links(nearest[0].embeddings);
+  const decorate = "\nRespond to the user's prompt above. The following are the user's own notes. You you may refer to the content of any of the notes, and extend it, but only when it is relevant to the prompt. Always cite the [note number] of each note that you use.\n\n";
+
+  let completion = await query_completion(prompt + decorate + note_text + settings.chat_prefix, settings);
+  await replace_selection(settings.chat_prefix + completion + '\n\n' + note_links + settings.chat_suffix);
 }
 
 export async function edit_with_jarvis(dialogHandle: string) {
@@ -88,6 +106,89 @@ export async function edit_with_jarvis(dialogHandle: string) {
   settings.max_tokens = parseInt(result.formData.ask.max_tokens, 10);
   let edit = await query_edit(selection, result.formData.ask.prompt, settings);
   await joplin.commands.execute('replaceSelection', edit);
+}
+
+export async function update_note_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string): Promise<BlockEmbedding[]> {
+  if (model === null) {
+    return embeddings;
+  }
+  const settings = await get_settings();
+  const cycle = 20;  // pages
+  const period = 10;  // sec
+
+  let notes: any;
+  let page = 0;
+  let new_embeddings: BlockEmbedding[] = [];
+  let total_notes = 0;
+  let processed_notes = 0;
+  // count all notes
+  do {
+    page += 1;
+    notes = await joplin.data.get(['notes'], { fields: ['id'], page: page });
+    total_notes += notes.items.length;
+  } while(notes.has_more);
+  update_progress_bar(panel, 0, total_notes, settings);
+
+  page = 0;
+  // iterate over all notes
+  do {
+    page += 1;
+    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict'], page: page, limit: 50 });
+    if (notes.items) {
+      new_embeddings = new_embeddings.concat( await update_embeddings(db, embeddings, notes.items, model) );
+      processed_notes += notes.items.length;
+      update_progress_bar(panel, processed_notes, total_notes, settings);
+    }
+    // rate limiter
+    if (notes.has_more && (page % cycle) == 0) {
+      await new Promise(res => setTimeout(res, period * 1000));
+    }
+  } while(notes.has_more);
+
+  find_notes(panel, new_embeddings, model);
+
+  return new_embeddings;
+}
+
+export async function find_notes(panel: string, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
+  if (!(await joplin.views.panels.visible(panel))) {
+    return;
+  }
+  if (model === null) {
+    return;
+  }
+  const settings = await get_settings();
+
+  const note = await joplin.workspace.selectedNote();
+  let selected = await joplin.commands.execute('selectedText');
+  if (selected.length == 0) {
+    selected = note.body;
+  }
+  const nearest = await find_nearest_notes(embeddings, note.id, note.title, selected, model, settings);
+
+  // write results to panel
+  await update_panel(panel, nearest, settings);
+}
+
+async function get_chat_prompt(settings: JarvisSettings): Promise<string> {
+  // get cursor position
+  const cursor = await joplin.commands.execute('editor.execCommand', {
+    name: 'getCursor',
+    args: ['from'],
+  });
+  // get all text up to current cursor
+  let prompt = await joplin.commands.execute('editor.execCommand', {
+    name: 'getRange',
+    args: [{line: 0, ch: 0}, cursor],
+  });
+  // get last tokens
+  prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
+  // strip markdown links and keep the text
+  prompt = prompt.replace(/\[.*?\]\(.*?\)/g, (match) => {
+    return match.substring(1, match.indexOf(']'));
+  });
+
+  return prompt
 }
 
 export async function get_completion_params(

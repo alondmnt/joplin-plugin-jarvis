@@ -1,0 +1,82 @@
+html {
+	overflow: auto;
+	text-overflow: clip;
+	background-color: var(--joplin-background-color);
+	color: var(--joplin-color);
+	font-size: var(--joplin-font-size);
+	font-family: var(--joplin-font-family);
+  margin: 5px;
+}
+
+.jarvis-semantic-title {
+  color: var(--joplin-color);
+  font-size: calc(var(--joplin-font-size) * 1.1);
+  font-weight: bold;
+  text-decoration: none;
+  margin: 5px;
+}
+
+.jarvis-semantic-note {
+  margin: 5px;
+  text-overflow: clip;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  white-space: nowrap;
+}
+
+.jarvis-semantic-section {
+  margin-left: 10px;
+  text-overflow: clip;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  white-space: nowrap;
+}
+
+.jarvis-semantic-section a {
+  color: var(--joplin-color);
+  text-decoration: none;
+}
+
+.jarvis-semantic-note a {
+  color: var(--joplin-color);
+  text-decoration: none;
+}
+
+.jarvis-semantic-progress {
+  width: 95%;
+  margin-left: 5px;
+}
+
+.jarvis-semantic-section a:active, a:hover {
+  font-weight: bold;
+}
+
+.jarvis-semantic-note a:active, a:hover {
+  font-weight: bold;
+}
+
+::-webkit-scrollbar {
+	width: 7px;
+	height: 7px;
+}
+
+::-webkit-scrollbar-corner {
+	background: none;
+}
+
+::-webkit-scrollbar-track {
+	border: none;
+}
+
+::-webkit-scrollbar-thumb {
+	background: rgba(100, 100, 100, 0.3);
+	border-radius: 5px;
+}
+
+::-webkit-scrollbar-track:hover {
+	background: rgba(0, 0, 0, 0.1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: rgba(100, 100, 100, 0.7);
+}
