@@ -4,7 +4,7 @@ import * as debounce from 'lodash.debounce';
 import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes } from './jarvis';
 import { get_settings, register_settings } from './settings';
 import { load_model } from './embeddings';
-import { connect_to_db, get_all_embeddings, init_db } from './db';
+import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
 import { register_panel } from './panel';
 
 joplin.plugins.register({
@@ -23,7 +23,7 @@ joplin.plugins.register({
     let model = await load_model(settings);
     const db = await connect_to_db();
     await init_db(db);
-    let embeddings = await get_all_embeddings(db);
+    let embeddings = await clear_deleted_notes(await get_all_embeddings(db), db);
 
     const panel = await joplin.views.panels.create('jarvis.relatedNotes');
     register_panel(panel, settings, model);

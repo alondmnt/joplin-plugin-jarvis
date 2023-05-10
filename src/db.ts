@@ -228,3 +228,32 @@ export async function clear_db(db: any): Promise<void> {
     });
   });
 }
+
+export async function clear_deleted_notes(embeddings: BlockEmbedding[], db: any):
+    Promise<BlockEmbedding[]> {
+  // get all existing note ids
+  let page = 0;
+  let notes: any;
+  let note_ids = [];
+  do {
+    page += 1;
+    notes = await joplin.data.get(['notes'], { fields: ['id'], page: page });
+    note_ids = note_ids.concat(notes.items.map((note: any) => note.id));
+  } while(notes.has_more);
+
+  let deleted = [];
+  let new_embeddings: BlockEmbedding[] = [];
+  for (const embd of embeddings) {
+
+    if (note_ids.includes(embd.id)) {
+      new_embeddings.push(embd);
+
+    } else if (!deleted.includes(embd.id)){
+      delete_note_and_embeddings(db, embd.id);
+      deleted.push(embd.id);
+    }
+  }
+
+  console.log(`clear_deleted_notes: ${deleted.length} notes removed from DB`);
+  return new_embeddings;
+}
