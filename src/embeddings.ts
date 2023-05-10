@@ -38,7 +38,7 @@ export async function load_model(settings: JarvisSettings): Promise<use.Universa
 }
 
 // calculate the embeddings for a note
-export async function calc_note_embeddings(note: any, model: use.UniversalSentenceEncoder, max_block_size: number): Promise<BlockEmbedding[]> {
+export async function calc_note_embeddings(note: any, note_tags: string[], model: use.UniversalSentenceEncoder, max_block_size: number): Promise<BlockEmbedding[]> {
   const hash = calc_hash(note.body);
   note.body = convert_newlines(note.body);
   let level = 0;
@@ -70,6 +70,9 @@ export async function calc_note_embeddings(note: any, model: use.UniversalSenten
       const sub_blocks = split_block_to_max_size(block, max_block_size, is_code_block);
 
       const sub_embd = sub_blocks.map(async (sub: string): Promise<BlockEmbedding> => {
+        let decorate = `${path.slice(0, level+1).join('/')}:\n`;
+        if (note_tags.length > 0) { decorate += `tags: ${note_tags.join(', ')}\n`; }
+
         const [line, body_idx] = calc_line_number(note.body, block, sub);
         return {
           id: note.id,
@@ -79,7 +82,7 @@ export async function calc_note_embeddings(note: any, model: use.UniversalSenten
           length: sub.length,
           level: level,
           title: title,
-          embedding: await calc_block_embeddings(model, [path.slice(0, level+1).join('/') + ':' + sub]),
+          embedding: await calc_block_embeddings(model, [decorate + sub]),
           similarity: 0,
         };
       });
@@ -195,7 +198,7 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
   }
 
   // otherwise, calculate the new embeddings
-  const new_embd = await calc_note_embeddings(note, model, max_block_size);
+  const new_embd = await calc_note_embeddings(note, note_tags, model, max_block_size);
 
   // insert new embeddings into DB
   await insert_note_embeddings(db, new_embd);
@@ -262,12 +265,14 @@ function get_slug(title: string): string {
 }
 
 // given a list of embeddings, find the nearest ones to the query
-export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, query: string,
+export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, current_title: string, query: string,
     model: use.UniversalSentenceEncoder, settings: JarvisSettings, return_grouped_notes: boolean=true):
     Promise<NoteEmbedding[]> {
 
+  const note_tags = (await joplin.data.get(['notes', current_id, 'tags'], { fields: ['title'] }))
+    .items.map((t: any) => t.title);
   const query_embeddings = await calc_note_embeddings(
-    {id: 'query', body: query, title: 'query'}, model, max_block_size);
+    {id: current_id, body: query, title: current_title}, note_tags, model, max_block_size);
   if (query_embeddings.length === 0) {
     return [];
   }
