@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { MenuItemLocation } from 'api/types';
+import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
 import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes } from './jarvis';
 import { get_settings, register_settings } from './settings';
@@ -42,6 +42,7 @@ joplin.plugins.register({
     joplin.commands.register({
       name: 'jarvis.chat',
       label: 'Chat with Jarvis',
+      iconName: 'fas fa-robot',
       execute: async () => {
         chat_with_jarvis();
       }
@@ -78,6 +79,7 @@ joplin.plugins.register({
     joplin.commands.register({
       name: 'jarvis.notes.find',
       label: 'Find related notes',
+      iconName: 'fas fa-search',
       execute: async () => {
         if (model === null) {
           model = await load_model(settings);
@@ -105,6 +107,7 @@ joplin.plugins.register({
     joplin.commands.register({
       name: 'jarvis.notes.chat',
       label: 'Chat with your notes',
+      iconName: 'fas fa-comments',
       execute: async () => {
         if (model === null) {
           model = await load_model(settings);
@@ -125,7 +128,10 @@ joplin.plugins.register({
       ], MenuItemLocation.Tools
     );
 
-    joplin.views.menuItems.create('jarvis.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
+    joplin.views.toolbarButtons.create('jarvis.toolbar.notes.find', 'jarvis.notes.find', ToolbarButtonLocation.EditorToolbar);
+    joplin.views.toolbarButtons.create('jarvis.toolbar.chat', 'jarvis.chat', ToolbarButtonLocation.EditorToolbar);
+
+    joplin.views.menuItems.create('jarvis.context.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
 
     await joplin.workspace.onNoteSelectionChange(async () => {
         if (model === null) {
