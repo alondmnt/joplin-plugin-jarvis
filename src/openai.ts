@@ -1,14 +1,15 @@
 import joplin from 'api';
+import GPT3Tokenizer from 'gpt3-tokenizer';
 import { JarvisSettings } from './settings';
 
 export async function query_completion(
     prompt: string, settings: JarvisSettings, adjust_max_tokens: number = 0): Promise<string> {
 
-  const input_tokens = Math.ceil(prompt.length / 4) + 20;  // heuristic for input length with some room for error
+  const tokenizer = new GPT3Tokenizer({ type: 'gpt3' });
   let url: string = '';
   let responseParams: any = {
     model: settings.model,
-    max_tokens: settings.max_tokens - input_tokens - adjust_max_tokens,
+    max_tokens: settings.max_tokens - tokenizer.encode(prompt).bpe.length - adjust_max_tokens,
     temperature: settings.temperature,
     top_p: settings.top_p,
     frequency_penalty: settings.frequency_penalty,

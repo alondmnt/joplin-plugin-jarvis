@@ -30,6 +30,7 @@
   "dependencies": {
     "@tensorflow-models/universal-sentence-encoder": "^1.3.3",
     "@tensorflow/tfjs": "^4.2.0",
+    "gpt3-tokenizer": "^1.1.5",
     "lodash.debounce": "^4.0.8"
   },
   "browser": {
