@@ -133,9 +133,9 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
   // iterate over all notes
   do {
     page += 1;
-    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict'], page: page, limit: 50 });
+    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id'], page: page, limit: 50 });
     if (notes.items) {
-      new_embeddings = new_embeddings.concat( await update_embeddings(db, embeddings, notes.items, model) );
+      new_embeddings = new_embeddings.concat( await update_embeddings(db, embeddings, notes.items, model, settings) );
       processed_notes += notes.items.length;
       update_progress_bar(panel, processed_notes, total_notes, settings);
     }
@@ -161,7 +161,7 @@ export async function find_notes(panel: string, embeddings: BlockEmbedding[], mo
 
   const note = await joplin.workspace.selectedNote();
   let selected = await joplin.commands.execute('selectedText');
-  if (selected.length == 0) {
+  if (!selected || (selected.length === 0)) {
     selected = note.body;
   }
   const nearest = await find_nearest_notes(embeddings, note.id, note.title, selected, model, settings);

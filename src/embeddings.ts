@@ -177,13 +177,14 @@ export async function calc_block_embeddings(model: use.UniversalSentenceEncoder,
 
 // async function to process a single note
 async function update_note(note: any, embeddings: BlockEmbedding[],
-    model: use.UniversalSentenceEncoder, db: any): Promise<BlockEmbedding[]> {
+    model: use.UniversalSentenceEncoder, db: any, settings: JarvisSettings): Promise<BlockEmbedding[]> {
   if (note.is_conflict) {
     return [];
   }
   const note_tags = (await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] }))
     .items.map((t: any) => t.title);
-  if (note_tags.includes('exclude.from.jarvis')) {
+  if (note_tags.includes('exclude.from.jarvis') || 
+      settings.notes_exclude_folders.has(note.parent_id)) {
     console.log(`Excluding note ${note.id} from Jarvis`);
     delete_note_and_embeddings(db, note.id);
     return [];
@@ -207,9 +208,9 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
 }
 
 export async function update_embeddings(db: any, embeddings: BlockEmbedding[],
-    notes: any[], model: use.UniversalSentenceEncoder): Promise<BlockEmbedding[]> {
+    notes: any[], model: use.UniversalSentenceEncoder, settings: JarvisSettings): Promise<BlockEmbedding[]> {
   // map over the notes array and create an array of promises
-  const notes_promises = notes.map(note => update_note(note, embeddings, model, db));
+  const notes_promises = notes.map(note => update_note(note, embeddings, model, db, settings));
 
   // wait for all promises to resolve and store the result in new_embeddings
   const new_embeddings = await Promise.all(notes_promises);

@@ -2,7 +2,7 @@ import joplin from 'api';
 import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
 import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes } from './jarvis';
-import { get_settings, register_settings } from './settings';
+import { get_settings, register_settings, set_folders } from './settings';
 import { load_model } from './embeddings';
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
 import { register_panel } from './panel';
@@ -72,7 +72,6 @@ joplin.plugins.register({
           model = await load_model(settings);
         }
         embeddings = await update_note_db(db, embeddings, model, panel);
-        find_notes_debounce(panel, embeddings, model);
       }
     });
 
@@ -116,6 +115,28 @@ joplin.plugins.register({
       }
     });
 
+    await joplin.commands.register({
+      name: 'jarvis.notes.exclude_folder',
+      label: 'Exclude notebook from note DB',
+      execute: async () => {
+        const folder = await joplin.workspace.selectedFolder();
+        if (folder == undefined) return;
+
+        set_folders(true, folder.id, settings);
+      },
+    });
+
+    await joplin.commands.register({
+      name: 'jarvis.notes.include_folder',
+      label: 'Include notebook in note DB',
+      execute: async () => {
+        const folder = await joplin.workspace.selectedFolder();
+        if (folder == undefined) return;
+
+        set_folders(false, folder.id, settings);
+      },
+    });
+
     joplin.views.menus.create('jarvis', 'Jarvis', [
       {commandName: 'jarvis.chat', accelerator: 'CmdOrCtrl+Shift+C'},
       {commandName: 'jarvis.notes.chat', accelerator: 'CmdOrCtrl+Alt+C'},
@@ -125,6 +146,8 @@ joplin.plugins.register({
       {commandName: 'jarvis.notes.find', accelerator: 'CmdOrCtrl+Alt+F'},
       {commandName: 'jarvis.notes.db.update'},
       {commandName: 'jarvis.notes.toggle_panel'},
+      {commandName: 'jarvis.notes.exclude_folder'},
+      {commandName: 'jarvis.notes.include_folder'},
       ], MenuItemLocation.Tools
     );
 

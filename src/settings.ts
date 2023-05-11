@@ -21,6 +21,7 @@ export interface JarvisSettings {
   notes_min_similarity: number;
   notes_max_hits: number;
   notes_agg_similarity: string;
+  notes_exclude_folders: Set<string>;
   notes_panel_title: string;
   notes_panel_user_style: string;
   // research
@@ -121,6 +122,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_min_similarity: await joplin.settings.value('notes_min_similarity') / 100,
     notes_max_hits: await joplin.settings.value('notes_max_hits'),
     notes_agg_similarity: await joplin.settings.value('notes_agg_similarity'),
+    notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
 
@@ -387,6 +389,15 @@ export async function register_settings() {
       label: 'Prompts: Reasoning dropdown options',
       description: 'Favorite reasoning prompts to show in dropdown ({label:prompt, ...} JSON).',
     },
+    'notes_exclude_folders': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Notes: Folders to exclude from note DB',
+      description: 'Comma-separated list of folder IDs.',
+    },
     'notes_panel_title': {
       value: 'RELATED NOTES',
       type: SettingItemType.String,
@@ -405,4 +416,62 @@ export async function register_settings() {
       description: 'Custom CSS to apply to the notes panel.',
     }
   });
+}
+
+export async function set_folders(exclude: boolean, folder_id: string, settings: JarvisSettings) {
+  settings.notes_exclude_folders.delete('');  // left when settings field is empty
+  const T = await get_folder_tree();  // folderId: childrenIds
+  let q = ['root'];
+  let folder: string;
+  let found = false;
+
+  // breadth-first search
+  while (q.length) {
+    folder = q.shift();
+    if (folder_id == folder){
+      // restart queue and start accumulating
+      found = true;
+      q = [];
+    }
+    if (T.has(folder))
+      q.push(...T.get(folder));
+
+    if (!found)
+      continue
+
+    if (exclude) {
+      settings.notes_exclude_folders.add(folder);
+    } else {
+      settings.notes_exclude_folders.delete(folder);
+    }
+  }
+
+  await joplin.settings.setValue('notes_exclude_folders',
+    Array(...settings.notes_exclude_folders).toString());
+}
+
+async function get_folder_tree(): Promise<Map<string, string[]>> {
+  let T = new Map() as Map<string, string[]>;  // folderId: childrenIds
+  let pageNum = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { items, has_more } = await joplin.data.get(
+      ['folders'], { page: pageNum++ });
+    hasMore = has_more;
+
+    for (const folder of items) {
+      if (!folder.id)
+        continue
+      if (!folder.parent_id)
+        folder.parent_id = 'root';
+
+      if (!T.has(folder.parent_id)) {
+        T.set(folder.parent_id, [folder.id]);
+      } else {
+        T.get(folder.parent_id).push(folder.id);
+      }
+    }
+  }
+  return T;
 }
