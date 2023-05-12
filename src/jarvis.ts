@@ -108,9 +108,9 @@ export async function edit_with_jarvis(dialogHandle: string) {
   await joplin.commands.execute('replaceSelection', edit);
 }
 
-export async function update_note_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string): Promise<BlockEmbedding[]> {
+export async function update_note_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string): Promise<void> {
   if (model === null) {
-    return embeddings;
+    return;
   }
   const settings = await get_settings();
   const cycle = 20;  // pages
@@ -118,9 +118,9 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
 
   let notes: any;
   let page = 0;
-  let new_embeddings: BlockEmbedding[] = [];
   let total_notes = 0;
   let processed_notes = 0;
+
   // count all notes
   do {
     page += 1;
@@ -135,7 +135,7 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
     page += 1;
     notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id'], page: page, limit: 50 });
     if (notes.items) {
-      new_embeddings = new_embeddings.concat( await update_embeddings(db, embeddings, notes.items, model, settings) );
+      await update_embeddings(db, embeddings, notes.items, model, settings);
       processed_notes += notes.items.length;
       update_progress_bar(panel, processed_notes, total_notes, settings);
     }
@@ -145,9 +145,7 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
     }
   } while(notes.has_more);
 
-  find_notes(panel, new_embeddings, model);
-
-  return new_embeddings;
+  find_notes(panel, embeddings, model);
 }
 
 export async function find_notes(panel: string, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {

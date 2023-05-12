@@ -207,15 +207,35 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
   return new_embd;
 }
 
+// in-place function
 export async function update_embeddings(db: any, embeddings: BlockEmbedding[],
-    notes: any[], model: use.UniversalSentenceEncoder, settings: JarvisSettings): Promise<BlockEmbedding[]> {
+    notes: any[], model: use.UniversalSentenceEncoder, settings: JarvisSettings): Promise<void> {
   // map over the notes array and create an array of promises
   const notes_promises = notes.map(note => update_note(note, embeddings, model, db, settings));
 
   // wait for all promises to resolve and store the result in new_embeddings
   const new_embeddings = await Promise.all(notes_promises);
 
-  return [].concat(...new_embeddings);
+  // update original array of embeddings
+  remove_note_embeddings(embeddings, notes.map(note => note.id));
+  embeddings.push(...[].concat(...new_embeddings));
+}
+
+// function to remove all embeddings of the given notes from an array of embeddings in-place
+function remove_note_embeddings(embeddings: BlockEmbedding[], note_ids: string[]) {
+  let end = embeddings.length;
+  const note_ids_set = new Set(note_ids);
+
+  for (let i = 0; i < end; ) {
+    if (note_ids_set.has(embeddings[i].id)) {
+      [embeddings[i], embeddings[end-1]] = [embeddings[end-1], embeddings[i]]; // swap elements
+      end--;
+    } else {
+      i++;
+    }
+  }
+
+  embeddings.length = end;
 }
 
 export async function extract_blocks_text(embeddings: BlockEmbedding[], max_length: number): Promise<string> {

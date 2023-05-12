@@ -71,7 +71,7 @@ joplin.plugins.register({
         if (model === null) {
           model = await load_model(settings);
         }
-        embeddings = await update_note_db(db, embeddings, model, panel);
+        await update_note_db(db, embeddings, model, panel);
       }
     });
 
@@ -162,7 +162,7 @@ joplin.plugins.register({
         }
         await find_notes_debounce(panel, embeddings, model);
         if (delay_db_update > 0) {
-          embeddings = await update_note_db_debounce(db, embeddings, model, panel);
+          await update_note_db_debounce(db, embeddings, model, panel);
         }
     });
 
