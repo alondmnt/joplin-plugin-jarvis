@@ -158,6 +158,9 @@ export async function find_notes(panel: string, embeddings: BlockEmbedding[], mo
   const settings = await get_settings();
 
   const note = await joplin.workspace.selectedNote();
+  if (!note) {
+    return;
+  }
   let selected = await joplin.commands.execute('selectedText');
   if (!selected || (selected.length === 0)) {
     selected = note.body;
