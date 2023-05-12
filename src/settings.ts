@@ -97,8 +97,15 @@ export async function get_settings(): Promise<JarvisSettings> {
   const model = await joplin.settings.value('model');
   let max_tokens = await joplin.settings.value('max_tokens');
   if (max_tokens > model_max_tokens[model]) {
-    await joplin.settings.setValue('max_tokens', model_max_tokens[model]);
     max_tokens = model_max_tokens[model];
+    await joplin.settings.setValue('max_tokens', max_tokens);
+    joplin.views.dialogs.showMessageBox(`The maximum number of tokens for the '${model}' model is ${max_tokens}. The value has been updated.`);
+  }
+  let memory_tokens = await joplin.settings.value('memory_tokens');
+  if (memory_tokens > 0.45*max_tokens) {
+    memory_tokens = Math.floor(0.45*max_tokens);
+    await joplin.settings.setValue('memory_tokens', memory_tokens);
+    joplin.views.dialogs.showMessageBox(`The maximum number of memory tokens is 45% of the maximum number of tokens (${memory_tokens}). The value has been updated.`);
   }
 
   return {
@@ -209,7 +216,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Chat: Memory Tokens',
-      description: 'The number of tokens to keep in memory when chatting with Jarvis. Higher values will result in more coherent conversations. Must be lower than max_tokens.',
+      description: 'The number of tokens to keep in memory when chatting with Jarvis. Higher values will result in more coherent conversations. Must be lower than 45% of max_tokens.',
     },
     'top_p': {
       value: 100,
