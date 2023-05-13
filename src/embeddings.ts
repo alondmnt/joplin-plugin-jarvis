@@ -38,7 +38,8 @@ export async function load_model(settings: JarvisSettings): Promise<use.Universa
 }
 
 // calculate the embeddings for a note
-export async function calc_note_embeddings(note: any, note_tags: string[], model: use.UniversalSentenceEncoder, max_block_size: number): Promise<BlockEmbedding[]> {
+export async function calc_note_embeddings(note: any, note_tags: string[],
+    model: use.UniversalSentenceEncoder, max_block_size: number, include_code: boolean): Promise<BlockEmbedding[]> {
   const hash = calc_hash(note.body);
   note.body = convert_newlines(note.body);
   let level = 0;
@@ -53,6 +54,7 @@ export async function calc_note_embeddings(note: any, note_tags: string[], model
       // parse the heading title and level from the main block
       // use the last known level/title as a default
       const is_code_block = block.startsWith('```');
+      if (is_code_block && !include_code) { return []; }
       if (is_code_block) {
         const parse_heading = block.match(/```(.*)/);
         if (parse_heading) { title = parse_heading[1] + ' '; }
@@ -199,7 +201,7 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
   }
 
   // otherwise, calculate the new embeddings
-  const new_embd = await calc_note_embeddings(note, note_tags, model, max_block_size);
+  const new_embd = await calc_note_embeddings(note, note_tags, model, max_block_size, settings.notes_include_code);
 
   // insert new embeddings into DB
   await insert_note_embeddings(db, new_embd);
@@ -293,7 +295,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   const note_tags = (await joplin.data.get(['notes', current_id, 'tags'], { fields: ['title'] }))
     .items.map((t: any) => t.title);
   const query_embeddings = await calc_note_embeddings(
-    {id: current_id, body: query, title: current_title}, note_tags, model, max_block_size);
+    {id: current_id, body: query, title: current_title}, note_tags, model, max_block_size, settings.notes_include_code);
   if (query_embeddings.length === 0) {
     return [];
   }

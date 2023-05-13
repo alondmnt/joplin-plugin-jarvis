@@ -18,6 +18,7 @@ export interface JarvisSettings {
   include_prompt: boolean;
   // related notes
   notes_db_update_delay: number;
+  notes_include_code: boolean;
   notes_min_similarity: number;
   notes_max_hits: number;
   notes_agg_similarity: string;
@@ -126,6 +127,7 @@ export async function get_settings(): Promise<JarvisSettings> {
 
     // related notes
     notes_db_update_delay: await joplin.settings.value('notes_db_update_delay'),
+    notes_include_code: await joplin.settings.value('notes_include_code'),
     notes_min_similarity: await joplin.settings.value('notes_min_similarity') / 100,
     notes_max_hits: await joplin.settings.value('notes_max_hits'),
     notes_agg_similarity: await joplin.settings.value('notes_agg_similarity'),
@@ -268,6 +270,13 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Notes database update period (min)',
       description: 'The period between database updates in minutes. Set to 0 to disable automatic updates. (Requires restart)',
+    },
+    'notes_include_code': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis',
+      public: true,
+      label: 'Notes: Include code blocks in DB',
     },
     'notes_min_similarity': {
       value: 50,
