@@ -4,6 +4,8 @@
 
 Jarvis (Joplin Assistant Running a Very Intelligent System) is an AI note-taking assistant for [Joplin](https://joplinapp.org), powered by OpenAI's LLM models (such as GPT-3, ChatGPT or GPT-4). You can chat with it, use your notes as additional context in the chat, perform semantic search, or compile an [automatic review of the scientific literature](https://medium.com/@alondmnt/ai-powered-literature-review-6918ee180304). You will need an OpenAI account for Jarvis to work.
 
+[Community discussion](https://discourse.joplinapp.org/t/28316)
+
 <img src="img/jarvis-research.gif" width="450">
 
 ## Usage
