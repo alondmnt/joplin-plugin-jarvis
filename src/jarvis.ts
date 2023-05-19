@@ -75,9 +75,9 @@ export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.U
   await replace_selection('\n\nGenerating notes response...');
 
   const note = await joplin.workspace.selectedNote();
-  const nearest = await find_nearest_notes(embeddings, note.id, note.title, prompt, model, settings, false);
+  const nearest = await find_nearest_notes(embeddings, note.id, note.title, note.body, model, settings, false);
   if (nearest[0].embeddings.length === 0) {
-    await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question.' + settings.chat_suffix);
+    await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix);
     return;
   }
 
