@@ -240,9 +240,10 @@ function remove_note_embeddings(embeddings: BlockEmbedding[], note_ids: string[]
   embeddings.length = end;
 }
 
-export async function extract_blocks_text(embeddings: BlockEmbedding[], max_length: number): Promise<string> {
+export async function extract_blocks_text(embeddings: BlockEmbedding[], max_length: number): Promise<[string, number]> {
   let text: string = '';
   let embd: BlockEmbedding;
+  let count = 0;
   for (let i=0; i<embeddings.length; i++) {
     embd = embeddings[i];
     if (embd.body_idx < 0) {
@@ -254,7 +255,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[], max_leng
     const note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body']});
     const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
 
-    let decoration = `# note ${i+1}:\n${note.title}`;
+    let decoration = `\n# note ${i+1}:\n${note.title}`;
     if (embd.title !== note.title) {
       decoration += `/${embd.title}`;
     }
@@ -262,8 +263,9 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[], max_leng
       break;
     }
     text += decoration + '\n' + block_text;
+    count += 1;
   };
-  return text;
+  return [text, count];
 }
 
 export function extract_blocks_links(embeddings: BlockEmbedding[]): string {

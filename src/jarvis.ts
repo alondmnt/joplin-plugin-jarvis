@@ -81,12 +81,12 @@ export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.U
     return;
   }
 
-  const note_text = await extract_blocks_text(nearest[0].embeddings, 4*settings.memory_tokens);
+  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, 4*settings.memory_tokens);
   if (note_text === '') {
     await replace_selection(settings.chat_prefix + 'Could not include notes due to context limits. Try to increase memory tokens in the settings.' + settings.chat_suffix);
     return;
   }
-  const note_links = extract_blocks_links(nearest[0].embeddings);
+  const note_links = extract_blocks_links(nearest[0].embeddings.slice(0, note_count));
   const decorate = "\nRespond to the user's prompt above. The following are the user's own notes. You you may refer to the content of any of the notes, and extend it, but only when it is relevant to the prompt. Always cite the [note number] of each note that you use.\n\n";
 
   let completion = await query_completion(prompt + decorate + note_text + settings.chat_prefix, settings);
