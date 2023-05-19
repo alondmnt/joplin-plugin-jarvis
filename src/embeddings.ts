@@ -314,7 +314,9 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   // include links in the representation of the query
   if (settings.notes_include_links) {
+    console.log('links_embedding');
     const link_embedding = calc_links_embedding(query, embeddings);
+    console.log(link_embedding);
     if (link_embedding) {
       rep_embedding = calc_mean_embedding_float32([rep_embedding, link_embedding],
         [1 - settings.notes_include_links, settings.notes_include_links]);
@@ -383,6 +385,7 @@ function calc_mean_embedding(embeddings: BlockEmbedding[], weights?: number[]): 
 
   const norm = weights ? weights.reduce((acc, w) => acc + w, 0) : embeddings.length;
   return embeddings.reduce((acc, emb, emb_index) => {
+    console.log(emb.embedding);
     for (let i = 0; i < acc.length; i++) {
       if (weights) {
         acc[i] += weights[emb_index] * emb.embedding[i];
@@ -417,10 +420,14 @@ function calc_links_embedding(query: string, embeddings: BlockEmbedding[]): Floa
   if (!links) {
     return null;
   }
+
+  const ids: Set<string> = new Set();
   const linked_notes = links.map((link) => {
-    // take the note id from the link
     const note_id = link.match(/:\/([a-zA-Z0-9]{32})/);
     if (!note_id) { return []; }
+    if (ids.has(note_id[1])) { return []; }
+
+    ids.add(note_id[1]);
     return embeddings.filter((embd) => embd.id === note_id[1]) || [];
   });
   return calc_mean_embedding([].concat(...linked_notes));
