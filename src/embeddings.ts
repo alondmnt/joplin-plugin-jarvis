@@ -310,7 +310,16 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   if (query_embeddings.length === 0) {
     return [];
   }
-  const rep_embedding = calc_mean_embedding(query_embeddings);
+  let rep_embedding = calc_mean_embedding(query_embeddings);
+
+  // include links in the representation of the query
+  if (settings.notes_include_links) {
+    const link_embedding = calc_links_embedding(query, embeddings);
+    if (link_embedding) {
+      rep_embedding = calc_mean_embedding_float32([rep_embedding, link_embedding],
+        [1 - settings.notes_include_links, settings.notes_include_links]);
+    }
+  }
 
   // calculate the similarity between the query and each embedding, and filter by it
   const nearest = (await Promise.all(embeddings.map(
@@ -340,7 +349,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     return acc;
   }, {});
 
-  // sort the groups by their average similarity
+  // sort the groups by their aggregated similarity
   return (await Promise.all(Object.entries(grouped).map(async ([note_id, note_embed]) => {
     const sorted_embed = note_embed.sort((a, b) => b.similarity - a.similarity);
 
@@ -369,13 +378,52 @@ export async function calc_similarity(embedding1: Float32Array, embedding2: Floa
   return sim;
 }
 
-function calc_mean_embedding(embeddings: BlockEmbedding[]): Float32Array {
-  return embeddings.reduce((acc, embd) => {
+function calc_mean_embedding(embeddings: BlockEmbedding[], weights?: number[]): Float32Array {
+  if (!embeddings || (embeddings.length == 0)) { return null; }
+
+  const norm = weights ? weights.reduce((acc, w) => acc + w, 0) : embeddings.length;
+  return embeddings.reduce((acc, emb, emb_index) => {
     for (let i = 0; i < acc.length; i++) {
-      acc[i] += embd.embedding[i];
+      if (weights) {
+        acc[i] += weights[emb_index] * emb.embedding[i];
+      } else {
+        acc[i] += emb.embedding[i];
+      }
     }
     return acc;
-  }, new Float32Array(embeddings[0].embedding.length)).map(x => x / embeddings.length);
+  }, new Float32Array(embeddings[0].embedding.length)).map(x => x / norm);
+}
+
+function calc_mean_embedding_float32(embeddings: Float32Array[], weights?: number[]): Float32Array {
+  if (!embeddings || (embeddings.length == 0)) { return null; }
+
+  const norm = weights ? weights.reduce((acc, w) => acc + w, 0) : embeddings.length;
+  return embeddings.reduce((acc, emb, emb_index) => {
+    for (let i = 0; i < acc.length; i++) {
+      if (weights) {
+        acc[i] += weights[emb_index] * emb[i];
+      } else {
+        acc[i] += emb[i];
+      }
+    }
+    return acc;
+  }, new Float32Array(embeddings[0].length)).map(x => x / norm);
+}
+
+// calculate the mean embedding of all notes that are linked in the query
+// parse the query and extract all markdown links
+function calc_links_embedding(query: string, embeddings: BlockEmbedding[]): Float32Array {
+  const links = query.match(/\[([^\]]+)\]\(:\/([^\)]+)\)/g);
+  if (!links) {
+    return null;
+  }
+  const linked_notes = links.map((link) => {
+    // take the note id from the link
+    const note_id = link.match(/:\/([a-zA-Z0-9]{32})/);
+    if (!note_id) { return []; }
+    return embeddings.filter((embd) => embd.id === note_id[1]) || [];
+  });
+  return calc_mean_embedding([].concat(...linked_notes));
 }
 
 // calculate the hash of a string

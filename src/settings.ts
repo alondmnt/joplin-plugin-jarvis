@@ -19,6 +19,7 @@ export interface JarvisSettings {
   // related notes
   notes_db_update_delay: number;
   notes_include_code: boolean;
+  notes_include_links: number;
   notes_min_similarity: number;
   notes_max_hits: number;
   notes_agg_similarity: string;
@@ -128,6 +129,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     // related notes
     notes_db_update_delay: await joplin.settings.value('notes_db_update_delay'),
     notes_include_code: await joplin.settings.value('notes_include_code'),
+    notes_include_links: await joplin.settings.value('notes_include_links') / 100,
     notes_min_similarity: await joplin.settings.value('notes_min_similarity') / 100,
     notes_max_hits: await joplin.settings.value('notes_max_hits'),
     notes_agg_similarity: await joplin.settings.value('notes_agg_similarity'),
@@ -277,6 +279,17 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Include code blocks in DB',
+    },
+    'notes_include_links': {
+      value: 0,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 100,
+      step: 1,
+      section: 'jarvis',
+      public: true,
+      label: 'Notes: Weight of links in semantic search',
+      description: 'The weight of links in the search for related notes. Set to 0 to ignore links appearing in the note, while a setting of 100 will ignore the note content.',
     },
     'notes_min_similarity': {
       value: 50,
