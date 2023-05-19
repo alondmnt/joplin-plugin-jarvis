@@ -256,10 +256,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[], max_leng
     const note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body']});
     const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
 
-    let decoration = `\n# note ${i+1}:\n${note.title}`;
-    if (embd.title !== note.title) {
-      decoration += `/${embd.title}`;
-    }
+    let decoration = `\n# note ${i+1}:\n${embd.title}`;
     if (text.length + decoration.length + block_text.length > max_length) {
       break;
     }
@@ -290,6 +287,17 @@ function get_slug(title: string): string {
       .replace(/^-|-$/g, '');               // remove hyphens at the beginning and end of the string
 }
 
+async function add_note_title(embeddings: BlockEmbedding[]): Promise<BlockEmbedding[]> {
+  return Promise.all(embeddings.map(async (embd: BlockEmbedding) => {
+    const note = await joplin.data.get(['notes', embd.id], { fields: ['title']});
+    const new_embd = Object.assign({}, embd);  // avoid in-place modification
+    if (new_embd.title !== note.title) {
+      new_embd.title = `${note.title} / ${embd.title}`;
+    }
+    return new_embd;
+  }));
+}
+
 // given a list of embeddings, find the nearest ones to the query
 export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, current_title: string, query: string,
     model: use.UniversalSentenceEncoder, settings: JarvisSettings, return_grouped_notes: boolean=true):
@@ -317,7 +325,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     return [{
       id: current_id,
       title: 'Chat context',
-      embeddings: nearest.sort((a, b) => b.similarity - a.similarity).slice(0, settings.notes_max_hits),
+      embeddings: await add_note_title(nearest.sort((a, b) => b.similarity - a.similarity)
+        .slice(0, settings.notes_max_hits)),
       similarity: null,
     }];
   }
