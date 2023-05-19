@@ -22,7 +22,7 @@ export async function update_panel(panel: string, nearest: NoteEmbedding[], sett
   <div class="container">
     <p class="jarvis-semantic-title">${settings.notes_panel_title}</p>
     ${(await Promise.all(nearest)).map((n) => `
-    <details>
+    <details ${n.title === "Chat context" ? "open" : ""}>
       <summary class="jarvis-semantic-note">
       <a class="jarvis-semantic-note" href="#" data-note="${n.id}" data-line="0">${n.title}</a></summary>
       <div class="jarvis-semantic-section" >
