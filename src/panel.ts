@@ -27,7 +27,7 @@ export async function update_panel(panel: string, nearest: NoteEmbedding[], sett
       <a class="jarvis-semantic-note" href="#" data-note="${n.id}" data-line="0">${n.title}</a></summary>
       <div class="jarvis-semantic-section" >
       ${n.embeddings.map((embd) => `
-        <a class="jarvis-semantic-section" href="#" data-note="${n.id}" data-line="${embd.line}">
+        <a class="jarvis-semantic-section" href="#" data-note="${embd.id}" data-line="${embd.line}">
         Line ${embd.line}: ${embd.title}
         </a><br>
       `).join('')}

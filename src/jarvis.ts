@@ -93,6 +93,13 @@ export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.U
   await replace_selection(settings.chat_prefix + completion + '\n\n' + note_links + settings.chat_suffix);
 }
 
+export async function preview_chat_notes_context(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string) {
+  const settings = await get_settings();
+  const note = await joplin.workspace.selectedNote();
+  const nearest = await find_nearest_notes(embeddings, note.id, note.title, note.body, model, settings, false);
+  update_panel(panel, nearest, settings);
+}
+
 export async function edit_with_jarvis(dialogHandle: string) {
   let selection = await joplin.commands.execute('selectedText');
   if (!selection) { return; }

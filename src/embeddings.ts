@@ -315,8 +315,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   if (!return_grouped_notes) {
     // return the sorted list of block embeddings in a NoteEmbdedding[] object
     return [{
-      id: null,
-      title: null,
+      id: current_id,
+      title: 'Chat context',
       embeddings: nearest.sort((a, b) => b.similarity - a.similarity).slice(0, settings.notes_max_hits),
       similarity: null,
     }];
