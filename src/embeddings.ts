@@ -314,9 +314,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   // include links in the representation of the query
   if (settings.notes_include_links) {
-    console.log('links_embedding');
     const link_embedding = calc_links_embedding(query, embeddings);
-    console.log(link_embedding);
     if (link_embedding) {
       rep_embedding = calc_mean_embedding_float32([rep_embedding, link_embedding],
         [1 - settings.notes_include_links, settings.notes_include_links]);
@@ -385,7 +383,6 @@ function calc_mean_embedding(embeddings: BlockEmbedding[], weights?: number[]): 
 
   const norm = weights ? weights.reduce((acc, w) => acc + w, 0) : embeddings.length;
   return embeddings.reduce((acc, emb, emb_index) => {
-    console.log(emb.embedding);
     for (let i = 0; i < acc.length; i++) {
       if (weights) {
         acc[i] += weights[emb_index] * emb.embedding[i];
@@ -416,7 +413,10 @@ function calc_mean_embedding_float32(embeddings: Float32Array[], weights?: numbe
 // calculate the mean embedding of all notes that are linked in the query
 // parse the query and extract all markdown links
 function calc_links_embedding(query: string, embeddings: BlockEmbedding[]): Float32Array {
-  const links = query.match(/\[([^\]]+)\]\(:\/([^\)]+)\)/g);
+  const lines = query.split('\n');
+  const filtered_query = lines.filter(line => !line.startsWith(ref_notes_prefix)).join('\n');
+  const links = filtered_query.match(/\[([^\]]+)\]\(:\/([^\)]+)\)/g);
+
   if (!links) {
     return null;
   }
