@@ -177,7 +177,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Model',
-      description: 'The model to use for asking Jarvis',
+      description: 'The model to use for asking Jarvis. Default: gpt-3.5-turbo',
       options: {
         'gpt-4': 'gpt-4',
         'gpt-4-32k': 'gpt-4-32k',
@@ -198,7 +198,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Model: Temperature',
-      description: 'The temperature of the model. 0 is the least creative. 10 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text.',
+      description: 'The temperature of the model. 0 is the least creative. 20 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text. Default: 10',
     },
     'max_tokens': {
       value: 4000,
@@ -209,7 +209,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Model: Max Tokens',
-      description: 'The maximum number of tokens to generate. Higher values will result in more text, but can also result in more nonsensical text.',
+      description: 'The maximum number of tokens to generate. Higher values will result in more text, but can also result in more nonsensical text. Default: 4000',
     },
     'memory_tokens': {
       value: 512,
@@ -220,7 +220,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Chat: Memory Tokens',
-      description: 'The number of tokens to keep in memory when chatting with Jarvis. Higher values will result in more coherent conversations. Must be lower than 45% of max_tokens.',
+      description: 'The number of tokens to keep in memory when chatting with Jarvis. Higher values will result in more coherent conversations. Must be lower than 45% of max_tokens. Default: 512',
     },
     'top_p': {
       value: 100,
@@ -231,7 +231,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Model: Top P',
-      description: 'An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p (between 0 and 100) probability mass. So 10 means only the tokens comprising the top 10% probability mass are considered.',
+      description: 'An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p (between 0 and 100) probability mass. So 10 means only the tokens comprising the top 10% probability mass are considered. Default: 100',
     },
     'frequency_penalty': {
       value: 0,
@@ -242,7 +242,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Model: Frequency Penalty',
-      description: "A value between -20 and 20. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim.",
+      description: "A value between -20 and 20. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim. Default: 0",
     },
     'presence_penalty': {
       value: 0,
@@ -253,7 +253,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Model: Presence Penalty',
-      description: "A value between -20 and 20. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics.",
+      description: "A value between -20 and 20. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics. Default: 0",
     },
     'include_prompt': {
       value: false,
@@ -261,6 +261,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Include prompt in response',
+      description: 'Include the instructions given to the model in the output of Ask Jarvis. Default: false',
     },
     'notes_db_update_delay': {
       value: 10,
@@ -270,8 +271,8 @@ export async function register_settings() {
       step: 1,
       section: 'jarvis',
       public: true,
-      label: 'Notes: Notes database update period (min)',
-      description: 'The period between database updates in minutes. Set to 0 to disable automatic updates. (Requires restart)',
+      label: 'Notes: Database update period (min)',
+      description: 'The period between database updates in minutes. Set to 0 to disable automatic updates. (Requires restart). Default: 10',
     },
     'notes_include_code': {
       value: false,
@@ -279,6 +280,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Include code blocks in DB',
+      description: 'Default: false',
     },
     'notes_include_links': {
       value: 0,
@@ -289,7 +291,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Weight of links in semantic search',
-      description: 'The weight of links in the search for related notes. Set to 0 to ignore links appearing in the note, while a setting of 100 will ignore the note content.',
+      description: 'The weight given to all the links (combined) that appear in the query note when searching for its related notes. This also affects the selection of notes for "Chat with your notes". Set to 0 to ignore links appearing in the note, while a setting of 100 will ignore the note content. Default: 0',
     },
     'notes_min_similarity': {
       value: 50,
@@ -300,6 +302,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Minimal note similarity',
+      description: 'Default: 50',
     },
     'notes_max_hits': {
       value: 10,
@@ -310,6 +313,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Maximal number of notes to display',
+      description: 'Default: 10',
     },
     'notes_agg_similarity': {
       value: 'max',
@@ -318,7 +322,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Aggregation method for note similarity',
-      description: 'The method to use for ranking notes based on multiple embeddings.',
+      description: 'The method to use for ranking notes based on multiple embeddings. Default: max',
       options: {
         'max': 'max',
         'avg': 'avg',
@@ -331,7 +335,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Research: Scopus API Key',
-      description: 'Your Elsevier/Scopus API Key (optional for research)',
+      description: 'Your Elsevier/Scopus API Key (optional for research). Get one at https://dev.elsevier.com/.',
     },
     'springer_api_key': {
       value: '',
@@ -340,7 +344,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Research: Springer API Key',
-      description: 'Your Springer API Key (optional for research)',
+      description: 'Your Springer API Key (optional for research). Get one at https://dev.springernature.com/.',
     },
     'paper_search_engine': {
       value: 'Semantic Scholar',
@@ -349,7 +353,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Research: Paper search engine',
-      description: 'The search engine to use for research prompts',
+      description: 'The search engine to use for research prompts. Default: Semantic Scholar',
       options: search_engines,
     },
     'use_wikipedia': {
@@ -357,7 +361,8 @@ export async function register_settings() {
       type: SettingItemType.Bool,
       section: 'jarvis',
       public: true,
-      label: 'Research: Include Wikipedia search in research prompts',
+      label: 'Research: Include Wikipedia search in research prompts', 
+      description: 'Default: true',
     },
     'include_paper_summary': {
       value: false,
@@ -365,13 +370,14 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Research: Include paper summary in response to research prompts',
+      description: 'Default: false',
     },
     'chat_prefix': {
       value: '\\n\\nJarvis: ',
       type: SettingItemType.String,
       section: 'jarvis',
       public: true,
-      label: 'Chat: Prefix to add to each chat prompt (before the response).',
+      label: 'Chat: Prefix to add to each chat prompt (before the response)',
       description: 'e.g., "\\n\\nJarvis: "',
     },
     'chat_suffix': {
@@ -379,7 +385,7 @@ export async function register_settings() {
       type: SettingItemType.String,
       section: 'jarvis',
       public: true,
-      label: 'Chat Suffix to add to each chat response (after the response).',
+      label: 'Chat Suffix to add to each chat response (after the response)',
       description: 'e.g., "\\n\\nUser: "',
     },
     'instruction': {
