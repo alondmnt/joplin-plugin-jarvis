@@ -6,6 +6,7 @@ import { JarvisSettings } from './settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 
 const max_block_size = 512 / 1.5;  // max no. of words per block, TODO: add to settings
+const ref_notes_prefix = 'Ref notes: ';
 
 export interface BlockEmbedding {
   id: string;  // note id
@@ -277,7 +278,7 @@ export function extract_blocks_links(embeddings: BlockEmbedding[]): string {
       links += `[${i+1}](:/${embeddings[i].id}), `;
     }
   };
-  return links.substring(0, links.length-2);
+  return ref_notes_prefix + links.substring(0, links.length-2);
 }
 
 function get_slug(title: string): string {
