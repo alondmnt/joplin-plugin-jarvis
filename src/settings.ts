@@ -2,6 +2,10 @@ import joplin from 'api';
 import { SettingItemType } from 'api/types';
 import prompts = require('./assets/prompts.json');
 
+export const ref_notes_prefix = 'Ref notes:';
+export const search_notes_prefix = 'Search:';
+export const user_notes_prefix = 'Notes:';
+
 export interface JarvisSettings {
   // APIs
   openai_api_key: string;

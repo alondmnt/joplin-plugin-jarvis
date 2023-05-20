@@ -1,10 +1,10 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
-import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, model_max_tokens } from './settings';
+import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, model_max_tokens, ref_notes_prefix, search_notes_prefix, user_notes_prefix } from './settings';
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
-import { BlockEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, update_embeddings } from './embeddings';
+import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, update_embeddings } from './embeddings';
 import { update_panel, update_progress_bar } from './panel';
 
 export async function ask_jarvis(dialogHandle: string) {
@@ -71,11 +71,8 @@ export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.U
     return;
   }
   const settings = await get_settings();
-  const prompt = await get_chat_prompt(settings);
   await replace_selection('\n\nGenerating notes response...');
-
-  const note = await joplin.workspace.selectedNote();
-  const nearest = await find_nearest_notes(embeddings, note.id, note.title, note.body, model, settings, false);
+  const [prompt, nearest] = await get_chat_prompt_and_notes(embeddings, model, settings);
   if (nearest[0].embeddings.length === 0) {
     await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix);
     return;
@@ -95,8 +92,8 @@ export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.U
 
 export async function preview_chat_notes_context(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string) {
   const settings = await get_settings();
-  const note = await joplin.workspace.selectedNote();
-  const nearest = await find_nearest_notes(embeddings, note.id, note.title, note.body, model, settings, false);
+  const [prompt, nearest] = await get_chat_prompt_and_notes(embeddings, model, settings);
+  console.log(prompt);
   update_panel(panel, nearest, settings);
 }
 
@@ -178,7 +175,7 @@ export async function find_notes(panel: string, embeddings: BlockEmbedding[], mo
   await update_panel(panel, nearest, settings);
 }
 
-async function get_chat_prompt(settings: JarvisSettings): Promise<string> {
+async function get_chat_prompt(settings: JarvisSettings, strip_links: boolean = true): Promise<string> {
   // get cursor position
   const cursor = await joplin.commands.execute('editor.execCommand', {
     name: 'getCursor',
@@ -191,12 +188,66 @@ async function get_chat_prompt(settings: JarvisSettings): Promise<string> {
   });
   // get last tokens
   prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
-  // strip markdown links and keep the text
-  prompt = prompt.replace(/\[.*?\]\(.*?\)/g, (match) => {
-    return match.substring(1, match.indexOf(']'));
-  });
+
+  if (strip_links) {
+    // strip markdown links and keep the text
+    prompt = prompt.replace(/\[.*?\]\(.*?\)/g, (match) => {
+      return match.substring(1, match.indexOf(']'));
+    });
+  }
 
   return prompt;
+}
+
+async function get_chat_prompt_and_notes(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, settings: JarvisSettings):
+    Promise<[string, NoteEmbedding[]]> {
+  const prompt = get_notes_prompt(await get_chat_prompt(settings, false));
+
+  // filter embeddings based on prompt
+  let sub_embeds: BlockEmbedding[] = [];
+  if (prompt.notes.size > 0) {
+    sub_embeds.push(...embeddings.filter((embd) => prompt.notes.has(embd.id)));
+  }
+  if (prompt.search) {
+    const search_res = await joplin.data.get(['search'], { query: prompt.search, field: ['id'] });
+    const search_ids = new Set(search_res.items.map((item) => item.id));
+    sub_embeds.push(...embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));
+  }
+  if (sub_embeds.length === 0) {
+    sub_embeds = embeddings;
+  }
+
+  // get embeddings
+  const note = await joplin.workspace.selectedNote();
+  const nearest = await find_nearest_notes(sub_embeds, note.id, note.title, note.body, model, settings, false);
+
+  return [prompt.prompt, nearest];
+}
+
+function get_notes_prompt(prompt: string):
+    {prompt: string, search: string, notes: Set<string>} {
+  // (previous responses) strip lines that start with {ref_notes_prefix}
+  prompt = prompt.replace(new RegExp('^' + ref_notes_prefix + '.*$', 'gm'), '');
+
+  // (user input) parse lines that start with {search_notes_prefix}, and strip them from the prompt
+  let search = '';  // last search string
+  prompt = prompt.replace(new RegExp('^' + search_notes_prefix + '.*$', 'igm'), (match) => {
+    search = match.substring(search_notes_prefix.length).trim();
+    return '';
+  });
+  // TODO: one problem with this approach is that the last search string will be used even if
+  // the user did not include one in the last prompt, until all memory tokens are exhausted
+
+  // (user input) parse lines that start with {user_notes_prefix}, and strip them from the prompt
+  let notes: any;  // last user string
+  prompt = prompt.replace(new RegExp('^' + user_notes_prefix + '.*$', 'igm'), (match) => {
+    // get all note IDs (32 alphanumeric characters)
+    notes = match.match(/[a-zA-Z0-9]{32}/g);
+    return '';
+  });
+  if (notes) { notes = new Set(notes); } else { notes = new Set(); }
+
+  return {prompt: prompt, search: search, notes: notes};
 }
 
 async function get_completion_params(
