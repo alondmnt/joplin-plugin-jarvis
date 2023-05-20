@@ -215,6 +215,9 @@ async function get_chat_prompt_and_notes(embeddings: BlockEmbedding[], model: us
   }
   if (sub_embeds.length === 0) {
     sub_embeds = embeddings;
+  } else {
+    // rank notes by similarity but don't filter out any notes
+    settings.notes_min_similarity = 0;
   }
 
   // get embeddings
