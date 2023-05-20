@@ -196,10 +196,10 @@ async function get_chat_prompt(settings: JarvisSettings): Promise<string> {
     return match.substring(1, match.indexOf(']'));
   });
 
-  return prompt
+  return prompt;
 }
 
-export async function get_completion_params(
+async function get_completion_params(
     dialogHandle: string, settings:JarvisSettings): Promise<DialogResult> {
   let defaultPrompt = await joplin.commands.execute('selectedText');
   const include_prompt = settings.include_prompt ? 'checked' : '';
@@ -247,66 +247,66 @@ export async function get_completion_params(
 
   if (result.id === "cancel") { return undefined; }
 
-  return result
+  return result;
 }
 
-export async function get_research_params(
-  dialogHandle: string, settings:JarvisSettings): Promise<DialogResult> {
-let defaultPrompt = await joplin.commands.execute('selectedText');
-const user_wikipedia = settings.use_wikipedia ? 'checked' : '';
+async function get_research_params(
+    dialogHandle: string, settings:JarvisSettings): Promise<DialogResult> {
+  let defaultPrompt = await joplin.commands.execute('selectedText');
+  const user_wikipedia = settings.use_wikipedia ? 'checked' : '';
 
-await joplin.views.dialogs.setHtml(dialogHandle, `
-  <form name="ask">
-    <h3>Research with Jarvis</h3>
-    <div>
-      <textarea id="research_prompt" name="prompt">${defaultPrompt}</textarea>
-    </div>
-    <div>
-      <label for="n_papers">Paper space</label>
-      <input type="range" title="Search the top 50 papers and sample from them" name="n_papers" id="n_papers" size="25" min="0" max="500" value="50" step="10"
-       oninput="title='Search the top ' + value + ' papers and sample from them'" />
-    </div>
-    <div>
-      <label for="paper_tokens">Paper tokens</label>
-      <input type="range" title="Paper context (50% of total tokens) to include in the prompt" name="paper_tokens" id="paper_tokens" size="25" min="10" max="90" value="50" step="10"
-       oninput="title='Paper context (' + value + '% of max tokens) to include in the prompt'" />
-    </div>
-    <div>
-      <label for="max_tokens">Max tokens</label>
-      <input type="range" title="Prompt + response length = ${settings.max_tokens}" name="max_tokens" id="max_tokens" size="25" min="256" max="${model_max_tokens[settings.model]}" value="${settings.max_tokens}" step="128"
-       oninput="title='Prompt + response length = ' + value" />
-    </div>
-    <div>
-    <label for="search_engine">
-      Search engine: 
-      <select title="Search engine" name="search_engine" id="search_engine">
-        ${parse_dropdown_json(search_engines, settings.paper_search_engine)}
-      </select>
-      <input type="checkbox" title="Use Wikipedia" id="use_wikipedia" name="use_wikipedia" ${user_wikipedia} />
-      Wikipedia
-      </label>
-      <label for="only_search">
-      <input type="checkbox" title="Show prompt" id="only_search" name="only_search" />
-      Only perform search, don't generate a review, and ignore paper tokens
-      </label>
-    </div>
-  </form>
-  `);
+  await joplin.views.dialogs.setHtml(dialogHandle, `
+    <form name="ask">
+      <h3>Research with Jarvis</h3>
+      <div>
+        <textarea id="research_prompt" name="prompt">${defaultPrompt}</textarea>
+      </div>
+      <div>
+        <label for="n_papers">Paper space</label>
+        <input type="range" title="Search the top 50 papers and sample from them" name="n_papers" id="n_papers" size="25" min="0" max="500" value="50" step="10"
+        oninput="title='Search the top ' + value + ' papers and sample from them'" />
+      </div>
+      <div>
+        <label for="paper_tokens">Paper tokens</label>
+        <input type="range" title="Paper context (50% of total tokens) to include in the prompt" name="paper_tokens" id="paper_tokens" size="25" min="10" max="90" value="50" step="10"
+        oninput="title='Paper context (' + value + '% of max tokens) to include in the prompt'" />
+      </div>
+      <div>
+        <label for="max_tokens">Max tokens</label>
+        <input type="range" title="Prompt + response length = ${settings.max_tokens}" name="max_tokens" id="max_tokens" size="25" min="256" max="${model_max_tokens[settings.model]}" value="${settings.max_tokens}" step="128"
+        oninput="title='Prompt + response length = ' + value" />
+      </div>
+      <div>
+      <label for="search_engine">
+        Search engine: 
+        <select title="Search engine" name="search_engine" id="search_engine">
+          ${parse_dropdown_json(search_engines, settings.paper_search_engine)}
+        </select>
+        <input type="checkbox" title="Use Wikipedia" id="use_wikipedia" name="use_wikipedia" ${user_wikipedia} />
+        Wikipedia
+        </label>
+        <label for="only_search">
+        <input type="checkbox" title="Show prompt" id="only_search" name="only_search" />
+        Only perform search, don't generate a review, and ignore paper tokens
+        </label>
+      </div>
+    </form>
+    `);
 
-await joplin.views.dialogs.addScript(dialogHandle, 'view.css');
-await joplin.views.dialogs.setButtons(dialogHandle,
-  [{ id: "submit", title: "Submit"},
-   { id: "cancel", title: "Cancel"}]);
-await joplin.views.dialogs.setFitToContent(dialogHandle, true);
+  await joplin.views.dialogs.addScript(dialogHandle, 'view.css');
+  await joplin.views.dialogs.setButtons(dialogHandle,
+    [{ id: "submit", title: "Submit"},
+    { id: "cancel", title: "Cancel"}]);
+  await joplin.views.dialogs.setFitToContent(dialogHandle, true);
 
-const result = await joplin.views.dialogs.open(dialogHandle);
+  const result = await joplin.views.dialogs.open(dialogHandle);
 
-if (result.id === "cancel") { return undefined; }
+  if (result.id === "cancel") { return undefined; }
 
-return result
+  return result;
 }
 
-export async function get_edit_params(dialogHandle: string): Promise<DialogResult> {
+async function get_edit_params(dialogHandle: string): Promise<DialogResult> {
   await joplin.views.dialogs.setHtml(dialogHandle, `
     <form name="ask">
       <h3>Edit with Jarvis</h3>
