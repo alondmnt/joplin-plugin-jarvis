@@ -326,7 +326,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     embed.similarity = await calc_similarity(rep_embedding, embed.embedding);
     return embed;
   }
-  ))).filter((embd) => (embd.similarity >= settings.notes_min_similarity) && (embd.id !== current_id));
+  ))).filter((embd) => (embd.similarity >= settings.notes_min_similarity) && (embd.length >= settings.notes_min_length) && (embd.id !== current_id));
 
   if (!return_grouped_notes) {
     // return the sorted list of block embeddings in a NoteEmbdedding[] object

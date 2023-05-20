@@ -25,6 +25,7 @@ export interface JarvisSettings {
   notes_include_code: boolean;
   notes_include_links: number;
   notes_min_similarity: number;
+  notes_min_length: number;
   notes_max_hits: number;
   notes_agg_similarity: string;
   notes_exclude_folders: Set<string>;
@@ -135,6 +136,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_include_code: await joplin.settings.value('notes_include_code'),
     notes_include_links: await joplin.settings.value('notes_include_links') / 100,
     notes_min_similarity: await joplin.settings.value('notes_min_similarity') / 100,
+    notes_min_length: await joplin.settings.value('notes_min_length'),
     notes_max_hits: await joplin.settings.value('notes_max_hits'),
     notes_agg_similarity: await joplin.settings.value('notes_agg_similarity'),
     notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
@@ -307,6 +309,16 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Minimal note similarity',
       description: 'Default: 50',
+    },
+    'notes_min_length': {
+      value: 100,
+      type: SettingItemType.Int,
+      minimum: 0,
+      step: 10,
+      section: 'jarvis',
+      public: true,
+      label: 'Notes: Minimal block length (chars) to be included',
+      description: 'Default: 100',
     },
     'notes_max_hits': {
       value: 10,
