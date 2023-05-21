@@ -286,10 +286,10 @@ function get_slug(title: string): string {
       .replace(/^-|-$/g, '');               // remove hyphens at the beginning and end of the string
 }
 
-async function add_note_title(embeddings: BlockEmbedding[]): Promise<BlockEmbedding[]> {
+export async function add_note_title(embeddings: BlockEmbedding[]): Promise<BlockEmbedding[]> {
   return Promise.all(embeddings.map(async (embd: BlockEmbedding) => {
     const note = await joplin.data.get(['notes', embd.id], { fields: ['title']});
-    const new_embd = Object.assign({}, embd);  // avoid in-place modification
+    const new_embd = Object.assign({}, embd);  // copy to avoid in-place modification
     if (new_embd.title !== note.title) {
       new_embd.title = `${note.title} / ${embd.title}`;
     }
@@ -323,7 +323,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   // calculate the similarity between the query and each embedding, and filter by it
   const nearest = (await Promise.all(embeddings.map(
     async (embed: BlockEmbedding): Promise<BlockEmbedding> => {
-    embed.similarity = await calc_similarity(rep_embedding, embed.embedding);
+    embed.similarity = calc_similarity(rep_embedding, embed.embedding);
     return embed;
   }
   ))).filter((embd) => (embd.similarity >= settings.notes_min_similarity) && (embd.length >= settings.notes_min_length) && (embd.id !== current_id));
@@ -369,7 +369,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 }
 
 // calculate the cosine similarity between two embeddings
-export async function calc_similarity(embedding1: Float32Array, embedding2: Float32Array): Promise<number> {
+export function calc_similarity(embedding1: Float32Array, embedding2: Float32Array): number {
   let sim = 0;
   for (let i = 0; i < embedding1.length; i++) {
     sim += embedding1[i] * embedding2[i];
@@ -430,6 +430,40 @@ function calc_links_embedding(query: string, embeddings: BlockEmbedding[]): Floa
     return embeddings.filter((embd) => embd.id === note_id[1]) || [];
   });
   return calc_mean_embedding([].concat(...linked_notes));
+}
+
+// given a block, find the next n blocks in the same note and return them
+export async function get_next_blocks(block: BlockEmbedding, embeddings: BlockEmbedding[], n: number = 1): Promise<BlockEmbedding[]> {
+  const next_blocks = embeddings.filter((embd) => embd.id === block.id && embd.line > block.line)
+    .sort((a, b) => a.line - b.line);
+  if (next_blocks.length === 0) {
+    return [];
+  }
+  return await add_note_title(next_blocks.slice(0, n));
+}
+
+// given a block, find the previous n blocks in the same note and return them
+export async function get_prev_blocks(block: BlockEmbedding, embeddings: BlockEmbedding[], n: number = 1): Promise<BlockEmbedding[]> {
+  const prev_blocks = embeddings.filter((embd) => embd.id === block.id && embd.line < block.line)
+    .sort((a, b) => b.line - a.line);
+  if (prev_blocks.length === 0) {
+    return [];
+  }
+  return await add_note_title(prev_blocks.slice(0, n));
+}
+
+// given a block, find the nearest n blocks and return them
+export async function get_nearest_blocks(block: BlockEmbedding, embeddings: BlockEmbedding[], settings: JarvisSettings, n: number = 1): Promise<BlockEmbedding[]> {
+  // see also find_nearest_notes
+  const nearest = embeddings.map(
+    (embd: BlockEmbedding): BlockEmbedding => {
+    const new_embd = Object.assign({}, embd);
+    new_embd.similarity = calc_similarity(block.embedding, new_embd.embedding);
+    return new_embd;
+  }
+  ).filter((embd) => (embd.similarity >= settings.notes_min_similarity) && (embd.length >= settings.notes_min_length));
+
+  return await add_note_title(nearest.sort((a, b) => b.similarity - a.similarity).slice(1, n+1));
 }
 
 // calculate the hash of a string

@@ -4,7 +4,7 @@ import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, model_max_tokens, ref_notes_prefix, search_notes_prefix, user_notes_prefix } from './settings';
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
-import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, update_embeddings } from './embeddings';
+import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, update_embeddings } from './embeddings';
 import { update_panel, update_progress_bar } from './panel';
 
 export async function ask_jarvis(dialogHandle: string) {
@@ -223,6 +223,54 @@ async function get_chat_prompt_and_notes(embeddings: BlockEmbedding[], model: us
   // get embeddings
   const note = await joplin.workspace.selectedNote();
   const nearest = await find_nearest_notes(sub_embeds, note.id, note.title, note.body, model, settings, false);
+
+  // post-processing: attach additional blocks to the nearest ones
+  let attached: Set<string> = new Set();
+  let blocks: BlockEmbedding[] = [];
+  for (const embd of nearest[0].embeddings) {
+    // bid is a concatenation of note id and block line number (e.g. 'note_id:1234')
+    const bid = `${embd.id}:${embd.line}`;
+    if (attached.has(bid)) {
+      continue;
+    }
+    // TODO: rethink whether we should indeed skip the entire iteration
+
+    if (settings.notes_attach_prev > 0) {
+      const prev = await get_prev_blocks(embd, embeddings, settings.notes_attach_prev);
+      // push in reverse order
+      for (let i = prev.length - 1; i >= 0; i--) {
+        const bid = `${prev[i].id}:${prev[i].line}`;
+        if (attached.has(bid)) { continue; }
+        attached.add(bid);
+        blocks.push(prev[i]);
+      }
+    }
+
+    // current block
+    attached.add(bid);
+    blocks.push(embd);
+
+    if (settings.notes_attach_next > 0) {
+      const next = await get_next_blocks(embd, embeddings, settings.notes_attach_next);
+      for (let i = 0; i < next.length; i++) {
+        const bid = `${next[i].id}:${next[i].line}`;
+        if (attached.has(bid)) { continue; }
+        attached.add(bid);
+        blocks.push(next[i]);
+      }
+    }
+
+    if (settings.notes_attach_nearest > 0) {
+      const nearest = await get_nearest_blocks(embd, embeddings, settings, settings.notes_attach_nearest);
+      for (let i = 0; i < nearest.length; i++) {
+        const bid = `${nearest[i].id}:${nearest[i].line}`;
+        if (attached.has(bid)) { continue; }
+        attached.add(bid);
+        blocks.push(nearest[i]);
+      }
+    }
+  }
+  nearest[0].embeddings = blocks;
 
   return [prompt.prompt, nearest];
 }

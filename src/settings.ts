@@ -27,6 +27,9 @@ export interface JarvisSettings {
   notes_min_similarity: number;
   notes_min_length: number;
   notes_max_hits: number;
+  notes_attach_prev: number;
+  notes_attach_next: number;
+  notes_attach_nearest: number;
   notes_agg_similarity: string;
   notes_exclude_folders: Set<string>;
   notes_panel_title: string;
@@ -138,6 +141,9 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_min_similarity: await joplin.settings.value('notes_min_similarity') / 100,
     notes_min_length: await joplin.settings.value('notes_min_length'),
     notes_max_hits: await joplin.settings.value('notes_max_hits'),
+    notes_attach_prev: await joplin.settings.value('notes_attach_prev'),
+    notes_attach_next: await joplin.settings.value('notes_attach_next'),
+    notes_attach_nearest: await joplin.settings.value('notes_attach_nearest'),
     notes_agg_similarity: await joplin.settings.value('notes_agg_similarity'),
     notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
@@ -330,6 +336,42 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Maximal number of notes to display',
       description: 'Default: 10',
+    },
+    'notes_attach_prev': {
+      value: 0,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 10,
+      step: 1,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Notes: Number of leading blocks to add',
+      description: 'Preceding blocks that appear before the current block in the same note. Applies to "Chat with your notes". Default: 0',
+    },
+    'notes_attach_next': {
+      value: 0,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 10,
+      step: 1,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Notes: Number of trailing blocks to add',
+      description: 'Succeeding blocks that appear after the current block in the same note. Applies to "Chat with your notes". Default: 0',
+    },
+    'notes_attach_nearest': {
+      value: 0,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 10,
+      step: 1,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Notes: Number of nearest blocks to add',
+      description: 'Most similar blocks to the current block. Applies to "Chat with your notes". Default: 0',
     },
     'notes_agg_similarity': {
       value: 'max',
