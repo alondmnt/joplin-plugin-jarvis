@@ -94,6 +94,8 @@ export async function preview_chat_notes_context(embeddings: BlockEmbedding[], m
   const settings = await get_settings();
   const [prompt, nearest] = await get_chat_prompt_and_notes(embeddings, model, settings);
   console.log(prompt);
+  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, 4*settings.memory_tokens);
+  nearest[0].embeddings = nearest[0].embeddings.slice(0, note_count);
   update_panel(panel, nearest, settings);
 }
 
