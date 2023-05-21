@@ -313,9 +313,9 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   // include links in the representation of the query
   if (settings.notes_include_links) {
-    const link_embedding = calc_links_embedding(query, embeddings);
-    if (link_embedding) {
-      rep_embedding = calc_mean_embedding_float32([rep_embedding, link_embedding],
+    const links_embedding = calc_links_embedding(query, embeddings);
+    if (links_embedding) {
+      rep_embedding = calc_mean_embedding_float32([rep_embedding, links_embedding],
         [1 - settings.notes_include_links, settings.notes_include_links]);
     }
   }
