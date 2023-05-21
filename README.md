@@ -19,7 +19,7 @@ Jarvis (Joplin Assistant Running a Very Intelligent System) is an AI note-taking
 - **Literature review:**
     - Run the command `Research with Jarvis`, write what you're interested in, and optionally adjust the search parameters (high `max tokens` setting is recommended). Wait 2-3 minutes for all the output to appear in the note (depending on internet traffic). Jarvis will update the content as it finds new information on the web (using Semantic Scholar, Crossref, Elsevier, Springer & Wikipedia databases). In the end you will get a report with the following sections: title, prompt, research questions, queries, references, review and follow-up questions. For more information see [this post](https://medium.com/@alondmnt/ai-powered-literature-review-6918ee180304).
 - **Autocomplete anything:**
-    - `Chat with Jarvis` will try to extend any content. Therefore, this essentially serves as a general-purpose autocomplete command. You can remove the speaker attribution ("User:") by cleaning the `response suffix` field in the settings.
+    - `Chat with Jarvis` will try to extend any content. Therefore, this essentially serves as a general-purpose autocomplete command. You can remove the speaker attribution ("User:") by cleaning the `response suffix` field in the settings. The `text-davinci-003` model is recommended for this use case.
 - **Text generation:**
     - Run the command `Ask Jarvis` and write your query in the pop-up window, or select a prompt text in the editor before running the command. You can also enhance your query with predefined (or customized) prompt templates from the dropdown lists.
 - **Text editing:**
