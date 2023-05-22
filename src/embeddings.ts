@@ -2,7 +2,7 @@ import joplin from 'api';
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { createHash } from 'crypto';
-import { JarvisSettings, ref_notes_prefix } from './settings';
+import { JarvisSettings, ref_notes_prefix, user_notes_prefix } from './settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 
 const max_block_size = 512 / 1.5;  // max no. of words per block, TODO: add to settings
@@ -413,7 +413,7 @@ function calc_mean_embedding_float32(embeddings: Float32Array[], weights?: numbe
 // parse the query and extract all markdown links
 function calc_links_embedding(query: string, embeddings: BlockEmbedding[]): Float32Array {
   const lines = query.split('\n');
-  const filtered_query = lines.filter(line => !line.startsWith(ref_notes_prefix)).join('\n');
+  const filtered_query = lines.filter(line => !line.startsWith(ref_notes_prefix) && !line.startsWith(user_notes_prefix)).join('\n');
   const links = filtered_query.match(/\[([^\]]+)\]\(:\/([^\)]+)\)/g);
 
   if (!links) {
