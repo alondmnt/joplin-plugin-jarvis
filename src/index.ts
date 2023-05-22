@@ -1,12 +1,11 @@
 import joplin from 'api';
 import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
-import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context } from './jarvis';
+import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog } from './jarvis';
 import { get_settings, register_settings, set_folders } from './settings';
 import { load_model } from './embeddings';
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
 import { register_panel } from './panel';
-import { LayerVariable } from '@tensorflow/tfjs';
 
 joplin.plugins.register({
 	onStart: async function() {
@@ -18,13 +17,14 @@ joplin.plugins.register({
     const delay_startup = 5;  // seconds
     const delay_panel = 1;
     const delay_scroll = 1;
-    const delay_db_update = 60 * settings.notes_db_update_delay;
+    let delay_db_update = 60 * settings.notes_db_update_delay;
 
     await new Promise(res => setTimeout(res, delay_startup * 1000));
     let model = await load_model(settings);
     const db = await connect_to_db();
     await init_db(db);
     let embeddings = await clear_deleted_notes(await get_all_embeddings(db), db);
+    if (await skip_db_init_dialog(embeddings)) { delay_db_update = 0; }  // cancel auto update
 
     const panel = await joplin.views.panels.create('jarvis.relatedNotes');
     register_panel(panel, settings, model);
