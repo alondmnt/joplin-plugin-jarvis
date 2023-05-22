@@ -5,6 +5,7 @@ import prompts = require('./assets/prompts.json');
 export const ref_notes_prefix = 'Ref notes:';
 export const search_notes_prefix = 'Search:';
 export const user_notes_prefix = 'Notes:';
+export const title_separator = ' ::: ';
 
 export interface JarvisSettings {
   // APIs

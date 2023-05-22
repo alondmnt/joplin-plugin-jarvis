@@ -2,7 +2,7 @@ import joplin from 'api';
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { createHash } from 'crypto';
-import { JarvisSettings, ref_notes_prefix, user_notes_prefix } from './settings';
+import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_prefix } from './settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 
 const max_block_size = 512 / 1.5;  // max no. of words per block, TODO: add to settings
@@ -269,7 +269,7 @@ export function extract_blocks_links(embeddings: BlockEmbedding[]): string {
   let links: string = '';
   for (let i=0; i<embeddings.length; i++) {
     if (embeddings[i].level > 0) {
-      links += `[${i+1}](:/${embeddings[i].id}#${get_slug(embeddings[i].title)}), `;
+      links += `[${i+1}](:/${embeddings[i].id}#${get_slug(embeddings[i].title.split(title_separator).slice(-1)[0])}), `;
     } else {
       links += `[${i+1}](:/${embeddings[i].id}), `;
     }
@@ -291,7 +291,7 @@ export async function add_note_title(embeddings: BlockEmbedding[]): Promise<Bloc
     const note = await joplin.data.get(['notes', embd.id], { fields: ['title']});
     const new_embd = Object.assign({}, embd);  // copy to avoid in-place modification
     if (new_embd.title !== note.title) {
-      new_embd.title = `${note.title} / ${embd.title}`;
+      new_embd.title = note.title + title_separator + embd.title;
     }
     return new_embd;
   }));
