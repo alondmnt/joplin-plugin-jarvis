@@ -112,7 +112,7 @@ joplin.plugins.register({
         if (model === null) {
           model = await load_model(settings);
         }
-        chat_with_notes(embeddings, model);
+        chat_with_notes(embeddings, model, panel);
       }
     });
 
