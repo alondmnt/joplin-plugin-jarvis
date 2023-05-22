@@ -1,12 +1,12 @@
 {
   "name": "joplin-plugin-jarvis",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "scripts": {
     "dist": "webpack --joplin-plugin-config buildMain && webpack --joplin-plugin-config buildExtraScripts && webpack --joplin-plugin-config createArchive",
     "prepare": "npm run dist",
     "update": "npm install -g generator-joplin && yo joplin --update"
   },
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "keywords": [
     "joplin-plugin"
   ],
