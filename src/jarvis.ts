@@ -1,11 +1,11 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
-import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, model_max_tokens, ref_notes_prefix, search_notes_prefix, user_notes_prefix } from './settings';
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, update_embeddings } from './embeddings';
 import { update_panel, update_progress_bar } from './panel';
+import { TextEmbeddingModel } from './models';
 
 export async function ask_jarvis(dialogHandle: string) {
   const settings = await get_settings();
@@ -66,10 +66,9 @@ export async function chat_with_jarvis() {
   await replace_selection(settings.chat_prefix + completion + settings.chat_suffix);
 }
 
-export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string) {
-  if (model === null) {
-    return;
-  }
+export async function chat_with_notes(embeddings: BlockEmbedding[], model: TextEmbeddingModel, panel: string) {
+  if (model.model === null) { return; }
+
   const settings = await get_settings();
   await replace_selection('\n\nGenerating notes response...');
   const [prompt, nearest] = await get_chat_prompt_and_notes(embeddings, model, settings);
@@ -92,7 +91,9 @@ export async function chat_with_notes(embeddings: BlockEmbedding[], model: use.U
   update_panel(panel, nearest, settings);
 }
 
-export async function preview_chat_notes_context(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string) {
+export async function preview_chat_notes_context(embeddings: BlockEmbedding[], model: TextEmbeddingModel, panel: string) {
+  if (model.model === null) { return; }
+
   const settings = await get_settings();
   const [prompt, nearest] = await get_chat_prompt_and_notes(embeddings, model, settings);
   console.log(prompt);
@@ -116,10 +117,9 @@ export async function edit_with_jarvis(dialogHandle: string) {
   await joplin.commands.execute('replaceSelection', edit);
 }
 
-export async function update_note_db(db: any, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, panel: string): Promise<void> {
-  if (model === null) {
-    return;
-  }
+export async function update_note_db(db: any, embeddings: BlockEmbedding[], model: TextEmbeddingModel, panel: string): Promise<void> {
+  if (model.model === null) { return; }
+
   const settings = await get_settings();
   const cycle = 20;  // pages
   const period = 10;  // sec
@@ -156,13 +156,11 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
   find_notes(panel, embeddings, model);
 }
 
-export async function find_notes(panel: string, embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder) {
+export async function find_notes(panel: string, embeddings: BlockEmbedding[], model: TextEmbeddingModel) {
   if (!(await joplin.views.panels.visible(panel))) {
     return;
   }
-  if (model === null) {
-    return;
-  }
+  if (model.model === null) { return; }
   const settings = await get_settings();
 
   const note = await joplin.workspace.selectedNote();
@@ -203,7 +201,7 @@ async function get_chat_prompt(settings: JarvisSettings, strip_links: boolean = 
   return prompt;
 }
 
-async function get_chat_prompt_and_notes(embeddings: BlockEmbedding[], model: use.UniversalSentenceEncoder, settings: JarvisSettings):
+async function get_chat_prompt_and_notes(embeddings: BlockEmbedding[], model: TextEmbeddingModel, settings: JarvisSettings):
     Promise<[string, NoteEmbedding[]]> {
   const prompt = get_notes_prompt(await get_chat_prompt(settings, false));
 

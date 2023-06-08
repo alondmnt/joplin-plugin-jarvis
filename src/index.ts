@@ -3,7 +3,7 @@ import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
 import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog } from './jarvis';
 import { get_settings, register_settings, set_folders } from './settings';
-import { load_model } from './embeddings';
+import { load_embedding_model } from './models';
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
 import { register_panel } from './panel';
 
@@ -20,7 +20,7 @@ joplin.plugins.register({
     let delay_db_update = 60 * settings.notes_db_update_delay;
 
     await new Promise(res => setTimeout(res, delay_startup * 1000));
-    let model = await load_model(settings);
+    let model = await load_embedding_model(settings);
     const db = await connect_to_db();
     await init_db(db);
     let embeddings = await clear_deleted_notes(await get_all_embeddings(db), db);
@@ -69,8 +69,8 @@ joplin.plugins.register({
       name: 'jarvis.notes.db.update',
       label: 'Update Jarvis note DB',
       execute: async () => {
-        if (model === null) {
-          model = await load_model(settings);
+        if (model.model === null) {
+          await model.initialize();
         }
         await update_note_db(db, embeddings, model, panel);
       }
@@ -81,8 +81,8 @@ joplin.plugins.register({
       label: 'Find related notes',
       iconName: 'fas fa-search',
       execute: async () => {
-        if (model === null) {
-          model = await load_model(settings);
+        if (model.model === null) {
+          await model.initialize();
         }
         find_notes_debounce(panel, embeddings, model);
       }
@@ -96,8 +96,8 @@ joplin.plugins.register({
           await joplin.views.panels.hide(panel);
         } else {
           await joplin.views.panels.show(panel);
-          if (model === null) {
-            model = await load_model(settings);
+          if (model.model === null) {
+            await model.initialize();
           }
           find_notes_debounce(panel, embeddings, model)
         }
@@ -109,8 +109,8 @@ joplin.plugins.register({
       label: 'Chat with your notes',
       iconName: 'fas fa-comments',
       execute: async () => {
-        if (model === null) {
-          model = await load_model(settings);
+        if (model.model === null) {
+          await model.initialize();
         }
         chat_with_notes(embeddings, model, panel);
       }
@@ -120,8 +120,8 @@ joplin.plugins.register({
       name: 'jarvis.notes.preview',
       label: 'Preview chat notes context',
       execute: async () => {
-        if (model === null) {
-          model = await load_model(settings);
+        if (model.model === null) {
+          await model.initialize();
         }
         preview_chat_notes_context(embeddings, model, panel);
       }
@@ -170,8 +170,8 @@ joplin.plugins.register({
     joplin.views.menuItems.create('jarvis.context.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
 
     await joplin.workspace.onNoteSelectionChange(async () => {
-        if (model === null) {
-          model = await load_model(settings);
+        if (model.model === null) {
+          await model.initialize();
         }
         await find_notes_debounce(panel, embeddings, model);
         if (delay_db_update > 0) {

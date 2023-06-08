@@ -1,11 +1,8 @@
 import joplin from 'api';
-import * as tf from '@tensorflow/tfjs';
-import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { createHash } from 'crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_prefix } from './settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
-
-const max_block_size = 512 / 1.5;  // max no. of words per block, TODO: add to settings
+import { TextEmbeddingModel } from './models';
 
 export interface BlockEmbedding {
   id: string;  // note id
@@ -26,20 +23,9 @@ export interface NoteEmbedding {
   similarity: number;  // representative similarity to the query
 }
 
-tf.setBackend('webgl');
-
-export async function load_model(settings: JarvisSettings): Promise<use.UniversalSentenceEncoder> {
-  try {
-    return await use.load();
-  } catch (e) {
-    console.log(`load_model failed: ${e}`);
-    return null;
-  }
-}
-
 // calculate the embeddings for a note
 export async function calc_note_embeddings(note: any, note_tags: string[],
-    model: use.UniversalSentenceEncoder, max_block_size: number, include_code: boolean): Promise<BlockEmbedding[]> {
+    model: TextEmbeddingModel, include_code: boolean): Promise<BlockEmbedding[]> {
   const hash = calc_hash(note.body);
   note.body = convert_newlines(note.body);
   let level = 0;
@@ -69,7 +55,7 @@ export async function calc_note_embeddings(note: any, note_tags: string[],
       if (level > 6) { level = 6; }  // max heading level is 6
       path[level] = title;
 
-      const sub_blocks = split_block_to_max_size(block, max_block_size, is_code_block);
+      const sub_blocks = split_block_to_max_size(block, model.max_block_size, is_code_block);
 
       const sub_embd = sub_blocks.map(async (sub: string): Promise<BlockEmbedding> => {
         let decorate = `${path.slice(0, level+1).join('/')}:\n`;
@@ -84,7 +70,7 @@ export async function calc_note_embeddings(note: any, note_tags: string[],
           length: sub.length,
           level: level,
           title: title,
-          embedding: await calc_block_embeddings(model, [decorate + sub]),
+          embedding: await model.embed(decorate + sub),
           similarity: 0,
         };
       });
@@ -166,20 +152,9 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
   return [line_number, block_start + sub_start];
 }
 
-// calculate the embedding for a block of text
-export async function calc_block_embeddings(model: use.UniversalSentenceEncoder, text_blocks: string[]):
-  Promise<Float32Array> {
-  const embeddings = await model.embed(text_blocks);
-  let vec = (await embeddings.data()) as Float32Array;
-  // normalize the vector
-  const norm = Math.sqrt(vec.map(x => x*x).reduce((a, b) => a + b, 0));
-  vec = vec.map(x => x / norm);
-  return vec;
-}
-
 // async function to process a single note
 async function update_note(note: any, embeddings: BlockEmbedding[],
-    model: use.UniversalSentenceEncoder, db: any, settings: JarvisSettings): Promise<BlockEmbedding[]> {
+    model: TextEmbeddingModel, db: any, settings: JarvisSettings): Promise<BlockEmbedding[]> {
   if (note.is_conflict) {
     return [];
   }
@@ -201,7 +176,7 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
   }
 
   // otherwise, calculate the new embeddings
-  const new_embd = await calc_note_embeddings(note, note_tags, model, max_block_size, settings.notes_include_code);
+  const new_embd = await calc_note_embeddings(note, note_tags, model, settings.notes_include_code);
 
   // insert new embeddings into DB
   await insert_note_embeddings(db, new_embd);
@@ -211,7 +186,7 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
 
 // in-place function
 export async function update_embeddings(db: any, embeddings: BlockEmbedding[],
-    notes: any[], model: use.UniversalSentenceEncoder, settings: JarvisSettings): Promise<void> {
+    notes: any[], model: TextEmbeddingModel, settings: JarvisSettings): Promise<void> {
   // map over the notes array and create an array of promises
   const notes_promises = notes.map(note => update_note(note, embeddings, model, db, settings));
 
@@ -299,13 +274,13 @@ export async function add_note_title(embeddings: BlockEmbedding[]): Promise<Bloc
 
 // given a list of embeddings, find the nearest ones to the query
 export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, current_title: string, query: string,
-    model: use.UniversalSentenceEncoder, settings: JarvisSettings, return_grouped_notes: boolean=true):
+    model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true):
     Promise<NoteEmbedding[]> {
 
   const note_tags = (await joplin.data.get(['notes', current_id, 'tags'], { fields: ['title'] }))
     .items.map((t: any) => t.title);
   const query_embeddings = await calc_note_embeddings(
-    {id: current_id, body: query, title: current_title}, note_tags, model, max_block_size, settings.notes_include_code);
+    {id: current_id, body: query, title: current_title}, note_tags, model, settings.notes_include_code);
   if (query_embeddings.length === 0) {
     return [];
   }
