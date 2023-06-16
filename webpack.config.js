@@ -11,10 +11,10 @@ const crypto = require('crypto');
 const fs = require('fs-extra');
 const chalk = require('chalk');
 const CopyPlugin = require('copy-webpack-plugin');
-const WebpackOnBuildPlugin = require('on-build-webpack');
+const { glob } = require('glob');
+const { execSync } = require('child_process');
 const tar = require('tar');
-const glob = require('glob');
-const execSync = require('child_process').execSync;
+const { RawSource } = require('webpack-sources');
 
 const rootDir = path.resolve(__dirname);
 const userConfigFilename = './plugin.config.json';
@@ -47,6 +47,18 @@ function validatePackageJson() {
 	if (content.scripts && content.scripts.postinstall) {
 		console.warn(chalk.yellow(`WARNING: package.json contains a "postinstall" script. It is recommended to use a "prepare" script instead so that it is executed before publish. In ${packageJsonPath}`));
 	}
+}
+
+class WebpackOnBuildPlugin {
+    constructor(callback) {
+        this.callback = callback;
+    }
+
+    apply(compiler) {
+        compiler.hooks.done.tap('WebpackOnBuildPlugin', (stats) => {
+            this.callback(stats);
+        });
+    }
 }
 
 function fileSha256(filePath) {
@@ -135,7 +147,20 @@ const baseConfig = {
 				use: 'ts-loader',
 				exclude: /node_modules/,
 			},
+			{
+				test: /\.(js|mjs)$/,
+				exclude: /node_modules/,  // \/(?!(@huggingface\/inference)\/).*
+				use: {
+				  loader: "babel-loader",
+				},
+			},
 		],
+	},
+	resolve: {
+		alias: {
+			api: path.resolve(__dirname, 'api'),
+		},
+		extensions: ['.js', '.tsx', '.ts', '.json'],
 	},
 };
 
@@ -171,6 +196,14 @@ const pluginConfig = Object.assign({}, baseConfig, {
 				},
 			],
 		}),
+		{
+			apply: (compiler) => {
+				compiler.hooks.afterEmit.tap('AfterEmitPlugin', (compilation) => {
+					onBuildCompleted();
+					return Promise.resolve();
+				});
+			},
+		},
 	],
 });
 
@@ -191,6 +224,19 @@ const createArchiveConfig = {
 		path: publishDir,
 	},
 	plugins: [new WebpackOnBuildPlugin(onBuildCompleted)],
+	resolve: {
+		fallback: {
+			"assert": require.resolve("assert/"),
+			"crypto": require.resolve("crypto-browserify"),
+			"util": require.resolve("util/"),
+			"stream": require.resolve("stream-browserify"),
+			"http": require.resolve("stream-http"),
+			"url": require.resolve("url/"),
+			"https": require.resolve("https-browserify"),
+			"zlib": require.resolve("browserify-zlib"),
+			"buffer": require.resolve("buffer/")
+		},
+	}
 };
 
 function resolveExtraScriptPath(name) {
@@ -231,61 +277,61 @@ function buildExtraScriptConfigs(userConfig) {
 	return output;
 }
 
-function main(processArgv) {
-	const yargs = require('yargs/yargs');
-	const argv = yargs(processArgv).argv;
+function main(env) {
+    const configName = env.joplinPluginConfig;
+	console.log('configName', configName);
+    if (!configName) throw new Error('A config file must be specified via the --env joplinPluginConfig flag');
 
-	const configName = argv['joplin-plugin-config'];
-	if (!configName) throw new Error('A config file must be specified via the --joplin-plugin-config flag');
+    // Webpack configurations run in parallel, while we need them to run in
+    // sequence, and to do that it seems the only way is to run webpack multiple
+    // times, with different config each time.
 
-	// Webpack configurations run in parallel, while we need them to run in
-	// sequence, and to do that it seems the only way is to run webpack multiple
-	// times, with different config each time.
+    const configs = {
+        // Builds the main src/index.ts and copy the extra content from /src to
+        // /dist including scripts, CSS and any other asset.
+        buildMain: [pluginConfig],
 
-	const configs = {
-		// Builds the main src/index.ts and copy the extra content from /src to
-		// /dist including scripts, CSS and any other asset.
-		buildMain: [pluginConfig],
+        // Builds the extra scripts as defined in plugin.config.json. When doing
+        // so, some JavaScript files that were copied in the previous might be
+        // overwritten here by the compiled version. This is by design. The
+        // result is that JS files that don't need compilation, are simply
+        // copied to /dist, while those that do need it are correctly compiled.
+        buildExtraScripts: buildExtraScriptConfigs(userConfig),
 
-		// Builds the extra scripts as defined in plugin.config.json. When doing
-		// so, some JavaScript files that were copied in the previous might be
-		// overwritten here by the compiled version. This is by design. The
-		// result is that JS files that don't need compilation, are simply
-		// copied to /dist, while those that do need it are correctly compiled.
-		buildExtraScripts: buildExtraScriptConfigs(userConfig),
+        // Ths config is for creating the .jpl, which is done via the plugin, so
+        // it doesn't actually need an entry and output, however webpack won't
+        // run without this. So we give it an entry that we know is going to
+        // exist and output in the publish dir. Then the plugin will delete this
+        // temporary file before packaging the plugin.
+        createArchive: [createArchiveConfig],
+    };
 
-		// Ths config is for creating the .jpl, which is done via the plugin, so
-		// it doesn't actually need an entry and output, however webpack won't
-		// run without this. So we give it an entry that we know is going to
-		// exist and output in the publish dir. Then the plugin will delete this
-		// temporary file before packaging the plugin.
-		createArchive: [createArchiveConfig],
-	};
+    // If we are running the first config step, we clean up and create the build
+    // directories.
+    if (configName === 'buildMain') {
+        fs.removeSync(distDir);
+        fs.removeSync(publishDir);
+        fs.mkdirpSync(publishDir);
+    }
 
-	// If we are running the first config step, we clean up and create the build
-	// directories.
-	if (configName === 'buildMain') {
-		fs.removeSync(distDir);
-		fs.removeSync(publishDir);
-		fs.mkdirpSync(publishDir);
+    return configs[configName];
+}
+
+module.exports = (env, argv) => {
+	let exportedConfigs = [];
+
+	try {
+		exportedConfigs = main(env);
+	} catch (error) {
+		console.error(chalk.red(error.message));
+		process.exit(1);
 	}
 
-	return configs[configName];
-}
+	if (!exportedConfigs.length) {
+		// Nothing to do - for example where there are no external scripts to
+		// compile.
+		process.exit(0);
+	}
 
-let exportedConfigs = [];
-
-try {
-	exportedConfigs = main(process.argv);
-} catch (error) {
-	console.error(chalk.red(error.message));
-	process.exit(1);
-}
-
-if (!exportedConfigs.length) {
-	// Nothing to do - for example where there are no external scripts to
-	// compile.
-	process.exit(0);
-}
-
-module.exports = exportedConfigs;
+	return exportedConfigs;
+};
