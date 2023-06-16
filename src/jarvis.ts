@@ -121,8 +121,6 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
   if (model.model === null) { return; }
 
   const settings = await get_settings();
-  const cycle = 20;  // pages
-  const period = 10;  // sec
 
   let notes: any;
   let page = 0;
@@ -141,15 +139,17 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
   // iterate over all notes
   do {
     page += 1;
-    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id'], page: page, limit: 50 });
+    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id'], page: page, limit: model.page_size });
     if (notes.items) {
+      console.log(`Processing page ${page}: ${notes.items.length} notes`);
       await update_embeddings(db, embeddings, notes.items, model, settings);
       processed_notes += notes.items.length;
       update_progress_bar(panel, processed_notes, total_notes, settings);
     }
     // rate limiter
-    if (notes.has_more && (page % cycle) == 0) {
-      await new Promise(res => setTimeout(res, period * 1000));
+    if (notes.has_more && (page % model.page_cycle) == 0) {
+      console.log(`Waiting for ${model.wait_period} seconds...`);
+      await new Promise(res => setTimeout(res, model.wait_period * 1000));
     }
   } while(notes.has_more);
 

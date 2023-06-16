@@ -10,6 +10,7 @@ export const title_separator = ' ::: ';
 export interface JarvisSettings {
   // APIs
   openai_api_key: string;
+  hf_api_key: string;
   scopus_api_key: string;
   springer_api_key: string;
   // OpenAI
@@ -22,6 +23,12 @@ export interface JarvisSettings {
   presence_penalty: number;
   include_prompt: boolean;
   // related notes
+  /// model
+  notes_model: string;
+  notes_max_tokens: number;
+  notes_hf_model_id: string;
+  notes_hf_endpoint: string;
+  /// other
   notes_db_update_delay: number;
   notes_include_code: boolean;
   notes_include_links: number;
@@ -122,6 +129,7 @@ export async function get_settings(): Promise<JarvisSettings> {
   return {
     // APIs
     openai_api_key: await joplin.settings.value('openai_api_key'),
+    hf_api_key: await joplin.settings.value('hf_api_key'),
     scopus_api_key: await joplin.settings.value('scopus_api_key'),
     springer_api_key: await joplin.settings.value('springer_api_key'),
 
@@ -136,6 +144,12 @@ export async function get_settings(): Promise<JarvisSettings> {
     include_prompt: await joplin.settings.value('include_prompt'),
 
     // related notes
+    /// model
+    notes_model: await joplin.settings.value('notes_model'),
+    notes_max_tokens: await joplin.settings.value('notes_max_tokens'),
+    notes_hf_model_id: await joplin.settings.value('notes_hf_model_id'),
+    notes_hf_endpoint: await joplin.settings.value('notes_hf_endpoint'),
+    /// other
     notes_db_update_delay: await joplin.settings.value('notes_db_update_delay'),
     notes_include_code: await joplin.settings.value('notes_include_code'),
     notes_include_links: await joplin.settings.value('notes_include_links') / 100,
@@ -181,7 +195,14 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Model: OpenAI API Key',
-      description: 'Your OpenAI API Key',
+    },
+    'hf_api_key': {
+      value: '',
+      type: SettingItemType.String,
+      secure: true,
+      section: 'jarvis',
+      public: true,
+      label: 'Model: Hugging Face API Key',
     },
     'model': {
       value: 'gpt-3.5-turbo',
@@ -275,6 +296,48 @@ export async function register_settings() {
       public: true,
       label: 'Include prompt in response',
       description: 'Include the instructions given to the model in the output of Ask Jarvis. Default: false',
+    },
+    'notes_model': {
+      value: 'Universal Sentence Encoder',
+      type: SettingItemType.String,
+      isEnum: true,
+      section: 'jarvis',
+      public: true,
+      label: 'Notes: Semantic similarity model',
+      description: '(Requires restart.) The model to use for calculating text embeddings. Default: (offline) Universal Sentence Encoder',
+      options: {
+        'Universal Sentence Encoder': '(offline) Universal Sentence Encoder',
+        'Hugging Face': '(online) Hugging Face',
+      }
+    },
+    'notes_max_tokens': {
+      value: 512,
+      type: SettingItemType.Int,
+      minimum: 128,
+      maximum: 32768,
+      step: 128,
+      section: 'jarvis',
+      public: true,
+      label: 'Notes: Max tokens',
+      description: 'The maximum number of tokens to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
+    },
+    'notes_hf_model_id': {
+      value: 'sentence-transformers/paraphrase-xlm-r-multilingual-v1',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Notes: Hugging Face feature extraction model ID',
+      description: 'The Hugging Face model ID to use for calculating text embeddings. Default: sentence-transformers/paraphrase-xlm-r-multilingual-v1',
+    },
+    'notes_hf_endpoint': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Notes: Hugging Face API endpoint',
+      description: "The Hugging Face API endpoint to use for calculating text embeddings. Default: empty (HF's default public endpoint)",
     },
     'notes_db_update_delay': {
       value: 10,
