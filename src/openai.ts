@@ -1,15 +1,12 @@
 import joplin from 'api';
-import GPT3Tokenizer from 'gpt3-tokenizer';
 import { JarvisSettings } from './settings';
 
 export async function query_completion(
     prompt: string, settings: JarvisSettings, adjust_max_tokens: number = 0): Promise<string> {
 
-  const tokenizer = new GPT3Tokenizer({ type: 'gpt3' });
   let url: string = '';
   let responseParams: any = {
     model: settings.model,
-    max_tokens: settings.max_tokens - tokenizer.encode(prompt).bpe.length - adjust_max_tokens,
     temperature: settings.temperature,
     top_p: settings.top_p,
     frequency_penalty: settings.frequency_penalty,
@@ -24,7 +21,6 @@ export async function query_completion(
         {role: 'user', content: prompt}
       ],
     };
-    responseParams['max_tokens'] -= 10;  // correction due to system message
   } else {
     url = 'https://api.openai.com/v1/completions';
     responseParams = {...responseParams,
@@ -63,6 +59,7 @@ export async function query_completion(
   // find all numbers in error message
   const max_tokens = [...data.error.message.matchAll(/([0-9]+)/g)];
 
+  // TODO: truncate text instead...
   // adjust max tokens
   if ((max_tokens !== null) &&
       (data.error.message.includes('reduce'))) {
