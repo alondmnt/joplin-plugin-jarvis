@@ -3,6 +3,7 @@ import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings } from './settings';
+import { query_embedding } from './openai';
 
 tf.setBackend('webgl');
 
@@ -14,10 +15,17 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
     model = new USEModel(settings.notes_max_tokens);
 
   } else if (settings.notes_model === 'Hugging Face') {
-    model = new HuggingFaceModel(
+    model = new HuggingFaceEmbedding(
       settings.notes_hf_model_id,
       settings.notes_max_tokens,
       settings.notes_hf_endpoint);
+
+  } else if (settings.notes_model === 'OpenAI') {
+    model = new OpenAIEmbedding(
+      'text-embedding-ada-002',
+      settings.notes_max_tokens,
+    );
+
   } else {
     console.log(`Unknown model: ${settings.notes_model}`);
     return model;
@@ -141,7 +149,7 @@ class USEModel extends TextEmbeddingModel {
   }
 }
 
-class HuggingFaceModel extends TextEmbeddingModel {
+class HuggingFaceEmbedding extends TextEmbeddingModel {
   public endpoint: string = null;
   // rate limits
   public page_size = 5;  // external: notes
@@ -185,7 +193,7 @@ class HuggingFaceModel extends TextEmbeddingModel {
     try {
       const vec = await this.embed('Hello world');
     } catch (e) {
-      console.log(`HuggingFaceModel failed to load: ${e}`);
+      console.log(`HuggingFaceEmbedding failed to load: ${e}`);
       this.model = null;
     }
   }
@@ -239,5 +247,52 @@ class HuggingFaceModel extends TextEmbeddingModel {
     }
 
     return 0.8;
+  }
+}
+
+class OpenAIEmbedding extends TextEmbeddingModel {
+  private api_key: string = null;
+  // rate limits
+  public page_size = 5;  // external: notes
+  public page_cycle = 100;  // external: pages
+  public wait_period = 5;  // external: sec
+
+  constructor(id: string, max_tokens: number, endpoint: string=null) {
+    super();
+    this.id = id
+    this.version = '1';
+    this.max_block_size = max_tokens / 1.5;
+    this.online = true;
+
+    // rate limits
+    this.request_queue = [];  // internal rate limit
+    this.requests_per_second = 50;  // internal rate limit
+    this.last_request_time = 0;  // internal rate limit
+  }
+
+  async initialize() {
+    this.api_key = await joplin.settings.value('openai_api_key');
+    if (!this.api_key) {
+      joplin.views.dialogs.showMessageBox('Please specify a valid OpenAI API key in the settings');
+      this.model = null;
+      return;
+    }
+    this.model = this.id;  // anything other than null
+    console.log(this.id);
+
+    try {
+      const vec = await this.embed('Hello world');
+    } catch (e) {
+      console.log(`OpenAIEmbedding failed to load: ${e}`);
+      this.model = null;
+    }
+  }
+
+  async _calc_embedding(text: string): Promise<Float32Array> {
+    if (!this.model) {
+      throw new Error('Model not initialized');
+    }
+
+    return query_embedding(text, this.id, this.api_key);
   }
 }

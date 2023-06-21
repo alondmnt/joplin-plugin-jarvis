@@ -306,8 +306,9 @@ export async function register_settings() {
       label: 'Notes: Semantic similarity model',
       description: '(Requires restart.) The model to use for calculating text embeddings. Default: (offline) Universal Sentence Encoder',
       options: {
-        'Universal Sentence Encoder': '(offline) Universal Sentence Encoder',
-        'Hugging Face': '(online) Hugging Face',
+        'Universal Sentence Encoder': '(offline) Universal Sentence Encoder [English]',
+        'Hugging Face': '(online) Hugging Face [Multilingual]',
+        'OpenAI': '(online) OpenAI: text-embedding-ada-002 [Multilingual]',
       }
     },
     'notes_max_tokens': {

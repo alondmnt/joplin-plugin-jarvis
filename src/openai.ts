@@ -70,6 +70,40 @@ export async function query_completion(
   return await query_completion(prompt, settings, adjust_max_tokens);
 }
 
+export async function query_embedding(input: string, model: string, api_key: string): Promise<Float32Array> {
+  const responseParams = {
+    input: input,
+    model: model,
+  }
+  const response = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + api_key,
+    },
+    body: JSON.stringify(responseParams),
+  });
+  const data = await response.json();
+
+  // handle errors
+  if (data.hasOwnProperty('error')) {
+    const errorHandler = await joplin.views.dialogs.showMessageBox(
+      `Error: ${data.error.message}\nPress OK to retry.`);
+      if (errorHandler == 0) {
+      // OK button
+      return query_embedding(input, model, api_key);
+    }
+    return new Float32Array();
+  }
+  let vec = new Float32Array(data.data[0].embedding);
+
+  // normalize the vector
+  const norm = Math.sqrt(vec.map((x) => x * x).reduce((a, b) => a + b, 0));
+  vec = vec.map((x) => x / norm);
+
+  return vec;
+}
+
 export async function query_edit(input: string, instruction: string, settings: JarvisSettings): Promise<string> {
   const responseParams = {
     input: input,
