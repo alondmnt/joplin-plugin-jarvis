@@ -61,10 +61,6 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gpt-4-32k': 32768,
   'gpt-3.5-turbo': 4096,
   'text-davinci-003': 4096,
-  'text-davinci-002': 2048,
-  'text-curie-001': 2048,
-  'text-babbage-001': 2048,
-  'text-ada-001': 2048,
 };
 
 export const search_engines: { [engine: string] : string; } = {
@@ -217,10 +213,6 @@ export async function register_settings() {
         'gpt-4-32k': 'gpt-4-32k',
         'gpt-3.5-turbo': 'gpt-3.5-turbo',
         'text-davinci-003': 'text-davinci-003',
-        'text-davinci-002': 'text-davinci-002',
-        'text-curie-001': 'text-curie-001',
-        'text-babbage-001': 'text-babbage-001',
-        'text-ada-001': 'text-ada-001',
       }
     },
     'temp': {
