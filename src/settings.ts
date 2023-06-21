@@ -57,8 +57,9 @@ export interface JarvisSettings {
 };
 
 export const model_max_tokens: { [model: string] : number; } = {
-  'gpt-4': 8192,
   'gpt-4-32k': 32768,
+  'gpt-4': 8192,
+  'gpt-3.5-turbo-16k': 16384,
   'gpt-3.5-turbo': 4096,
   'text-davinci-003': 4096,
 };
@@ -209,8 +210,9 @@ export async function register_settings() {
       label: 'Model',
       description: 'The model to use for asking Jarvis. Default: gpt-3.5-turbo',
       options: {
-        'gpt-4': 'gpt-4',
         'gpt-4-32k': 'gpt-4-32k',
+        'gpt-4': 'gpt-4',
+        'gpt-3.5-turbo-16k': 'gpt-3.5-turbo-16k',
         'gpt-3.5-turbo': 'gpt-3.5-turbo',
         'text-davinci-003': 'text-davinci-003',
       }
