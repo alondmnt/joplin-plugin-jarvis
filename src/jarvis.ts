@@ -456,8 +456,22 @@ async function replace_selection(text: string) {
 	}
 }
 
-export async function skip_db_init_dialog(embeddings: BlockEmbedding[]): Promise<boolean> {
-  if (embeddings.length > 0) { return false; }
+export async function skip_db_init_dialog(model: TextEmbeddingModel): Promise<boolean> {
+  if (model.embeddings.length > 0) { return false; }
+
+  let calc_msg = `This database is calculated locally (offline) by running ${model.id}`;
+  if (model.online) {
+    calc_msg = `This database is calculated remotely (online) by sending requests to ${model.id}`;
+  }
   return (await joplin.views.dialogs.showMessageBox(
-    `Hi! Jarvis can build a database of your notes, that may be used to search for similar notes, or to chat with your notes. This database is calculated locally, it is stored in a local sqlite database, and is not shared with anyone. You can delete the database at any time by deleting the file. Initialization may take between a few minutes (fast PC, ~500 notes collection) and a couple of hours. Press 'OK' to run it now in the background, or 'Cancel' to postpone it to a later time (e.g., overnight). You can start the process at any time from Tools-->Jarvis-->Update Jarvis note DB. You may delay it indefinitely by setting the 'Database update period' to 0.`)) == 1;
+    `Hi! Jarvis can build a database of your notes, that may be used to search for similar notes, or to chat with your notes.
+    
+    ${calc_msg}, and then stored in a local sqlite database.
+    
+    *If* you choose to chat with your notes, short excerpts from the database will be send to an online/offline model of your choosing.
+    
+    You can delete the database at any time by deleting the file. Initialization may take between a few minutes (fast PC, ~500 notes collection) and a couple of hours.
+    
+    Press 'OK' to run it now in the background, or 'Cancel' to postpone it to a later time (e.g., overnight). You can start the process at any time from Tools-->Jarvis-->Update Jarvis note DB. You may delay it indefinitely by setting the 'Database update period' to 0.`
+    ) == 1);
 }

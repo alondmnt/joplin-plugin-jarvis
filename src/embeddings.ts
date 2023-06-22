@@ -179,7 +179,7 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
   const new_embd = await calc_note_embeddings(note, note_tags, model, settings.notes_include_code);
 
   // insert new embeddings into DB
-  await insert_note_embeddings(db, new_embd);
+  await insert_note_embeddings(db, new_embd, model);
 
   return new_embd;
 }

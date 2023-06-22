@@ -4,6 +4,8 @@ import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings } from './settings';
 import { query_embedding } from './openai';
+import { BlockEmbedding } from './embeddings';
+import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
 
 tf.setBackend('webgl');
 
@@ -36,11 +38,18 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
 }
 
 export class TextEmbeddingModel {
+  // embeddings
+  public embeddings: BlockEmbedding[] = [];
+  public db: any = null;
+
+  // model
   public id: string = null;
+  public db_idx: number = null;
   public version: string = null;
   public max_block_size: number = null;
   public online: boolean = null;
   public model: any = null;
+
   // rate limits
   public page_size: number = 50;  // external: notes
   public page_cycle: number = 20;  // external: pages
@@ -52,11 +61,13 @@ export class TextEmbeddingModel {
   constructor() {
   }
 
-  // placeholder method, to be overridden by subclasses
+  // parent method
   async initialize() {
-    throw new Error('Method not implemented');
+    await this._load_model();  // model-specific initialization
+    await this._load_db();  // post-model initialization
   }
 
+  // parent method with rate limiter
   async embed(text: string): Promise<Float32Array> {
     if (!this.model) {
       throw new Error('Model not initialized');
@@ -112,6 +123,20 @@ export class TextEmbeddingModel {
   async _calc_embedding(text: string): Promise<Float32Array> {
     throw new Error('Method not implemented');
   }
+
+  // placeholder method, to be overridden by subclasses
+  async _load_model() {
+    throw new Error('Method not implemented');
+  }
+
+  // load embedding database
+  async _load_db() {
+    if ( this.model == null ) { return; }
+
+    this.db = await connect_to_db(this);
+    await init_db(this.db, this);
+    this.embeddings = await clear_deleted_notes(await get_all_embeddings(this.db), this.db);
+  }
 }
 
 class USEModel extends TextEmbeddingModel {
@@ -120,12 +145,11 @@ class USEModel extends TextEmbeddingModel {
     super();
     this.id = 'Universal Sentence Encoder';
     this.version = '1.3.3';
-    this.max_block_size = max_tokens / 1.5;
+    this.max_block_size = Math.floor(max_tokens / 1.5);
     this.online = false;
-    this.model = null;
   }
 
-  async initialize() {
+  async _load_model() {
     try {
       this.model = await use.load();
     } catch (e) {
@@ -160,7 +184,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     super();
     this.id = id
     this.version = '1';
-    this.max_block_size = max_tokens / 1.5;
+    this.max_block_size = Math.floor(max_tokens / 1.5);
     this.endpoint = endpoint;
     this.online = true;
 
@@ -170,7 +194,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     this.last_request_time = 0;  // internal rate limit
   }
 
-  async initialize() {
+  async _load_model() {
     const token = await joplin.settings.value('hf_api_key');
     if (!token) {
       joplin.views.dialogs.showMessageBox('Please specify a valid HuggingFace API key in the settings');
@@ -261,7 +285,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     super();
     this.id = id
     this.version = '1';
-    this.max_block_size = max_tokens / 1.5;
+    this.max_block_size = Math.floor(max_tokens / 1.5);
     this.online = true;
 
     // rate limits
@@ -270,7 +294,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     this.last_request_time = 0;  // internal rate limit
   }
 
-  async initialize() {
+  async _load_model() {
     this.api_key = await joplin.settings.value('openai_api_key');
     if (!this.api_key) {
       joplin.views.dialogs.showMessageBox('Please specify a valid OpenAI API key in the settings');

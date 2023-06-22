@@ -298,7 +298,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Semantic similarity model',
-      description: '(Requires restart.) The model to use for calculating text embeddings. Default: (offline) Universal Sentence Encoder',
+      description: '(REQUIRES RESTART) The model to use for calculating text embeddings. Default: (offline) Universal Sentence Encoder [English]',
       options: {
         'Universal Sentence Encoder': '(offline) Universal Sentence Encoder [English]',
         'Hugging Face': '(online) Hugging Face [Multilingual]',
@@ -314,7 +314,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Max tokens',
-      description: 'The maximum number of tokens to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
+      description: '(REQUIRES RESTART) The maximum number of tokens to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
     },
     'notes_hf_model_id': {
       value: 'sentence-transformers/paraphrase-xlm-r-multilingual-v1',
@@ -323,7 +323,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Notes: Hugging Face feature extraction model ID',
-      description: 'The Hugging Face model ID to use for calculating text embeddings. Default: sentence-transformers/paraphrase-xlm-r-multilingual-v1',
+      description: '(REQUIRES RESTART) The Hugging Face model ID to use for calculating text embeddings. Default: sentence-transformers/paraphrase-xlm-r-multilingual-v1',
     },
     'notes_hf_endpoint': {
       value: '',
@@ -332,7 +332,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Notes: Hugging Face API endpoint',
-      description: "The Hugging Face API endpoint to use for calculating text embeddings. Default: empty (HF's default public endpoint)",
+      description: "(REQUIRES RESTART) The Hugging Face API endpoint to use for calculating text embeddings. Default: empty (HF's default public endpoint)",
     },
     'notes_db_update_delay': {
       value: 10,
@@ -343,7 +343,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Database update period (min)',
-      description: 'The period between database updates in minutes. Set to 0 to disable automatic updates. (Requires restart). Default: 10',
+      description: '(REQUIRES RESTART) The period between database updates in minutes. Set to 0 to disable automatic updates. Default: 10',
     },
     'notes_include_code': {
       value: false,

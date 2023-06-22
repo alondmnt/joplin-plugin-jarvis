@@ -4,7 +4,6 @@ import * as debounce from 'lodash.debounce';
 import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog } from './jarvis';
 import { get_settings, register_settings, set_folders } from './settings';
 import { load_embedding_model } from './models';
-import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
 import { register_panel } from './panel';
 
 joplin.plugins.register({
@@ -21,10 +20,7 @@ joplin.plugins.register({
 
     await new Promise(res => setTimeout(res, delay_startup * 1000));
     let model = await load_embedding_model(settings);
-    const db = await connect_to_db();
-    await init_db(db);
-    let embeddings = await clear_deleted_notes(await get_all_embeddings(db), db);
-    if (await skip_db_init_dialog(embeddings)) { delay_db_update = 0; }  // cancel auto update
+    if (await skip_db_init_dialog(model)) { delay_db_update = 0; }  // cancel auto update
 
     const panel = await joplin.views.panels.create('jarvis.relatedNotes');
     register_panel(panel, settings, model);
@@ -72,7 +68,7 @@ joplin.plugins.register({
         if (model.model === null) {
           await model.initialize();
         }
-        await update_note_db(db, embeddings, model, panel);
+        await update_note_db(model.db, model.embeddings, model, panel);
       }
     });
 
@@ -84,7 +80,7 @@ joplin.plugins.register({
         if (model.model === null) {
           await model.initialize();
         }
-        find_notes_debounce(panel, embeddings, model);
+        find_notes_debounce(panel, model.embeddings, model);
       }
     });
 
@@ -99,7 +95,7 @@ joplin.plugins.register({
           if (model.model === null) {
             await model.initialize();
           }
-          find_notes_debounce(panel, embeddings, model)
+          find_notes_debounce(panel, model.embeddings, model)
         }
       },
     });
@@ -112,7 +108,7 @@ joplin.plugins.register({
         if (model.model === null) {
           await model.initialize();
         }
-        chat_with_notes(embeddings, model, panel);
+        chat_with_notes(model.embeddings, model, panel);
       }
     });
 
@@ -123,7 +119,7 @@ joplin.plugins.register({
         if (model.model === null) {
           await model.initialize();
         }
-        preview_chat_notes_context(embeddings, model, panel);
+        preview_chat_notes_context(model.embeddings, model, panel);
       }
     });
 
@@ -173,9 +169,9 @@ joplin.plugins.register({
         if (model.model === null) {
           await model.initialize();
         }
-        await find_notes_debounce(panel, embeddings, model);
+        await find_notes_debounce(panel, model.embeddings, model);
         if (delay_db_update > 0) {
-          await update_note_db_debounce(db, embeddings, model, panel);
+          await update_note_db_debounce(model.db, model.embeddings, model, panel);
         }
     });
 
