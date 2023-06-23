@@ -66,12 +66,12 @@ export async function chat_with_jarvis() {
   await replace_selection(settings.chat_prefix + completion + settings.chat_suffix);
 }
 
-export async function chat_with_notes(embeddings: BlockEmbedding[], model: TextEmbeddingModel, panel: string) {
+export async function chat_with_notes(model: TextEmbeddingModel, panel: string) {
   if (model.model === null) { return; }
 
   const settings = await get_settings();
   await replace_selection('\n\nGenerating notes response...');
-  const [prompt, nearest] = await get_chat_prompt_and_notes(embeddings, model, settings);
+  const [prompt, nearest] = await get_chat_prompt_and_notes(model, settings);
   if (nearest[0].embeddings.length === 0) {
     await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix);
     return;
@@ -91,11 +91,11 @@ export async function chat_with_notes(embeddings: BlockEmbedding[], model: TextE
   update_panel(panel, nearest, settings);
 }
 
-export async function preview_chat_notes_context(embeddings: BlockEmbedding[], model: TextEmbeddingModel, panel: string) {
+export async function preview_chat_notes_context(model: TextEmbeddingModel, panel: string) {
   if (model.model === null) { return; }
 
   const settings = await get_settings();
-  const [prompt, nearest] = await get_chat_prompt_and_notes(embeddings, model, settings);
+  const [prompt, nearest] = await get_chat_prompt_and_notes(model, settings);
   console.log(prompt);
   const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, 4*settings.memory_tokens);
   nearest[0].embeddings = nearest[0].embeddings.slice(0, note_count);
@@ -117,7 +117,7 @@ export async function edit_with_jarvis(dialogHandle: string) {
   await joplin.commands.execute('replaceSelection', edit);
 }
 
-export async function update_note_db(db: any, embeddings: BlockEmbedding[], model: TextEmbeddingModel, panel: string): Promise<void> {
+export async function update_note_db(model: TextEmbeddingModel, panel: string): Promise<void> {
   if (model.model === null) { return; }
 
   const settings = await get_settings();
@@ -142,7 +142,7 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
     notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id'], page: page, limit: model.page_size });
     if (notes.items) {
       console.log(`Processing page ${page}: ${notes.items.length} notes`);
-      await update_embeddings(db, embeddings, notes.items, model, settings);
+      await update_embeddings(notes.items, model, settings);
       processed_notes += notes.items.length;
       update_progress_bar(panel, processed_notes, total_notes, settings);
     }
@@ -153,10 +153,10 @@ export async function update_note_db(db: any, embeddings: BlockEmbedding[], mode
     }
   } while(notes.has_more);
 
-  find_notes(panel, embeddings, model);
+  find_notes(model, panel);
 }
 
-export async function find_notes(panel: string, embeddings: BlockEmbedding[], model: TextEmbeddingModel) {
+export async function find_notes(model: TextEmbeddingModel, panel: string) {
   if (!(await joplin.views.panels.visible(panel))) {
     return;
   }
@@ -171,7 +171,7 @@ export async function find_notes(panel: string, embeddings: BlockEmbedding[], mo
   if (!selected || (selected.length === 0)) {
     selected = note.body;
   }
-  const nearest = await find_nearest_notes(embeddings, note.id, note.title, selected, model, settings);
+  const nearest = await find_nearest_notes(model.embeddings, note.id, note.title, selected, model, settings);
 
   // write results to panel
   await update_panel(panel, nearest, settings);
@@ -201,22 +201,22 @@ async function get_chat_prompt(settings: JarvisSettings, strip_links: boolean = 
   return prompt;
 }
 
-async function get_chat_prompt_and_notes(embeddings: BlockEmbedding[], model: TextEmbeddingModel, settings: JarvisSettings):
+async function get_chat_prompt_and_notes(model: TextEmbeddingModel, settings: JarvisSettings):
     Promise<[string, NoteEmbedding[]]> {
   const prompt = get_notes_prompt(await get_chat_prompt(settings, false));
 
   // filter embeddings based on prompt
   let sub_embeds: BlockEmbedding[] = [];
   if (prompt.notes.size > 0) {
-    sub_embeds.push(...embeddings.filter((embd) => prompt.notes.has(embd.id)));
+    sub_embeds.push(...model.embeddings.filter((embd) => prompt.notes.has(embd.id)));
   }
   if (prompt.search) {
     const search_res = await joplin.data.get(['search'], { query: prompt.search, field: ['id'] });
     const search_ids = new Set(search_res.items.map((item) => item.id));
-    sub_embeds.push(...embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));
+    sub_embeds.push(...model.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));
   }
   if (sub_embeds.length === 0) {
-    sub_embeds = embeddings;
+    sub_embeds = model.embeddings;
   } else {
     // rank notes by similarity but don't filter out any notes
     settings.notes_min_similarity = 0;
@@ -238,7 +238,7 @@ async function get_chat_prompt_and_notes(embeddings: BlockEmbedding[], model: Te
     // TODO: rethink whether we should indeed skip the entire iteration
 
     if (settings.notes_attach_prev > 0) {
-      const prev = await get_prev_blocks(embd, embeddings, settings.notes_attach_prev);
+      const prev = await get_prev_blocks(embd, model.embeddings, settings.notes_attach_prev);
       // push in reverse order
       for (let i = prev.length - 1; i >= 0; i--) {
         const bid = `${prev[i].id}:${prev[i].line}`;
@@ -253,7 +253,7 @@ async function get_chat_prompt_and_notes(embeddings: BlockEmbedding[], model: Te
     blocks.push(embd);
 
     if (settings.notes_attach_next > 0) {
-      const next = await get_next_blocks(embd, embeddings, settings.notes_attach_next);
+      const next = await get_next_blocks(embd, model.embeddings, settings.notes_attach_next);
       for (let i = 0; i < next.length; i++) {
         const bid = `${next[i].id}:${next[i].line}`;
         if (attached.has(bid)) { continue; }
@@ -263,7 +263,7 @@ async function get_chat_prompt_and_notes(embeddings: BlockEmbedding[], model: Te
     }
 
     if (settings.notes_attach_nearest > 0) {
-      const nearest = await get_nearest_blocks(embd, embeddings, settings, settings.notes_attach_nearest);
+      const nearest = await get_nearest_blocks(embd, model.embeddings, settings, settings.notes_attach_nearest);
       for (let i = 0; i < nearest.length; i++) {
         const bid = `${nearest[i].id}:${nearest[i].line}`;
         if (attached.has(bid)) { continue; }

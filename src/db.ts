@@ -32,7 +32,6 @@ export async function connect_to_db(model: any): Promise<any> {
     model_idx = await insert_model(db, model);
   }
   model.db_idx = model_idx;
-  console.log(`db_idx: ${model_idx}`);
 
   return db;
 }

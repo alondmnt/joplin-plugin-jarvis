@@ -153,8 +153,8 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
 }
 
 // async function to process a single note
-async function update_note(note: any, embeddings: BlockEmbedding[],
-    model: TextEmbeddingModel, db: any, settings: JarvisSettings): Promise<BlockEmbedding[]> {
+async function update_note(note: any,
+    model: TextEmbeddingModel, settings: JarvisSettings): Promise<BlockEmbedding[]> {
   if (note.is_conflict) {
     return [];
   }
@@ -163,12 +163,12 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
   if (note_tags.includes('exclude.from.jarvis') || 
       settings.notes_exclude_folders.has(note.parent_id)) {
     console.log(`Excluding note ${note.id} from Jarvis`);
-    delete_note_and_embeddings(db, note.id);
+    delete_note_and_embeddings(model.db, note.id);
     return [];
   }
 
   const hash = calc_hash(note.body);
-  const old_embd = embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
+  const old_embd = model.embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
 
   // if the note hasn't changed, return the old embeddings
   if ((old_embd.length > 0) && (old_embd[0].hash === hash)) {
@@ -179,23 +179,23 @@ async function update_note(note: any, embeddings: BlockEmbedding[],
   const new_embd = await calc_note_embeddings(note, note_tags, model, settings.notes_include_code);
 
   // insert new embeddings into DB
-  await insert_note_embeddings(db, new_embd, model);
+  await insert_note_embeddings(model.db, new_embd, model);
 
   return new_embd;
 }
 
 // in-place function
-export async function update_embeddings(db: any, embeddings: BlockEmbedding[],
+export async function update_embeddings(
     notes: any[], model: TextEmbeddingModel, settings: JarvisSettings): Promise<void> {
   // map over the notes array and create an array of promises
-  const notes_promises = notes.map(note => update_note(note, embeddings, model, db, settings));
+  const notes_promises = notes.map(note => update_note(note, model, settings));
 
   // wait for all promises to resolve and store the result in new_embeddings
   const new_embeddings = await Promise.all(notes_promises);
 
   // update original array of embeddings
-  remove_note_embeddings(embeddings, notes.map(note => note.id));
-  embeddings.push(...[].concat(...new_embeddings));
+  remove_note_embeddings(model.embeddings, notes.map(note => note.id));
+  model.embeddings.push(...[].concat(...new_embeddings));
 }
 
 // function to remove all embeddings of the given notes from an array of embeddings in-place

@@ -68,7 +68,7 @@ joplin.plugins.register({
         if (model.model === null) {
           await model.initialize();
         }
-        await update_note_db(model.db, model.embeddings, model, panel);
+        await update_note_db(model, panel);
       }
     });
 
@@ -80,7 +80,7 @@ joplin.plugins.register({
         if (model.model === null) {
           await model.initialize();
         }
-        find_notes_debounce(panel, model.embeddings, model);
+        find_notes_debounce(model, panel);
       }
     });
 
@@ -95,7 +95,7 @@ joplin.plugins.register({
           if (model.model === null) {
             await model.initialize();
           }
-          find_notes_debounce(panel, model.embeddings, model)
+          find_notes_debounce(model, panel)
         }
       },
     });
@@ -108,7 +108,7 @@ joplin.plugins.register({
         if (model.model === null) {
           await model.initialize();
         }
-        chat_with_notes(model.embeddings, model, panel);
+        chat_with_notes(model, panel);
       }
     });
 
@@ -119,7 +119,7 @@ joplin.plugins.register({
         if (model.model === null) {
           await model.initialize();
         }
-        preview_chat_notes_context(model.embeddings, model, panel);
+        preview_chat_notes_context(model, panel);
       }
     });
 
@@ -169,9 +169,9 @@ joplin.plugins.register({
         if (model.model === null) {
           await model.initialize();
         }
-        await find_notes_debounce(panel, model.embeddings, model);
+        await find_notes_debounce(model, panel);
         if (delay_db_update > 0) {
-          await update_note_db_debounce(model.db, model.embeddings, model, panel);
+          await update_note_db_debounce(model, panel);
         }
     });
 
