@@ -2,7 +2,7 @@ import joplin from 'api';
 import { JarvisSettings } from './settings';
 
 export async function query_completion(
-    prompt: string, settings: JarvisSettings, adjust_max_tokens: number = 0): Promise<string> {
+    prompt: string, settings: JarvisSettings): Promise<string> {
 
   let url: string = '';
   let responseParams: any = {
@@ -13,7 +13,9 @@ export async function query_completion(
     presence_penalty: settings.presence_penalty,
   }
 
-  if (settings.model.includes('gpt-3.5') || settings.model.includes('gpt-4')) {
+  const is_chat_model = settings.model.includes('gpt-3.5') || settings.model.includes('gpt-4');
+
+  if (is_chat_model) {
     url = 'https://api.openai.com/v1/chat/completions';
     responseParams = {...responseParams,
       messages: [
@@ -59,15 +61,24 @@ export async function query_completion(
   // find all numbers in error message
   const max_tokens = [...data.error.message.matchAll(/([0-9]+)/g)];
 
-  // TODO: truncate text instead...
-  // adjust max tokens
+  // truncate text
   if ((max_tokens !== null) &&
       (data.error.message.includes('reduce'))) {
-    adjust_max_tokens = parseInt(max_tokens[1]) - parseInt(max_tokens[0]) + 1;
+
+    // truncate, and leave some room for a response
+    const token_ratio = 0.9 * parseInt(max_tokens[0][0]) / parseInt(max_tokens[1][0]);
+    const new_length = Math.floor(token_ratio * prompt.length);
+    if (is_chat_model) {
+      // take last tokens
+      prompt = prompt.substring(prompt.length - new_length);
+    } else {
+      // take first tokens
+      prompt = prompt.substring(0, new_length);
+    }
   }
 
   // retry
-  return await query_completion(prompt, settings, adjust_max_tokens);
+  return await query_completion(prompt, settings);
 }
 
 export async function query_embedding(input: string, model: string, api_key: string): Promise<Float32Array> {

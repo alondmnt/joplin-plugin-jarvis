@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
-import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, model_max_tokens, ref_notes_prefix, search_notes_prefix, user_notes_prefix } from './settings';
+import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, ref_notes_prefix, search_notes_prefix, user_notes_prefix } from './settings';
 import { query_completion, query_edit } from './openai';
 import { do_research } from './research';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, update_embeddings } from './embeddings';
@@ -14,7 +14,6 @@ export async function ask_jarvis(dialogHandle: string) {
   if (!result) { return; }
   if (result.id === "cancel") { return; }
 
-  settings.max_tokens = parseInt(result.formData.ask.max_tokens, 10);
   const prompt = build_prompt(result.formData.ask);
   let completion = await query_completion(prompt, settings);
 
@@ -35,7 +34,6 @@ export async function research_with_jarvis(dialogHandle: string) {
   if (result.id === "cancel") { return; }
 
   // params for research
-  settings.max_tokens = parseInt(result.formData.ask.max_tokens, 10);
   const prompt = result.formData.ask.prompt;
   const n_papers = parseInt(result.formData.ask.n_papers);
 
@@ -112,7 +110,6 @@ export async function edit_with_jarvis(dialogHandle: string) {
   if (!result) { return; }
   if (result.id === "cancel") { return; }
 
-  settings.max_tokens = parseInt(result.formData.ask.max_tokens, 10);
   let edit = await query_edit(selection, result.formData.ask.prompt, settings);
   await joplin.commands.execute('replaceSelection', edit);
 }
@@ -329,10 +326,6 @@ async function get_completion_params(
         <textarea name="prompt">${defaultPrompt}</textarea>
       </div>
       <div>
-        <input type="range" title="Prompt + response length = ${settings.max_tokens}" name="max_tokens" id="max_tokens" size="25" min="256" max="${model_max_tokens[settings.model]}" value="${settings.max_tokens}" step="128"
-         oninput="title='Prompt + response length = ' + value" />
-      </div>
-      <div>
         <label for="include_prompt">
         <input type="checkbox" title="Show prompt" id="include_prompt" name="include_prompt" ${include_prompt} />
         Show prompt in response
@@ -374,11 +367,6 @@ async function get_research_params(
         <label for="paper_tokens">Paper tokens</label>
         <input type="range" title="Paper context (50% of total tokens) to include in the prompt" name="paper_tokens" id="paper_tokens" size="25" min="10" max="90" value="50" step="10"
         oninput="title='Paper context (' + value + '% of max tokens) to include in the prompt'" />
-      </div>
-      <div>
-        <label for="max_tokens">Max tokens</label>
-        <input type="range" title="Prompt + response length = ${settings.max_tokens}" name="max_tokens" id="max_tokens" size="25" min="256" max="${model_max_tokens[settings.model]}" value="${settings.max_tokens}" step="128"
-        oninput="title='Prompt + response length = ' + value" />
       </div>
       <div>
       <label for="search_engine">

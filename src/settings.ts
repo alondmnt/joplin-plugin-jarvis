@@ -110,12 +110,8 @@ async function parse_dropdown_setting(name: string): Promise<string> {
 
 export async function get_settings(): Promise<JarvisSettings> {
   const model = await joplin.settings.value('model');
-  let max_tokens = await joplin.settings.value('max_tokens');
-  if (max_tokens > model_max_tokens[model]) {
-    max_tokens = model_max_tokens[model];
-    await joplin.settings.setValue('max_tokens', max_tokens);
-    joplin.views.dialogs.showMessageBox(`The maximum number of tokens for the '${model}' model is ${max_tokens}. The value has been updated.`);
-  }
+  // if model is in model_max_tokens, use its value, otherwise use the settings value
+  let max_tokens = model_max_tokens[model] || await joplin.settings.value('max_tokens');
   let memory_tokens = await joplin.settings.value('memory_tokens');
   if (memory_tokens > 0.45*max_tokens) {
     memory_tokens = Math.floor(0.45*max_tokens);
@@ -229,26 +225,26 @@ export async function register_settings() {
       description: 'The temperature of the model. 0 is the least creative. 20 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text. Default: 10',
     },
     'max_tokens': {
-      value: 4000,
+      value: 2048,
       type: SettingItemType.Int,
-      minimum: 16,
+      minimum: 128,
       maximum: 32768,
-      step: 16,
+      step: 128,
       section: 'jarvis',
       public: true,
       label: 'Model: Max Tokens',
-      description: 'The maximum number of tokens to generate. Higher values will result in more text, but can also result in more nonsensical text. Default: 4000',
+      description: 'The maximal context length of the selected text completion / chat model. This parameter is only used for custom models where the default context length is unknown.',
     },
     'memory_tokens': {
       value: 512,
       type: SettingItemType.Int,
       minimum: 16,
-      maximum: 4096,
+      maximum: 16384,
       step: 16,
       section: 'jarvis',
       public: true,
       label: 'Chat: Memory Tokens',
-      description: 'The number of tokens to keep in memory when chatting with Jarvis. Higher values will result in more coherent conversations. Must be lower than 45% of max_tokens. Default: 512',
+      description: 'The context length to keep in memory when chatting with Jarvis. Higher values may result in more coherent conversations. Must be lower than 45% of max_tokens. Default: 512',
     },
     'top_p': {
       value: 100,
@@ -314,7 +310,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Max tokens',
-      description: '(REQUIRES RESTART) The maximum number of tokens to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
+      description: '(REQUIRES RESTART) The maximal context to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
     },
     'notes_hf_model_id': {
       value: 'sentence-transformers/paraphrase-xlm-r-multilingual-v1',
