@@ -116,7 +116,10 @@ function split_code_block_by_lines(block: string, max_size: number): string[] {
 }
 
 function split_text_block_by_sentences_and_newlines(block: string, max_size: number): string[] {
-  const segments = block.match(/[^\.!\?\n]+[\.!\?\n]+/g) || [];
+  const segments = block.match(/[^\.!\?\n]+[\.!\?\n]+/g);
+  if (!segments) {
+    return [block];
+  }
   let current_size = 0;
   let current_block = '';
   const blocks: string[] = [];
