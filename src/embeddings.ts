@@ -277,10 +277,15 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true):
     Promise<NoteEmbedding[]> {
 
-  const note_tags = (await joplin.data.get(['notes', current_id, 'tags'], { fields: ['title'] }))
+  // check if to re-calculate embedding of the query
+  let query_embeddings = embeddings.filter(embd => embd.id === current_id);
+  if ((query_embeddings.length == 0) || (query_embeddings[0].hash !== calc_hash(query))) {
+    // re-calculate embedding of the query
+    const note_tags = (await joplin.data.get(['notes', current_id, 'tags'], { fields: ['title'] }))
     .items.map((t: any) => t.title);
-  const query_embeddings = await calc_note_embeddings(
-    {id: current_id, body: query, title: current_title}, note_tags, model, settings.notes_include_code);
+    query_embeddings = await calc_note_embeddings(
+      {id: current_id, body: query, title: current_title}, note_tags, model, settings.notes_include_code);
+  }
   if (query_embeddings.length === 0) {
     return [];
   }
