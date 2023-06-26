@@ -26,6 +26,7 @@ joplin.plugins.register({
     register_panel(panel, settings, model);
 
     const find_notes_debounce = debounce(find_notes, delay_panel * 1000);
+    if (model.model) { find_notes_debounce(model, panel) };
     const update_note_db_debounce = debounce(update_note_db, delay_db_update * 1000, {leading: true, trailing: false});
 
     joplin.commands.register({
