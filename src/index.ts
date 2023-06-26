@@ -9,7 +9,7 @@ import { register_panel } from './panel';
 joplin.plugins.register({
 	onStart: async function() {
     await register_settings();
-    const settings = await get_settings();
+    let settings = await get_settings();
 
     const dialogAsk = await joplin.views.dialogs.create('jarvis.ask.dialog');
 
@@ -174,6 +174,24 @@ joplin.plugins.register({
         if (delay_db_update > 0) {
           await update_note_db_debounce(model, panel);
         }
+    });
+
+    await joplin.settings.onChange(async (event) => {
+      settings = await get_settings();
+      delay_db_update = 60 * settings.notes_db_update_delay;
+      if (event.keys.includes('notes_model') ||
+          event.keys.includes('notes_max_tokens') ||
+          event.keys.includes('notes_hf_model_id') ||
+          event.keys.includes('notes_hf_endpoint')) {
+
+        model = await load_embedding_model(settings);
+        if (model.model) {
+          await update_note_db(model, panel);
+        }
+      }
+      if (model.model) {
+        find_notes_debounce(model, panel)
+      };
     });
 
     await joplin.views.panels.onMessage(panel, async (message) => {
