@@ -2,7 +2,8 @@ import joplin from 'api';
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { HfInference } from '@huggingface/inference'
-import { JarvisSettings, get_settings } from './settings';
+import { JarvisSettings } from './settings';
+import { timeout_with_retry } from './utils';
 import { query_embedding, query_chat, query_completion } from './openai';
 import { BlockEmbedding } from './embeddings';
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
@@ -349,6 +350,7 @@ export class TextGenerationModel {
   public model_prefix: string = null;
 
   // rate limits
+  public timeout: number = 60*1000;  // miliseconds
   public request_queue: any[] = null;
   public requests_per_second: number = null;
   public last_request_time: number = null;
@@ -374,10 +376,10 @@ export class TextGenerationModel {
 
   async chat(prompt: string): Promise<string> {
     let response = '';
-    if (this.type == 'chat') {
+    if (this.type === 'chat') {
       prompt = this._sanitize_prompt(prompt);
       const chat_prompt = this._parse_chat(prompt);
-      response = await this._chat(chat_prompt);
+      response = await timeout_with_retry(this.timeout, () => this._chat(chat_prompt));
     } else {
       response = await this.complete(prompt);
     }
@@ -386,7 +388,7 @@ export class TextGenerationModel {
 
   async complete(prompt: string): Promise<string> {
     prompt = this._sanitize_prompt(prompt);
-    return await this._complete(prompt);
+    return await timeout_with_retry(this.timeout, () => this._complete(prompt));
   }
 
   // placeholder method, to be overridden by subclasses
@@ -458,7 +460,6 @@ export class TextGenerationModel {
 export class OpenAIGeneration extends TextGenerationModel {
   // model
   private api_key: string = null;
-  private url: string = 'https://api.openai.com/v1/chat/completions';
 
   // model
   public temperature: number = 0.5;

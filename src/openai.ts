@@ -1,8 +1,5 @@
 import joplin from 'api';
 import { JarvisSettings } from './settings';
-import { with_timeout } from './utils';
-
-const timeout = 60;  // seconds
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,
@@ -19,20 +16,15 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
     presence_penalty: presence_penalty,
   }
 
-  let data: any = {};
-  try {
-    const response = await with_timeout(timeout*1000, fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + api_key,
-      },
-      body: JSON.stringify(params),
-    }));
-    data = await response.json();
-  } catch {
-    data = { error: { message: `Request timeout (${timeout} sec).` } };
-  }
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + api_key,
+    },
+    body: JSON.stringify(params),
+  });
+  const data = await response.json();
 
   // output response
   if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
@@ -45,7 +37,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
     );
 
   // cancel button
-  if (errorHandler == 1) {
+  if (errorHandler === 1) {
     return '';
   }
 
@@ -99,20 +91,15 @@ export async function query_completion(prompt: string, api_key: string,
     };
   }
 
-  let data: any = {};
-  try {
-    const response = await with_timeout(timeout*1000, fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + api_key,
-      },
-      body: JSON.stringify(params),
-    }));
-    data = await response.json();
-  } catch {
-    data = { error: { message: `Request timeout (${timeout} sec).` } };
-  }
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + api_key,
+    },
+    body: JSON.stringify(params),
+  });
+  const data = await response.json();
 
   // output completion
   if (data.hasOwnProperty('choices') && (data.choices[0].text)) {
@@ -128,7 +115,7 @@ export async function query_completion(prompt: string, api_key: string,
     );
 
   // cancel button
-  if (errorHandler == 1) {
+  if (errorHandler === 1) {
     return '';
   }
 
@@ -175,7 +162,7 @@ export async function query_embedding(input: string, model: string, api_key: str
   if (data.hasOwnProperty('error')) {
     const errorHandler = await joplin.views.dialogs.showMessageBox(
       `Error: ${data.error.message}\nPress OK to retry.`);
-      if (errorHandler == 0) {
+      if (errorHandler === 0) {
       // OK button
       return query_embedding(input, model, api_key);
     }
