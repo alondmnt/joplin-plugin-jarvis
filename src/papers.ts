@@ -1,6 +1,7 @@
 import joplin from "api";
 import { JarvisSettings, search_prompts } from './settings';
 import { TextGenerationModel } from "./models";
+import { with_timeout } from "./utils";
 
 export interface PaperInfo {
   title: string;
@@ -503,13 +504,4 @@ async function get_semantic_scholar_info(paper: PaperInfo, settings: JarvisSetti
     console.log(jsonResponse);
   }
   return paper;
-}
-
-function with_timeout(msecs: number, promise: Promise<Response>) {
-  const timeout = new Promise((resolve, reject) => {
-    setTimeout(() => {
-      reject(new Error("timeout"));
-    }, msecs);
-  });
-  return Promise.race([timeout, promise]);
 }

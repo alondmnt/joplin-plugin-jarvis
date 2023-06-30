@@ -1,5 +1,8 @@
 import joplin from 'api';
 import { JarvisSettings } from './settings';
+import { with_timeout } from './utils';
+
+const timeout = 60;  // seconds
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,
@@ -16,15 +19,20 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
     presence_penalty: presence_penalty,
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + api_key,
-    },
-    body: JSON.stringify(params),
-  });
-  const data = await response.json();
+  let data: any = {};
+  try {
+    const response = await with_timeout(timeout*1000, fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + api_key,
+      },
+      body: JSON.stringify(params),
+    }));
+    data = await response.json();
+  } catch {
+    data = { error: { message: `Request timeout (${timeout} sec).` } };
+  }
 
   // output response
   if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
@@ -91,15 +99,20 @@ export async function query_completion(prompt: string, api_key: string,
     };
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + api_key,
-    },
-    body: JSON.stringify(params),
-  });
-  const data = await response.json();
+  let data: any = {};
+  try {
+    const response = await with_timeout(timeout*1000, fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + api_key,
+      },
+      body: JSON.stringify(params),
+    }));
+    data = await response.json();
+  } catch {
+    data = { error: { message: `Request timeout (${timeout} sec).` } };
+  }
 
   // output completion
   if (data.hasOwnProperty('choices') && (data.choices[0].text)) {
