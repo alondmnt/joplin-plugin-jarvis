@@ -181,6 +181,7 @@ joplin.plugins.register({
     await joplin.settings.onChange(async (event) => {
       settings = await get_settings();
       delay_db_update = 60 * settings.notes_db_update_delay;
+      model_gen = await load_generation_model(settings);
       if (event.keys.includes('notes_model') ||
           event.keys.includes('notes_max_tokens') ||
           event.keys.includes('notes_hf_model_id') ||

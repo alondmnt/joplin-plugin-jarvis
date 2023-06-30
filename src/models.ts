@@ -3,7 +3,7 @@ import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings, get_settings } from './settings';
-import { query_embedding } from './openai';
+import { query_embedding, query_chat, query_completion } from './openai';
 import { BlockEmbedding } from './embeddings';
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
 
@@ -360,8 +360,8 @@ export class TextGenerationModel {
     this.type = type;
 
     this.memory_tokens = memory_tokens;
-    this.user_prefix = user_prefix.trim();
-    this.model_prefix = model_prefix.trim();
+    this.user_prefix = user_prefix;
+    this.model_prefix = model_prefix;
 
     this.request_queue = [];
     this.requests_per_second = null;
@@ -373,13 +373,15 @@ export class TextGenerationModel {
   }
 
   async chat(prompt: string): Promise<string> {
+    let response = '';
     if (this.type == 'chat') {
       prompt = this._sanitize_prompt(prompt);
       const chat_prompt = this._parse_chat(prompt);
-      return await this._chat(chat_prompt);
+      response = await this._chat(chat_prompt);
     } else {
-      return await this.complete(prompt);
+      response = await this.complete(prompt);
     }
+    return this.model_prefix + response + this.user_prefix;
   }
 
   async complete(prompt: string): Promise<string> {
@@ -407,7 +409,7 @@ export class TextGenerationModel {
 
     for (const line of lines) {
       const trimmed_line = line.trim();
-      if (trimmed_line.match(this.user_prefix)) {
+      if (trimmed_line.match(this.user_prefix.trim())) {
         if (current_role && current_message) {
           if (first_role) {
             // apparently, the first role was assistant (now it's the user)
@@ -417,14 +419,14 @@ export class TextGenerationModel {
           chat.push({ role: current_role, content: current_message });
         }
         current_role = 'user';
-        current_message = trimmed_line.replace(this.user_prefix, '').trim() + '\n';
+        current_message = trimmed_line.replace(this.user_prefix.trim(), '').trim() + '\n';
 
-      } else if (trimmed_line.match(this.model_prefix)) {
+      } else if (trimmed_line.match(this.model_prefix.trim())) {
         if (current_role && current_message) {
           chat.push({ role: current_role, content: current_message });
         }
         current_role = 'assistant';
-        current_message = trimmed_line.replace(this.model_prefix, '').trim() + '\n';
+        current_message = trimmed_line.replace(this.model_prefix.trim(), '').trim() + '\n';
 
       } else {
         if (current_role && current_message) {
@@ -442,7 +444,6 @@ export class TextGenerationModel {
       chat.push({ role: current_role, content: current_message });
     }
 
-    console.log(chat);
     return chat;
   }
 
@@ -490,53 +491,13 @@ export class OpenAIGeneration extends TextGenerationModel {
   }
 
   async _chat(prompt: ChatEntry[]): Promise<string> {
-    const params = {
-      model: this.id,
-      messages: prompt,
-    };
-
-    const response = await fetch(this.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + this.api_key,
-      },
-      body: JSON.stringify(params),
-    });
-    const data = await response.json();
-
-    if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
-      return `\n\n${this.model_prefix} ${data.choices[0].message.content}\n\n${this.user_prefix}`;
-    }
-
-    throw new Error('Invalid response');
+    return query_chat(prompt, this.api_key, this.id,
+      this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty);
   }
 
   async _complete(prompt: string): Promise<string> {
-    const params = {
-      model: this.id,
-      messages: [this.base_chat[0],
-        { role: 'user', content: prompt }],
-      temperature: this.temperature,
-      top_p: this.top_p,
-      frequency_penalty: this.frequency_penalty,
-      presence_penalty: this.presence_penalty,
-    };
-
-    const response = await fetch(this.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + this.api_key,
-      },
-      body: JSON.stringify(params),
-    });
-    const data = await response.json();
-
-    if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
-      return data.choices[0].message.content;
-    }
-
-    throw new Error('Invalid response');
+    return query_completion(prompt, this.api_key, this.id,
+      this.max_tokens - Math.ceil(prompt.length / 4),
+      this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty);
   }
 }
