@@ -1,6 +1,6 @@
 import joplin from "api";
-import { query_completion } from './openai';
 import { JarvisSettings, search_prompts } from './settings';
+import { TextGenerationModel } from "./models";
 
 export interface PaperInfo {
   title: string;
@@ -21,10 +21,11 @@ export interface SearchParams {
   questions: string;
 };
 
-export async function search_papers(prompt: string, n: number, settings: JarvisSettings,
+export async function search_papers(model_gen: TextGenerationModel,
+    prompt: string, n: number, settings: JarvisSettings,
     min_results: number = 10, retries: number = 2): Promise<[PaperInfo[], SearchParams]> {
 
-  const search = await get_search_queries(prompt, settings);
+  const search = await get_search_queries(model_gen, prompt, settings);
 
   // run multiple queries in parallel and remove duplicates
   let results: PaperInfo[] = [];
@@ -49,7 +50,7 @@ export async function search_papers(prompt: string, n: number, settings: JarvisS
 
   if ( (results.length < min_results) && (retries > 0) ) {
     console.log(`search ${retries - 1}`);
-    return search_papers(prompt, n, settings, min_results, retries - 1);
+    return search_papers(model_gen, prompt, n, settings, min_results, retries - 1);
   }
   return [results, search];
 }
@@ -183,8 +184,8 @@ async function run_scopus_query(query: string, papers: number, settings: JarvisS
   return results.slice(0, papers);
 }
 
-async function get_search_queries(prompt: string, settings: JarvisSettings): Promise<SearchParams> {
-  const response = await query_completion(
+async function get_search_queries(model_gen: TextGenerationModel, prompt: string, settings: JarvisSettings): Promise<SearchParams> {
+  const response = await model_gen.complete(
     `you are writing an academic text.
     first, list a few research questions that arise from the prompt below.
     ${search_prompts[settings.paper_search_engine]}
@@ -203,7 +204,7 @@ async function get_search_queries(prompt: string, settings: JarvisSettings): Pro
     1. [search query]
     2. [search query]
     3. [search query]
-    `, settings);
+    `);
 
   const query = response.split(/# Research questions|# Queries/gi);
 
@@ -215,7 +216,8 @@ async function get_search_queries(prompt: string, settings: JarvisSettings): Pro
   };
 }
 
-export async function sample_and_summarize_papers(papers: PaperInfo[], max_tokens: number,
+export async function sample_and_summarize_papers(model_gen: TextGenerationModel,
+    papers: PaperInfo[], max_tokens: number,
     search: SearchParams, settings: JarvisSettings): Promise<PaperInfo[]> {
   let results: PaperInfo[] = [];
   let tokens = 0;
@@ -229,7 +231,7 @@ export async function sample_and_summarize_papers(papers: PaperInfo[], max_token
       // try to get a summary for the next 5 papers asynchonously
       for (let j = 0; j < 5; j++) {
         if (i + j < papers.length) {
-          promises.push(get_paper_summary(papers[i + j], search.questions, settings));
+          promises.push(get_paper_summary(model_gen, papers[i + j], search.questions, settings));
         }
       }
     }
@@ -249,13 +251,13 @@ export async function sample_and_summarize_papers(papers: PaperInfo[], max_token
   return results;
 }
 
-async function get_paper_summary(paper: PaperInfo,
+async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInfo,
     questions: string, settings: JarvisSettings): Promise<PaperInfo> {
   paper = await get_paper_text(paper, settings);
   if ( !paper['text'] ) { return paper; }
 
-  const user_temp = settings.temperature;
-  settings.temperature = 0.3;
+  const user_temp = model_gen.temperature;
+  model_gen.temperature = 0.3;
   const prompt = `you are a helpful assistant doing a literature review.
     if the study below contains any information that pertains to topics discussed in the research questions below,
     return a summary in a single paragraph of the relevant parts of the study.
@@ -263,9 +265,9 @@ async function get_paper_summary(paper: PaperInfo,
     return: 'NOT RELEVANT.' and explain why it is not helpful.
     QUESTIONS:\n${questions}
     STUDY:\n${paper['text']}`;
-  const response = await query_completion(prompt, settings);
+  const response = await model_gen.complete(prompt);
   //  consider the study's aim, hypotheses, methods / procedures, results / outcomes, limitations and implications.
-  settings.temperature = user_temp;
+  model_gen.temperature = user_temp;
 
   if (response.includes('NOT RELEVANT') || (response.trim().length == 0)) {
     paper['summary'] = '';

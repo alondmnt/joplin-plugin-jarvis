@@ -2,19 +2,26 @@ import joplin from 'api';
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { HfInference } from '@huggingface/inference'
-import { JarvisSettings } from './settings';
+import { JarvisSettings, get_settings } from './settings';
 import { query_embedding } from './openai';
 import { BlockEmbedding } from './embeddings';
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
 
 tf.setBackend('webgl');
 
+export async function load_generation_model(settings: JarvisSettings): Promise<TextGenerationModel> {
+  let model: TextGenerationModel = null;
+  console.log(`load_generation_model: ${settings.model}`);
+
+  return new OpenAIGeneration(settings);
+}
+
 export async function load_embedding_model(settings: JarvisSettings): Promise<TextEmbeddingModel> {
   let model: TextEmbeddingModel = null;
   console.log(`load_embedding_model: ${settings.notes_model}`);
 
   if (settings.notes_model === 'Universal Sentence Encoder') {
-    model = new USEModel(settings.notes_max_tokens);
+    model = new USEEmbedding(settings.notes_max_tokens);
 
   } else if (settings.notes_model === 'Hugging Face') {
     model = new HuggingFaceEmbedding(
@@ -39,8 +46,8 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
 
 export class TextEmbeddingModel {
   // embeddings
-  public embeddings: BlockEmbedding[] = [];
-  public db: any = null;
+  public embeddings: BlockEmbedding[] = [];  // in-memory
+  public db: any = null;  // file system
 
   // model
   public id: string = null;
@@ -139,7 +146,7 @@ export class TextEmbeddingModel {
   }
 }
 
-class USEModel extends TextEmbeddingModel {
+class USEEmbedding extends TextEmbeddingModel {
 
   constructor(max_tokens: number) {
     super();
@@ -250,7 +257,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
 
     return vec;
   }
-  
+
   async query(text:string): Promise<Float32Array> {
     if ( this.endpoint ) {
       return new Float32Array(await this.model.featureExtraction({ inputs: text }));
@@ -318,5 +325,218 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     }
 
     return query_embedding(text, this.id, this.api_key);
+  }
+}
+
+interface ChatEntry {
+  role: string;
+  content: string;
+}
+
+export class TextGenerationModel {
+  // model
+  public id: string = null;
+  public max_tokens: number = null;
+  public online: boolean = true;
+  public type: string = 'completion';  // this may be used to process the prompt differently
+  public temperature: number = 0.5;
+  public top_p: number = 1;
+
+  // chat
+  public base_chat: Array<ChatEntry> = [];
+  public memory_tokens: number = null;
+  public user_prefix: string = null;
+  public model_prefix: string = null;
+
+  // rate limits
+  public request_queue: any[] = null;
+  public requests_per_second: number = null;
+  public last_request_time: number = null;
+
+  constructor(id: string, max_tokens: number, type: string, memory_tokens: number,
+              user_prefix: string, model_prefix: string) {
+    this.id = id;
+    this.max_tokens = max_tokens;
+    this.type = type;
+
+    this.memory_tokens = memory_tokens;
+    this.user_prefix = user_prefix.trim();
+    this.model_prefix = model_prefix.trim();
+
+    this.request_queue = [];
+    this.requests_per_second = null;
+    this.last_request_time = 0;
+  }
+
+  // placeholder method for loading the model, to be overridden by subclasses
+  async initialize() {
+  }
+
+  async chat(prompt: string): Promise<string> {
+    if (this.type == 'chat') {
+      prompt = this._sanitize_prompt(prompt);
+      const chat_prompt = this._parse_chat(prompt);
+      return await this._chat(chat_prompt);
+    } else {
+      return await this.complete(prompt);
+    }
+  }
+
+  async complete(prompt: string): Promise<string> {
+    prompt = this._sanitize_prompt(prompt);
+    return await this._complete(prompt);
+  }
+
+  // placeholder method, to be overridden by subclasses
+  async _chat(prompt: ChatEntry[]): Promise<string> {
+    throw new Error('Not implemented');
+  }
+
+  // placeholder method, to be overridden by subclasses
+  async _complete(prompt: string): Promise<string> {
+    throw new Error('Not implemented');
+  }
+
+  // extract chat history from the prompt
+  _parse_chat(text: string): ChatEntry[] {
+    const chat: ChatEntry[] = [...this.base_chat];
+    const lines: string[] = text.split('\n');
+    let current_role: string = null;
+    let current_message: string = null;
+    let first_role = false;
+
+    for (const line of lines) {
+      const trimmed_line = line.trim();
+      if (trimmed_line.match(this.user_prefix)) {
+        if (current_role && current_message) {
+          if (first_role) {
+            // apparently, the first role was assistant (now it's the user)
+            current_role = 'assistant';
+            first_role = false;
+          }
+          chat.push({ role: current_role, content: current_message });
+        }
+        current_role = 'user';
+        current_message = trimmed_line.replace(this.user_prefix, '').trim() + '\n';
+
+      } else if (trimmed_line.match(this.model_prefix)) {
+        if (current_role && current_message) {
+          chat.push({ role: current_role, content: current_message });
+        }
+        current_role = 'assistant';
+        current_message = trimmed_line.replace(this.model_prefix, '').trim() + '\n';
+
+      } else {
+        if (current_role && current_message) {
+          current_message += trimmed_line + '\n';
+        } else {
+          // init the chat with the first message
+          first_role = true;
+          current_role = 'user';
+          current_message = trimmed_line;
+        }
+      }
+    }
+
+    if (current_role && current_message) {
+      chat.push({ role: current_role, content: current_message });
+    }
+
+    console.log(chat);
+    return chat;
+  }
+
+  _sanitize_prompt(prompt: string): string {
+    // strip markdown links and keep the text
+    return prompt.trim().replace(/\[.*?\]\(.*?\)/g, (match) => {
+      return match.substring(1, match.indexOf(']'));
+    });
+  }
+}
+
+export class OpenAIGeneration extends TextGenerationModel {
+  // model
+  private api_key: string = null;
+  private url: string = 'https://api.openai.com/v1/chat/completions';
+
+  // model
+  public temperature: number = 0.5;
+  public top_p: number = 1;
+  public frequency_penalty: number = 0;
+  public presence_penalty: number = 0;
+
+  constructor(settings: JarvisSettings) {
+    let type = 'completion';
+    if (settings.model.includes('gpt-3.5') || settings.model.includes('gpt-4')) {
+      type = 'chat';
+    }
+    super(settings.model,
+      settings.max_tokens,
+      type,
+      settings.memory_tokens,
+      settings.chat_suffix,
+      settings.chat_prefix);
+    this.api_key = settings.openai_api_key;
+    this.base_chat = [{role: 'system', content: 'You are Jarvis, the helpful assistant.'}];
+
+    // model params
+    this.temperature = settings.temperature;
+    this.top_p = settings.top_p;
+    this.frequency_penalty = settings.frequency_penalty;
+    this.presence_penalty = settings.presence_penalty;
+  }
+
+  async initialize() {
+  }
+
+  async _chat(prompt: ChatEntry[]): Promise<string> {
+    const params = {
+      model: this.id,
+      messages: prompt,
+    };
+
+    const response = await fetch(this.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + this.api_key,
+      },
+      body: JSON.stringify(params),
+    });
+    const data = await response.json();
+
+    if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
+      return `\n\n${this.model_prefix} ${data.choices[0].message.content}\n\n${this.user_prefix}`;
+    }
+
+    throw new Error('Invalid response');
+  }
+
+  async _complete(prompt: string): Promise<string> {
+    const params = {
+      model: this.id,
+      messages: [this.base_chat[0],
+        { role: 'user', content: prompt }],
+      temperature: this.temperature,
+      top_p: this.top_p,
+      frequency_penalty: this.frequency_penalty,
+      presence_penalty: this.presence_penalty,
+    };
+
+    const response = await fetch(this.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + this.api_key,
+      },
+      body: JSON.stringify(params),
+    });
+    const data = await response.json();
+
+    if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
+      return data.choices[0].message.content;
+    }
+
+    throw new Error('Invalid response');
   }
 }

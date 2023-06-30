@@ -1,7 +1,7 @@
 import joplin from 'api';
-import { query_completion } from './openai';
 import { JarvisSettings } from './settings';
 import { SearchParams } from './papers';
+import { TextGenerationModel } from './models';
 
 export interface WikiInfo {
   [key: string]: any;
@@ -14,8 +14,9 @@ export interface WikiInfo {
 };
 
 // return a summary of the top relevant wikipedia page
-export async function search_wikipedia(prompt: string, search: SearchParams, settings: JarvisSettings): Promise<WikiInfo> {
-  const search_term = await get_wikipedia_search_query(prompt, settings);
+export async function search_wikipedia(model_gen: TextGenerationModel,
+    prompt: string, search: SearchParams, settings: JarvisSettings): Promise<WikiInfo> {
+  const search_term = await get_wikipedia_search_query(model_gen, prompt);
   if ( !search_term ) { return { summary: '' }; }
 
   const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&origin=*&format=json&srlimit=20&srsearch=${search_term}`;
@@ -43,18 +44,18 @@ export async function search_wikipedia(prompt: string, search: SearchParams, set
     pages.push(get_wikipedia_page(page, 'excerpt', 'exintro'));
   }
 
-  let best_page = await get_best_page(pages, results.length, search, settings);
+  let best_page = await get_best_page(model_gen, pages, results.length, search);
   best_page = await get_wikipedia_page(best_page, 'text', 'explaintext');
-  best_page = await get_page_summary(best_page, search.questions, settings);
+  best_page = await get_page_summary(model_gen, best_page, search.questions, settings);
   return best_page;
 }
 
-async function get_wikipedia_search_query(prompt: string, settings: JarvisSettings): Promise<string> {
-  const response = await query_completion(
+async function get_wikipedia_search_query(model_gen: TextGenerationModel, prompt: string): Promise<string> {
+  const response = await model_gen.complete(
     `define the main topic of the prompt.
     PROMPT:\n${prompt}
     use the following format.
-    TOPIC: [main topic]`, settings);
+    TOPIC: [main topic]`);
 
   try {
     return response.split(/TOPIC:/gi)[1].replace(/"/g, '').trim();
@@ -83,7 +84,8 @@ async function get_wikipedia_page(page: WikiInfo, field:string = 'text', section
   return page;
 }
 
-async function get_best_page(pages: Promise<WikiInfo>[], n: number, search: SearchParams, settings: JarvisSettings): Promise<WikiInfo> {
+async function get_best_page(model_gen: TextGenerationModel,
+    pages: Promise<WikiInfo>[], n: number, search: SearchParams): Promise<WikiInfo> {
   // TODO: we could do this by comparing 2 pages each time and keeping the max, at the cost of more queries
   let prompt = `you are a helpful assistant doing a literature review.
     we are searching for the single most relevant Wikipedia page to introduce the topics discussed in the research questions below.
@@ -93,14 +95,14 @@ async function get_best_page(pages: Promise<WikiInfo>[], n: number, search: Sear
   for (let i = 0; i < n; i++) {
     const page = await pages[i];
     if ( ! page['excerpt'] ) { continue; }
-    if ( prompt.length + page['excerpt'].length > 0.9*4*settings.max_tokens ) {
+    if ( prompt.length + page['excerpt'].length > 0.9*4*model_gen.max_tokens ) {
       console.log(`stopping at ${i+1} pages due to max_tokens`);
       break;
     }
 
     prompt += `${i}. ${page['title']}: ${page['excerpt']}\n\n`;
   }
-  const response = await query_completion(prompt, settings);
+  const response = await model_gen.complete(prompt);
   const index = response.match(/\d+/);
   if (index) {
     return await pages[parseInt(index[0])];
@@ -109,11 +111,12 @@ async function get_best_page(pages: Promise<WikiInfo>[], n: number, search: Sear
   }
 }
 
-async function get_page_summary(page: WikiInfo, questions: string, settings: JarvisSettings): Promise<WikiInfo> {
+async function get_page_summary(model_gen: TextGenerationModel,
+    page: WikiInfo, questions: string, settings: JarvisSettings): Promise<WikiInfo> {
   if ( (!page['text']) || (page['text'].length == 0) ) { return page; }
 
-  const user_p = settings.top_p;
-  settings.top_p = 0.2;  // make the model more focused
+  const user_p = model_gen.top_p;
+  model_gen.top_p = 0.2;  // make the model more focused
 
   const prompt = 
     `here is a section from an article, research questions, and a draft summary of the complete article.
@@ -124,24 +127,23 @@ async function get_page_summary(page: WikiInfo, questions: string, settings: Jar
     and describe how the article as a whole answers the given questions.`;
 
   let summary = 'empty summary.';
-  const summary_step = 0.75*4*settings.max_tokens;
+  const summary_step = 0.75*4*model_gen.max_tokens;
   for (let i=0; i<page['text'].length; i+=summary_step) {
     const text = page['text'].slice(i, i+summary_step);
-    summary = await query_completion(
+    summary = await model_gen.complete(
       `${prompt}
        SECTION: ${text}
        QUESTIONS: ${questions}
        SUMMARY: ${summary}
-       RESPONSE:`, settings);
+       RESPONSE:`);
   }
-  const decision = await query_completion(
+  const decision = await model_gen.complete(
     `decide if the following summary is relevant to any of the research questions below.
     only if it is not relevant to any of them, return "NOT RELEVANT", and explain why.
     SUMMARY:\n${summary}
-    QUESTIONS:\n${questions}`,
-    settings);
+    QUESTIONS:\n${questions}`);
 
-  settings.top_p = user_p;
+  model_gen.top_p = user_p;
 
   if ((decision.includes('NOT RELEVANT')) || (summary.trim().length == 0)) {
     return page;

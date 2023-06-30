@@ -1,13 +1,13 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
 import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, ref_notes_prefix, search_notes_prefix, user_notes_prefix } from './settings';
-import { query_completion, query_edit } from './openai';
+import { query_edit } from './openai';
 import { do_research } from './research';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, update_embeddings } from './embeddings';
 import { update_panel, update_progress_bar } from './panel';
-import { TextEmbeddingModel } from './models';
+import { TextEmbeddingModel, TextGenerationModel } from './models';
 
-export async function ask_jarvis(dialogHandle: string) {
+export async function ask_jarvis(model_gen: TextGenerationModel, dialogHandle: string) {
   const settings = await get_settings();
   const result = await get_completion_params(dialogHandle, settings);
 
@@ -15,7 +15,7 @@ export async function ask_jarvis(dialogHandle: string) {
   if (result.id === "cancel") { return; }
 
   const prompt = build_prompt(result.formData.ask);
-  let completion = await query_completion(prompt, settings);
+  let completion = await model_gen.complete(prompt);
 
   if (result.formData.ask.include_prompt) {
     completion = prompt + completion;
@@ -25,7 +25,7 @@ export async function ask_jarvis(dialogHandle: string) {
   await joplin.commands.execute('replaceSelection', completion);
 }
 
-export async function research_with_jarvis(dialogHandle: string) {
+export async function research_with_jarvis(model_gen: TextGenerationModel, dialogHandle: string) {
   const settings = await get_settings();
 
   const result = await get_research_params(dialogHandle, settings);
@@ -45,37 +45,36 @@ export async function research_with_jarvis(dialogHandle: string) {
   const use_wikipedia = result.formData.ask.use_wikipedia;
 
   const only_search = result.formData.ask.only_search;
-  let paper_tokens = Math.ceil(parseInt(result.formData.ask.paper_tokens) / 100 * settings.max_tokens);
+  let paper_tokens = Math.ceil(parseInt(result.formData.ask.paper_tokens) / 100 * model_gen.max_tokens);
   if (only_search) {
     paper_tokens = Infinity;  // don't limit the number of summarized papers
     settings.include_paper_summary = true;
   }
 
-  await do_research(prompt, n_papers, paper_tokens, use_wikipedia, only_search, settings);
+  await do_research(model_gen, prompt, n_papers, paper_tokens, use_wikipedia, only_search, settings);
 }
 
 // this function takes the last tokens from the current note and uses them as a completion prompt
-export async function chat_with_jarvis() {
-  const settings = await get_settings();
-  const prompt = await get_chat_prompt(settings);
+export async function chat_with_jarvis(model_gen: TextGenerationModel) {
+  const prompt = await get_chat_prompt(model_gen);
 
   await replace_selection('\n\nGenerating response...');
-  let completion = await query_completion(prompt + settings.chat_prefix, settings);
-  await replace_selection(settings.chat_prefix + completion + settings.chat_suffix);
+
+  await replace_selection(await model_gen.chat(prompt));
 }
 
-export async function chat_with_notes(model: TextEmbeddingModel, panel: string) {
-  if (model.model === null) { return; }
+export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, panel: string) {
+  if (model_embed.model === null) { return; }
 
   const settings = await get_settings();
   await replace_selection('\n\nGenerating notes response...');
-  const [prompt, nearest] = await get_chat_prompt_and_notes(model, settings);
+  const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings);
   if (nearest[0].embeddings.length === 0) {
     await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix);
     return;
   }
 
-  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, 4*settings.memory_tokens);
+  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, 4*model_gen.memory_tokens);
   if (note_text === '') {
     await replace_selection(settings.chat_prefix + 'Could not include notes due to context limits. Try to increase memory tokens in the settings.' + settings.chat_suffix);
     return;
@@ -84,18 +83,18 @@ export async function chat_with_notes(model: TextEmbeddingModel, panel: string) 
   const note_links = extract_blocks_links(nearest[0].embeddings);
   const decorate = "\nRespond to the user's prompt above. The following are the user's own notes. You you may refer to the content of any of the notes, and extend it, but only when it is relevant to the prompt. Always cite the [note number] of each note that you use.\n\n";
 
-  let completion = await query_completion(prompt + decorate + note_text + settings.chat_prefix, settings);
-  await replace_selection(settings.chat_prefix + completion + '\n\n' + note_links + settings.chat_suffix);
+  let completion = await model_gen.chat(prompt + decorate + note_text + settings.chat_prefix);
+  await replace_selection(completion.replace(model_gen.user_prefix, `${note_links}\n\n${model_gen.user_prefix}`));
   update_panel(panel, nearest, settings);
 }
 
-export async function preview_chat_notes_context(model: TextEmbeddingModel, panel: string) {
-  if (model.model === null) { return; }
+export async function preview_chat_notes_context(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, panel: string) {
+  if (model_embed.model === null) { return; }
 
   const settings = await get_settings();
-  const [prompt, nearest] = await get_chat_prompt_and_notes(model, settings);
+  const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings);
   console.log(prompt);
-  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, 4*settings.memory_tokens);
+  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, 4*model_gen.memory_tokens);
   nearest[0].embeddings = nearest[0].embeddings.slice(0, note_count);
   update_panel(panel, nearest, settings);
 }
@@ -174,7 +173,7 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
   await update_panel(panel, nearest, settings);
 }
 
-async function get_chat_prompt(settings: JarvisSettings, strip_links: boolean = true): Promise<string> {
+async function get_chat_prompt(model_gen: TextGenerationModel, strip_links: boolean = true): Promise<string> {
   // get cursor position
   const cursor = await joplin.commands.execute('editor.execCommand', {
     name: 'getCursor',
@@ -186,7 +185,7 @@ async function get_chat_prompt(settings: JarvisSettings, strip_links: boolean = 
     args: [{line: 0, ch: 0}, cursor],
   });
   // get last tokens
-  prompt = prompt.substring(prompt.length - 4*settings.memory_tokens);
+  prompt = prompt.substring(prompt.length - 4*model_gen.memory_tokens);
 
   if (strip_links) {
     // strip markdown links and keep the text
@@ -198,22 +197,22 @@ async function get_chat_prompt(settings: JarvisSettings, strip_links: boolean = 
   return prompt;
 }
 
-async function get_chat_prompt_and_notes(model: TextEmbeddingModel, settings: JarvisSettings):
+async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, settings: JarvisSettings):
     Promise<[string, NoteEmbedding[]]> {
-  const prompt = get_notes_prompt(await get_chat_prompt(settings, false));
+  const prompt = get_notes_prompt(await get_chat_prompt(model_gen, false));
 
   // filter embeddings based on prompt
   let sub_embeds: BlockEmbedding[] = [];
   if (prompt.notes.size > 0) {
-    sub_embeds.push(...model.embeddings.filter((embd) => prompt.notes.has(embd.id)));
+    sub_embeds.push(...model_embed.embeddings.filter((embd) => prompt.notes.has(embd.id)));
   }
   if (prompt.search) {
     const search_res = await joplin.data.get(['search'], { query: prompt.search, field: ['id'] });
     const search_ids = new Set(search_res.items.map((item) => item.id));
-    sub_embeds.push(...model.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));
+    sub_embeds.push(...model_embed.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));
   }
   if (sub_embeds.length === 0) {
-    sub_embeds = model.embeddings;
+    sub_embeds = model_embed.embeddings;
   } else {
     // rank notes by similarity but don't filter out any notes
     settings.notes_min_similarity = 0;
@@ -221,7 +220,7 @@ async function get_chat_prompt_and_notes(model: TextEmbeddingModel, settings: Ja
 
   // get embeddings
   const note = await joplin.workspace.selectedNote();
-  const nearest = await find_nearest_notes(sub_embeds, note.id, note.title, note.body, model, settings, false);
+  const nearest = await find_nearest_notes(sub_embeds, note.id, note.title, note.body, model_embed, settings, false);
 
   // post-processing: attach additional blocks to the nearest ones
   let attached: Set<string> = new Set();
@@ -235,7 +234,7 @@ async function get_chat_prompt_and_notes(model: TextEmbeddingModel, settings: Ja
     // TODO: rethink whether we should indeed skip the entire iteration
 
     if (settings.notes_attach_prev > 0) {
-      const prev = await get_prev_blocks(embd, model.embeddings, settings.notes_attach_prev);
+      const prev = await get_prev_blocks(embd, model_embed.embeddings, settings.notes_attach_prev);
       // push in reverse order
       for (let i = prev.length - 1; i >= 0; i--) {
         const bid = `${prev[i].id}:${prev[i].line}`;
@@ -250,7 +249,7 @@ async function get_chat_prompt_and_notes(model: TextEmbeddingModel, settings: Ja
     blocks.push(embd);
 
     if (settings.notes_attach_next > 0) {
-      const next = await get_next_blocks(embd, model.embeddings, settings.notes_attach_next);
+      const next = await get_next_blocks(embd, model_embed.embeddings, settings.notes_attach_next);
       for (let i = 0; i < next.length; i++) {
         const bid = `${next[i].id}:${next[i].line}`;
         if (attached.has(bid)) { continue; }
@@ -260,7 +259,7 @@ async function get_chat_prompt_and_notes(model: TextEmbeddingModel, settings: Ja
     }
 
     if (settings.notes_attach_nearest > 0) {
-      const nearest = await get_nearest_blocks(embd, model.embeddings, settings, settings.notes_attach_nearest);
+      const nearest = await get_nearest_blocks(embd, model_embed.embeddings, settings, settings.notes_attach_nearest);
       for (let i = 0; i < nearest.length; i++) {
         const bid = `${nearest[i].id}:${nearest[i].line}`;
         if (attached.has(bid)) { continue; }

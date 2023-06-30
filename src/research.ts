@@ -1,21 +1,21 @@
 import joplin from 'api';
-import { query_completion } from './openai';
 import { JarvisSettings } from './settings';
 import { PaperInfo, SearchParams, search_papers, sample_and_summarize_papers } from './papers';
 import { WikiInfo, search_wikipedia } from './wikipedia';
+import { TextGenerationModel } from './models';
 
-export async function do_research(prompt: string, n_papers: number,
+export async function do_research(model_gen: TextGenerationModel, prompt: string, n_papers: number,
     paper_tokens: number, use_wikipedia: boolean, only_search: boolean, settings: JarvisSettings) {
 
-  let [papers, search] = await search_papers(prompt, n_papers, settings);
+  let [papers, search] = await search_papers(model_gen, prompt, n_papers, settings);
 
   await joplin.commands.execute('replaceSelection', search.response);
   let wiki_search: Promise<WikiInfo> = Promise.resolve({ summary: '' });
   if ( use_wikipedia && (papers.length > 0) ) {
     // start search in parallel to paper summary
-    wiki_search = search_wikipedia(prompt, search, settings);
+    wiki_search = search_wikipedia(model_gen, prompt, search, settings);
   }
-  papers = await sample_and_summarize_papers(papers, paper_tokens, search, settings);
+  papers = await sample_and_summarize_papers(model_gen, papers, paper_tokens, search, settings);
 
   if (papers.length == 0) {
     await joplin.commands.execute('replaceSelection',
@@ -25,7 +25,7 @@ export async function do_research(prompt: string, n_papers: number,
   if (only_search) { return; }
 
   const full_prompt = get_full_prompt(papers, await wiki_search, search);
-  const research = await query_completion(full_prompt, settings);
+  const research = await model_gen.complete(full_prompt);
   await joplin.commands.execute('replaceSelection', '\n## Review\n\n' + research.trim());
 }
 
