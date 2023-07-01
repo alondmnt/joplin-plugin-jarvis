@@ -1,11 +1,12 @@
 import joplin from 'api';
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
+import { encodingForModel } from 'js-tiktoken';
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings } from './settings';
 import { timeout_with_retry } from './utils';
 import { query_embedding, query_chat, query_completion } from './openai';
-import { BlockEmbedding } from './embeddings';
+import { BlockEmbedding } from './embeddings';  // maybe move definition to this file
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
 
 tf.setBackend('webgl');
@@ -57,6 +58,8 @@ export class TextEmbeddingModel {
   public max_block_size: number = null;
   public online: boolean = null;
   public model: any = null;
+  public tokenizer: any = encodingForModel('text-embedding-ada-002');
+  // we're using the above as a default BPE tokenizer just for counting tokens
 
   // rate limits
   public page_size: number = 50;  // external: notes
@@ -98,7 +101,7 @@ export class TextEmbeddingModel {
 
   // estimate the number of tokens in the given text
   async count_tokens(text: string): Promise<number> {
-    return Math.ceil(text.split(/\s+/).length / 1.5);  // approximation: 1.5 tokens per word
+    return this.tokenizer.encode(text).length;
   }
 
   async consume_rate_limit() {
@@ -166,7 +169,7 @@ class USEEmbedding extends TextEmbeddingModel {
     try {
       this.model = await use.load();
     } catch (e) {
-      console.log(`USEModel failed to load: ${e}`);
+      console.log(`USEEmbedding failed to load: ${e}`);
       this.model = null;
     }
   }
@@ -347,6 +350,8 @@ export class TextGenerationModel {
   public type: string = 'completion';  // this may be used to process the prompt differently
   public temperature: number = 0.5;
   public top_p: number = 1;
+  public tokenizer: any = encodingForModel('gpt-3.5-turbo');
+  // we're using the above as a default BPE tokenizer just for counting tokens
 
   // chat
   public base_chat: Array<ChatEntry> = [];
@@ -398,7 +403,7 @@ export class TextGenerationModel {
 
   // estimate the number of tokens in the given text
   async count_tokens(text: string): Promise<number> {
-    return Math.ceil(text.length / 4);  // approximation: 0.25 tokens per character
+    return this.tokenizer.encode(text).length;
   }
 
   // placeholder method, to be overridden by subclasses
