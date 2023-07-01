@@ -55,7 +55,7 @@ export async function calc_note_embeddings(note: any, note_tags: string[],
       if (level > 6) { level = 6; }  // max heading level is 6
       path[level] = title;
 
-      const sub_blocks = split_block_to_max_size(block, model.max_block_size, is_code_block);
+      const sub_blocks = await split_block_to_max_size(block, model, model.max_block_size, is_code_block);
 
       const sub_embd = sub_blocks.map(async (sub: string): Promise<BlockEmbedding> => {
         let decorate = `${path.slice(0, level+1).join('/')}:\n`;
@@ -81,32 +81,33 @@ export async function calc_note_embeddings(note: any, note_tags: string[],
   return Promise.all(blocks).then(blocks => [].concat(...blocks));
 }
 
-function split_block_to_max_size(block: string, max_size: number, is_code_block: boolean): string[] {
+async function split_block_to_max_size(block: string,
+    model: TextEmbeddingModel, max_size: number, is_code_block: boolean): Promise<string[]> {
   if (is_code_block) {
-    return split_code_block_by_lines(block, max_size);
+    return await split_code_block_by_lines(block, model, max_size);
   } else {
-    return split_text_block_by_sentences_and_newlines(block, max_size);
+    return await split_text_block_by_sentences_and_newlines(block, model, max_size);
   }
 }
 
-function split_code_block_by_lines(block: string, max_size: number): string[] {
+async function split_code_block_by_lines(block: string,
+    model: TextEmbeddingModel, max_size: number): Promise<string[]> {
   const lines = block.split('\n');
   const blocks: string[] = [];
   let current_block = '';
   let current_size = 0;
 
-  lines.forEach(line => {
-    // TODO: probably need a better count than words
-    const words = line.split(/\s+/).length;
-    if (current_size + words <= max_size) {
+  for (const line of lines) {
+    const tokens = await model.count_tokens(line);
+    if (current_size + tokens <= max_size) {
       current_block += line + '\n';
-      current_size += words;
+      current_size += tokens;
     } else {
       blocks.push(current_block);
       current_block = line + '\n';
-      current_size = words;
+      current_size = tokens;
     }
-  });
+  }
 
   if (current_block) {
     blocks.push(current_block);
@@ -115,7 +116,8 @@ function split_code_block_by_lines(block: string, max_size: number): string[] {
   return blocks;
 }
 
-function split_text_block_by_sentences_and_newlines(block: string, max_size: number): string[] {
+async function split_text_block_by_sentences_and_newlines(block: string,
+    model: TextEmbeddingModel, max_size: number): Promise<string[]> {
   const segments = block.match(/[^\.!\?\n]+[\.!\?\n]+/g);
   if (!segments) {
     return [block];
@@ -124,17 +126,17 @@ function split_text_block_by_sentences_and_newlines(block: string, max_size: num
   let current_block = '';
   const blocks: string[] = [];
 
-  segments.forEach(segment => {
-    const words = segment.split(/\s+/).length;
-    if (current_size + words <= max_size) {
+  for (const segment of segments) {
+    const tokens = await model.count_tokens(segment);
+    if (current_size + tokens <= max_size) {
       current_block += segment;
-      current_size += words;
+      current_size += tokens;
     } else {
       blocks.push(current_block);
       current_block = segment;
-      current_size = words;
+      current_size = tokens;
     }
-  });
+  };
 
   if (current_block) {
     blocks.push(current_block);

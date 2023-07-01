@@ -341,7 +341,7 @@ async function migrate_db(): Promise<void> {
   const db = new sqlite3.Database(db_path_new);
   db.serialize(() => {
     // alter the models table
-    db.run(`ALTER TABLE models ADD COLUMN max_block_size INT NOT NULL DEFAULT 341`);
+    db.run(`ALTER TABLE models ADD COLUMN max_block_size INT NOT NULL DEFAULT 512`);
   });
   db.close();
 }

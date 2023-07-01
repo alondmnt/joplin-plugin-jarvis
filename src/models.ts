@@ -96,9 +96,9 @@ export class TextEmbeddingModel {
     return vec;
   }
 
-  // estimate the number of tokens in the prompt
-  count_tokens(text: string): Promise<number> {
-    return Promise.resolve(text.length / 4);
+  // estimate the number of tokens in the given text
+  async count_tokens(text: string): Promise<number> {
+    return Math.ceil(text.split(/\s+/).length / 1.5);  // approximation: 1.5 tokens per word
   }
 
   async consume_rate_limit() {
@@ -158,7 +158,7 @@ class USEEmbedding extends TextEmbeddingModel {
     super();
     this.id = 'Universal Sentence Encoder';
     this.version = '1.3.3';
-    this.max_block_size = Math.floor(max_tokens / 1.5);
+    this.max_block_size = max_tokens;
     this.online = false;
   }
 
@@ -197,7 +197,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     super();
     this.id = id
     this.version = '1';
-    this.max_block_size = Math.floor(max_tokens / 1.5);
+    this.max_block_size = max_tokens;
     this.endpoint = endpoint;
     this.online = true;
 
@@ -298,7 +298,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     super();
     this.id = id
     this.version = '1';
-    this.max_block_size = Math.floor(max_tokens / 1.5);
+    this.max_block_size = max_tokens;
     this.online = true;
 
     // rate limits
@@ -396,9 +396,9 @@ export class TextGenerationModel {
     return await timeout_with_retry(this.timeout, () => this._complete(prompt));
   }
 
-  // estimate the number of tokens in the prompt
-  count_tokens(text: string): Promise<number> {
-    return Promise.resolve(text.length / 4);
+  // estimate the number of tokens in the given text
+  async count_tokens(text: string): Promise<number> {
+    return Math.ceil(text.length / 4);  // approximation: 0.25 tokens per character
   }
 
   // placeholder method, to be overridden by subclasses
