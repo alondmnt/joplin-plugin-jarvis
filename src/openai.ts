@@ -49,7 +49,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
       (data.error.message.includes('reduce'))) {
 
     // truncate, and leave some room for a response
-    const token_ratio = 0.9 * parseInt(token_limits[0][0]) / parseInt(token_limits[1][0]);
+    const token_ratio = 0.8 * parseInt(token_limits[0][0]) / parseInt(token_limits[1][0]);
     prompt = select_messages(prompt, token_ratio);
   }
 
@@ -127,7 +127,7 @@ export async function query_completion(prompt: string, api_key: string,
       (data.error.message.includes('reduce'))) {
 
     // truncate, and leave some room for a response
-    const token_ratio = 0.9 * parseInt(token_limits[0][0]) / parseInt(token_limits[1][0]);
+    const token_ratio = 0.8 * parseInt(token_limits[0][0]) / parseInt(token_limits[1][0]);
     const new_length = Math.floor(token_ratio * prompt.length);
     if (is_chat_model) {
       // take last tokens

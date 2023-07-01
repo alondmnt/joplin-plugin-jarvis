@@ -2,6 +2,7 @@ import joplin from 'api';
 import { JarvisSettings } from './settings';
 import { SearchParams } from './papers';
 import { TextGenerationModel } from './models';
+import { split_by_tokens } from './utils';
 
 export interface WikiInfo {
   [key: string]: any;
@@ -92,14 +93,17 @@ async function get_best_page(model_gen: TextGenerationModel,
     return only the index of the most relevant page in the format: [index number].
     QUESTIONS:\n${search.questions}\n
     PAGES:\n`;
+  let token_sum = await model_gen.count_tokens(prompt); 
   for (let i = 0; i < n; i++) {
     const page = await pages[i];
     if ( ! page['excerpt'] ) { continue; }
-    if ( prompt.length + page['excerpt'].length > 0.9*4*model_gen.max_tokens ) {
+
+    const this_tokens = await model_gen.count_tokens(page['excerpt']);
+    if ( token_sum + this_tokens > 0.9*model_gen.max_tokens ) {
       console.log(`stopping at ${i+1} pages due to max_tokens`);
       break;
     }
-
+    token_sum += this_tokens;
     prompt += `${i}. ${page['title']}: ${page['excerpt']}\n\n`;
   }
   const response = await model_gen.complete(prompt);
@@ -127,9 +131,10 @@ async function get_page_summary(model_gen: TextGenerationModel,
     and describe how the article as a whole answers the given questions.`;
 
   let summary = 'empty summary.';
-  const summary_step = 0.75*4*model_gen.max_tokens;
-  for (let i=0; i<page['text'].length; i+=summary_step) {
-    const text = page['text'].slice(i, i+summary_step);
+  const summary_steps = (await split_by_tokens(
+    page['text'].split('\n'), model_gen, 0.75*model_gen.max_tokens));
+  for (let i=0; i<summary_steps.length; i++) {
+    const text = summary_steps[i].join('\n');
     summary = await model_gen.complete(
       `${prompt}
        SECTION: ${text}

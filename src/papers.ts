@@ -1,7 +1,7 @@
 import joplin from "api";
 import { JarvisSettings, search_prompts } from './settings';
 import { TextGenerationModel } from "./models";
-import { with_timeout } from "./utils";
+import { split_by_tokens, with_timeout } from "./utils";
 
 export interface PaperInfo {
   title: string;
@@ -241,11 +241,12 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
     if ( papers[i]['summary'].length == 0 ) { continue; }
 
     // we only summarize papers up to a total length of max_tokens
-    if (tokens + papers[i]['summary'].length / 4 > max_tokens) { 
+    const this_tokens = await model_gen.count_tokens(papers[i]['summary']);
+    if (tokens + this_tokens > max_tokens) { 
       break;
     }
     results.push(papers[i]);
-    tokens += papers[i]['summary'].length / 4;
+    tokens += this_tokens;
   }
 
   console.log(`sampled ${results.length} papers. retrieved ${promises.length} papers.`);
@@ -254,7 +255,7 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
 
 async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInfo,
     questions: string, settings: JarvisSettings): Promise<PaperInfo> {
-  paper = await get_paper_text(paper, settings);
+  paper = await get_paper_text(paper, model_gen, settings);
   if ( !paper['text'] ) { return paper; }
 
   const user_temp = model_gen.temperature;
@@ -286,9 +287,9 @@ async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInf
   return paper;
 }
 
-async function get_paper_text(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
+async function get_paper_text(paper: PaperInfo, model_gen: TextGenerationModel, settings: JarvisSettings): Promise<PaperInfo> {
   if (paper['text']) { return paper; }  // already have the text
-  let info = await get_scidir_info(paper, settings);  // ScienceDirect (Elsevier), full text or abstract
+  let info = await get_scidir_info(paper, model_gen, settings);  // ScienceDirect (Elsevier), full text or abstract
   if (info['text']) { return info; }
   else {
     info = await get_semantic_scholar_info(paper, settings);  // Semantic Scholar, abstract
@@ -341,7 +342,8 @@ async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
   return paper;
 }
 
-async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Promise<PaperInfo> {
+async function get_scidir_info(paper: PaperInfo,
+      model_gen: TextGenerationModel, settings: JarvisSettings): Promise<PaperInfo> {
   if (!settings.scopus_api_key) { return paper; }
 
   const url = `https://api.elsevier.com/content/article/doi/${paper['doi']}`;
@@ -382,7 +384,10 @@ async function get_scidir_info(paper: PaperInfo, settings: JarvisSettings): Prom
           // get start of main text
           paper['text'] = info['originalText'].split(/http/gmi)[-1];  // remove preceding urls
         }
-        paper['text'] = paper['text'].slice(0, 0.75*4*settings.max_tokens).trim();
+        paper['text'] = (await split_by_tokens(
+          paper['text'].trim().split('\n'),
+          model_gen, 0.75*model_gen.max_tokens))[0].join('\n');
+        console.log(await model_gen.count_tokens(paper['text']));
       } catch {
         paper['text'] = '';
       }

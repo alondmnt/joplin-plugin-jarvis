@@ -96,6 +96,11 @@ export class TextEmbeddingModel {
     return vec;
   }
 
+  // estimate the number of tokens in the prompt
+  count_tokens(text: string): Promise<number> {
+    return Promise.resolve(text.length / 4);
+  }
+
   async consume_rate_limit() {
     /*
       1. Each embed() call creates a request_promise and adds a request object to the requestQueue.
@@ -391,6 +396,11 @@ export class TextGenerationModel {
     return await timeout_with_retry(this.timeout, () => this._complete(prompt));
   }
 
+  // estimate the number of tokens in the prompt
+  count_tokens(text: string): Promise<number> {
+    return Promise.resolve(text.length / 4);
+  }
+
   // placeholder method, to be overridden by subclasses
   async _chat(prompt: ChatEntry[]): Promise<string> {
     throw new Error('Not implemented');
@@ -498,7 +508,7 @@ export class OpenAIGeneration extends TextGenerationModel {
 
   async _complete(prompt: string): Promise<string> {
     return query_completion(prompt, this.api_key, this.id,
-      this.max_tokens - Math.ceil(prompt.length / 4),
+      this.max_tokens - await this.count_tokens(prompt),
       this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty);
   }
 }
