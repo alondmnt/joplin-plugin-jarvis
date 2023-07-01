@@ -75,7 +75,7 @@ export async function split_by_tokens(
     small_parts.reverse();
   }
 
-  // find the next part that exceeds the token limit
+  // merge parts until the token sum is greater than max_tokens
   let selected: Array<Array<string>> = [];
   let token_sum = 0;
   let current_selection: Array<string> = [];
@@ -101,10 +101,6 @@ export async function split_by_tokens(
       current_selection.reverse();
     }
     selected.push(current_selection);
-  }
-
-  if (prefer === 'last') {
-    selected.reverse();
   }
 
   return selected;

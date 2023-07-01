@@ -6,6 +6,7 @@ import { do_research } from './research';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, update_embeddings } from './embeddings';
 import { update_panel, update_progress_bar } from './panel';
 import { TextEmbeddingModel, TextGenerationModel } from './models';
+import { split_by_tokens } from './utils';
 
 export async function ask_jarvis(model_gen: TextGenerationModel, dialogHandle: string) {
   const settings = await get_settings();
@@ -74,7 +75,7 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
     return;
   }
 
-  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, 4*model_gen.memory_tokens);
+  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.memory_tokens);
   if (note_text === '') {
     await replace_selection(settings.chat_prefix + 'Could not include notes due to context limits. Try to increase memory tokens in the settings.' + settings.chat_suffix);
     return;
@@ -94,7 +95,7 @@ export async function preview_chat_notes_context(model_embed: TextEmbeddingModel
   const settings = await get_settings();
   const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings);
   console.log(prompt);
-  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, 4*model_gen.memory_tokens);
+  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.memory_tokens);
   nearest[0].embeddings = nearest[0].embeddings.slice(0, note_count);
   update_panel(panel, nearest, settings);
 }
@@ -185,14 +186,7 @@ async function get_chat_prompt(model_gen: TextGenerationModel, strip_links: bool
     args: [{line: 0, ch: 0}, cursor],
   });
   // get last tokens
-  prompt = prompt.substring(prompt.length - 4*model_gen.memory_tokens);
-
-  if (strip_links) {
-    // strip markdown links and keep the text
-    prompt = prompt.replace(/\[.*?\]\(.*?\)/g, (match) => {
-      return match.substring(1, match.indexOf(']'));
-    });
-  }
+  prompt = (await split_by_tokens([prompt], model_gen, model_gen.memory_tokens, 'last'))[0].join(' ');
 
   return prompt;
 }

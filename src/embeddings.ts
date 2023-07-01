@@ -2,7 +2,7 @@ import joplin from 'api';
 import { createHash } from 'crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_prefix } from './settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
-import { TextEmbeddingModel } from './models';
+import { TextEmbeddingModel, TextGenerationModel } from './models';
 
 export interface BlockEmbedding {
   id: string;  // note id
@@ -218,8 +218,10 @@ function remove_note_embeddings(embeddings: BlockEmbedding[], note_ids: string[]
   embeddings.length = end;
 }
 
-export async function extract_blocks_text(embeddings: BlockEmbedding[], max_length: number): Promise<[string, number]> {
+export async function extract_blocks_text(embeddings: BlockEmbedding[],
+    model_gen: TextGenerationModel, max_length: number): Promise<[string, number]> {
   let text: string = '';
+  let token_sum = 0;
   let embd: BlockEmbedding;
   let count = 0;
   for (let i=0; i<embeddings.length; i++) {
@@ -234,10 +236,12 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[], max_leng
     const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
 
     let decoration = `\n# note ${i+1}:\n${embd.title}`;
-    if (text.length + decoration.length + block_text.length > max_length) {
+    const block_tokens = await model_gen.count_tokens(decoration + '\n' + block_text);
+    if (token_sum + block_tokens > max_length) {
       break;
     }
     text += decoration + '\n' + block_text;
+    token_sum += block_tokens;
     count += 1;
   };
   return [text, count];
