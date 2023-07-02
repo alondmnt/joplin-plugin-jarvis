@@ -118,15 +118,20 @@ function split_code_block_by_lines(block: string,
 
 function split_text_block_by_sentences_and_newlines(block: string,
     model: TextEmbeddingModel, max_size: number): string[] {
-  const segments = block.match(/[^\.!\?\n]+[\.!\?\n]+/g);
+  if (block.trim().length == 0) { return []; }
+
+  const segments = (block + '\n').match(/[^\.!\?\n]+[\.!\?\n]+/g);
   if (!segments) {
     return [block];
   }
+
   let current_size = 0;
   let current_block = '';
   const blocks: string[] = [];
 
   for (const segment of segments) {
+    if (segment.startsWith('#')) { continue; }
+
     const tokens = model.count_tokens(segment);
     if (current_size + tokens <= max_size) {
       current_block += segment;
