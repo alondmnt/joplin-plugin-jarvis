@@ -85,7 +85,7 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
   const decorate = "\nRespond to the user's prompt above. The following are the user's own notes. You you may refer to the content of any of the notes, and extend it, but only when it is relevant to the prompt. Always cite the [note number] of each note that you use.\n\n";
 
   let completion = await model_gen.chat(prompt + decorate + note_text + settings.chat_prefix);
-  await replace_selection(completion.replace(model_gen.user_prefix, `${note_links}\n\n${model_gen.user_prefix}`));
+  await replace_selection(completion.replace(model_gen.user_prefix, `\n\n${note_links}${model_gen.user_prefix}`));
   update_panel(panel, nearest, settings);
 }
 
