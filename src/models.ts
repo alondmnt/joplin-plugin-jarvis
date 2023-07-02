@@ -100,7 +100,7 @@ export class TextEmbeddingModel {
   }
 
   // estimate the number of tokens in the given text
-  async count_tokens(text: string): Promise<number> {
+  count_tokens(text: string): number {
     return this.tokenizer.encode(text).length;
   }
 
@@ -402,7 +402,7 @@ export class TextGenerationModel {
   }
 
   // estimate the number of tokens in the given text
-  async count_tokens(text: string): Promise<number> {
+  count_tokens(text: string): number {
     return this.tokenizer.encode(text).length;
   }
 
@@ -512,8 +512,8 @@ export class OpenAIGeneration extends TextGenerationModel {
   }
 
   async _complete(prompt: string): Promise<string> {
-    return query_completion(prompt, this.api_key, this.id,
-      this.max_tokens - await this.count_tokens(prompt),
+    return await query_completion(prompt, this.api_key, this.id,
+      this.max_tokens - this.count_tokens(prompt),
       this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty);
   }
 }

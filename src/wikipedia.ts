@@ -93,12 +93,12 @@ async function get_best_page(model_gen: TextGenerationModel,
     return only the index of the most relevant page in the format: [index number].
     QUESTIONS:\n${search.questions}\n
     PAGES:\n`;
-  let token_sum = await model_gen.count_tokens(prompt); 
+  let token_sum = model_gen.count_tokens(prompt); 
   for (let i = 0; i < n; i++) {
     const page = await pages[i];
     if ( ! page['excerpt'] ) { continue; }
 
-    const this_tokens = await model_gen.count_tokens(page['excerpt']);
+    const this_tokens = model_gen.count_tokens(page['excerpt']);
     if ( token_sum + this_tokens > 0.9*model_gen.max_tokens ) {
       console.log(`stopping at ${i+1} pages due to max_tokens`);
       break;

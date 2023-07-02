@@ -29,17 +29,17 @@ export async function timeout_with_retry(msecs: number,
 // return a 2D array where in each row the total token sum is
 // less than max_tokens.
 // optionally, select from the end of the text (prefer = 'last').
-export async function split_by_tokens(
+export function split_by_tokens(
   parts: Array<string>,
-  model: { count_tokens: (text: string) => Promise<number> },
+  model: { count_tokens: (text: string) => number },
   max_tokens: number,
   prefer: string = 'first',
   split_by: string = ' ',  // can be null to split by characters
-): Promise<Array<Array<string>>> {
+): Array<Array<string>> {
 
   // preprocess parts to ensure each part is smaller than max_tokens
-  async function preprocess(part: string): Promise<Array<string>> {
-    const token_count = await model.count_tokens(part);
+  function preprocess(part: string): Array<string> {
+    const token_count = model.count_tokens(part);
 
     if (token_count <= max_tokens) { return [part]; }
 
@@ -60,16 +60,16 @@ export async function split_by_tokens(
       right_part = right_part.join(split_by);
     }
 
-    const left_split = await preprocess(left_part);
-    const right_split = await preprocess(right_part);
+    const left_split = preprocess(left_part);
+    const right_split = preprocess(right_part);
 
     return [...left_split, ...right_split];
   }
 
-  const small_parts = (await Promise.all(parts.map(preprocess))).flat();
+  const small_parts = parts.map(preprocess).flat();
 
   // get the token sum of each text
-  const token_counts = await Promise.all(small_parts.map(async (text) => model.count_tokens(text)));
+  const token_counts = small_parts.map(text => model.count_tokens(text));
   if (prefer === 'last') {
     token_counts.reverse();
     small_parts.reverse();

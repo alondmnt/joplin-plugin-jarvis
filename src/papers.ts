@@ -241,7 +241,7 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
     if ( papers[i]['summary'].length == 0 ) { continue; }
 
     // we only summarize papers up to a total length of max_tokens
-    const this_tokens = await model_gen.count_tokens(papers[i]['summary']);
+    const this_tokens = model_gen.count_tokens(papers[i]['summary']);
     if (tokens + this_tokens > max_tokens) { 
       break;
     }
@@ -387,7 +387,6 @@ async function get_scidir_info(paper: PaperInfo,
         paper['text'] = (await split_by_tokens(
           paper['text'].trim().split('\n'),
           model_gen, 0.75*model_gen.max_tokens))[0].join('\n');
-        console.log(await model_gen.count_tokens(paper['text']));
       } catch {
         paper['text'] = '';
       }
