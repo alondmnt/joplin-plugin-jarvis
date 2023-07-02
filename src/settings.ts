@@ -233,7 +233,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Model: Max Tokens',
-      description: 'The maximal context length of the selected text completion / chat model. This parameter is only used for custom models where the default context length is unknown.',
+      description: 'The maximal context length of the selected text completion / chat model. This parameter is only used for custom models where the default context length is unknown. Default: 2048',
     },
     'memory_tokens': {
       value: 512,
