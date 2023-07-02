@@ -384,9 +384,9 @@ async function get_scidir_info(paper: PaperInfo,
           // get start of main text
           paper['text'] = info['originalText'].split(/http/gmi)[-1];  // remove preceding urls
         }
-        paper['text'] = (await split_by_tokens(
+        paper['text'] = split_by_tokens(
           paper['text'].trim().split('\n'),
-          model_gen, 0.75*model_gen.max_tokens))[0].join('\n');
+          model_gen, 0.75*model_gen.max_tokens)[0].join('\n');
       } catch {
         paper['text'] = '';
       }

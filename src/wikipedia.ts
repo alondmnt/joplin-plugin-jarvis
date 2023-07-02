@@ -131,8 +131,8 @@ async function get_page_summary(model_gen: TextGenerationModel,
     and describe how the article as a whole answers the given questions.`;
 
   let summary = 'empty summary.';
-  const summary_steps = (await split_by_tokens(
-    page['text'].split('\n'), model_gen, 0.75*model_gen.max_tokens));
+  const summary_steps = split_by_tokens(
+    page['text'].split('\n'), model_gen, 0.75*model_gen.max_tokens);
   for (let i=0; i<summary_steps.length; i++) {
     const text = summary_steps[i].join('\n');
     summary = await model_gen.complete(

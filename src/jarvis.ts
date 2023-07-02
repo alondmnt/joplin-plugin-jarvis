@@ -186,7 +186,7 @@ async function get_chat_prompt(model_gen: TextGenerationModel, strip_links: bool
     args: [{line: 0, ch: 0}, cursor],
   });
   // get last tokens
-  prompt = (await split_by_tokens([prompt], model_gen, model_gen.memory_tokens, 'last'))[0].join(' ');
+  prompt = split_by_tokens([prompt], model_gen, model_gen.memory_tokens, 'last')[0].join(' ');
 
   return prompt;
 }
