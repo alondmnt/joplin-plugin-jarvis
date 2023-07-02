@@ -436,14 +436,20 @@ export class TextGenerationModel {
           chat.push({ role: current_role, content: current_message });
         }
         current_role = 'user';
-        current_message = trimmed_line.replace(this.user_prefix.trim(), '').trim() + '\n';
+        current_message = trimmed_line.replace(this.user_prefix.trim(), '').trim();
+        if (current_message) {
+          current_message += '\n';
+        }
 
       } else if (trimmed_line.match(this.model_prefix.trim())) {
         if (current_role && current_message) {
           chat.push({ role: current_role, content: current_message });
         }
         current_role = 'assistant';
-        current_message = trimmed_line.replace(this.model_prefix.trim(), '').trim() + '\n';
+        current_message = trimmed_line.replace(this.model_prefix.trim(), '').trim()
+        if (current_message) {
+          current_message += '\n';
+        }
 
       } else {
         if (current_role && current_message) {
