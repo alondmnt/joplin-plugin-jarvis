@@ -211,7 +211,7 @@ function select_messages(
   let partial_length = 0;
   const total_length = messages.reduce((acc, message) => acc + message.content.length, 0);
 
-  for (let i = messages.length - 1; i >= 0; i--) {
+  for (let i = messages.length - 1; i > 0; i--) {
     const { content } = messages[i];
     const this_length = content.length;
 
@@ -222,6 +222,7 @@ function select_messages(
       break;
     }
   }
+  result.unshift(messages[0]);  // message 0 is always the system message
 
   // if empty, return the last message
   if (result.length == 0) {
