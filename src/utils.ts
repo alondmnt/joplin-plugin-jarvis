@@ -105,3 +105,35 @@ export function split_by_tokens(
 
   return selected;
 }
+
+export async function consume_rate_limit(
+    model: { requests_per_second: number, request_queue: Array<any>, last_request_time: number }) {
+  /*
+    1. Each embed() call creates a request_promise and adds a request object to the requestQueue.
+    2. The consume_rate_limit() method is called for each embed() call.
+    3. The consume_rate_limit() method checks if there are any pending requests in the requestQueue.
+    4. If there are pending requests, the method calculates the necessary wait time based on the rate limit and the time elapsed since the last request.
+    5. If the calculated wait time is greater than zero, the method waits using setTimeout() for the specified duration.
+    6. After the wait period, the method processes the next request in the requestQueue by shifting it from the queue and resolving its associated promise.
+    7. The resolved promise allows the corresponding embed() call to proceed further and generate the embedding for the text.
+    8. If there are additional pending requests in the requestQueue, the consume_rate_limit() method is called again to handle the next request in the same manner.
+    9. This process continues until all requests in the requestQueue have been processed.
+  */
+  const now = Date.now();
+  const time_elapsed = now - model.last_request_time;
+
+  // calculate the time required to wait between requests
+  const wait_time = model.request_queue.length * (1000 / model.requests_per_second);
+
+  if (time_elapsed < wait_time) {
+    await new Promise((resolve) => setTimeout(resolve, wait_time - time_elapsed));
+  }
+
+  model.last_request_time = now;
+
+  // process the next request in the queue
+  if (model.request_queue.length > 0) {
+    const request = model.request_queue.shift();
+    request.resolve(); // resolve the request promise
+  }
+}

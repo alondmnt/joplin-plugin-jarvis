@@ -4,7 +4,7 @@ import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { encodingForModel } from 'js-tiktoken';
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings } from './settings';
-import { timeout_with_retry } from './utils';
+import { consume_rate_limit, timeout_with_retry } from './utils';
 import { query_embedding, query_chat, query_completion } from './openai';
 import { BlockEmbedding } from './embeddings';  // maybe move definition to this file
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
@@ -66,7 +66,7 @@ export class TextEmbeddingModel {
   public page_cycle: number = 20;  // external: pages
   public wait_period: number = 10;  // external: sec
   public request_queue = [];  // internal rate limit
-  public requests_per_second: number = 5;  // internal rate limit
+  public requests_per_second: number = null;  // internal rate limit
   public last_request_time: number = 0;  // internal rate limit
 
   constructor() {
@@ -84,15 +84,7 @@ export class TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    const request_promise = new Promise((resolve, reject) => {
-      const request = { resolve, reject };
-
-      this.request_queue.push(request);
-      this.consume_rate_limit();
-    });
-
-    // wait for the request promise to resolve before generating the embedding
-    await request_promise;
+    await this.limit_rate();
 
     const vec = await this._calc_embedding(text);
 
@@ -104,35 +96,17 @@ export class TextEmbeddingModel {
     return this.tokenizer.encode(text).length;
   }
 
-  async consume_rate_limit() {
-    /*
-      1. Each embed() call creates a request_promise and adds a request object to the requestQueue.
-      2. The consume_rate_limit() method is called for each embed() call.
-      3. The consume_rate_limit() method checks if there are any pending requests in the requestQueue.
-      4. If there are pending requests, the method calculates the necessary wait time based on the rate limit and the time elapsed since the last request.
-      5. If the calculated wait time is greater than zero, the method waits using setTimeout() for the specified duration.
-      6. After the wait period, the method processes the next request in the requestQueue by shifting it from the queue and resolving its associated promise.
-      7. The resolved promise allows the corresponding embed() call to proceed further and generate the embedding for the text.
-      8. If there are additional pending requests in the requestQueue, the consume_rate_limit() method is called again to handle the next request in the same manner.
-      9. This process continues until all requests in the requestQueue have been processed.
-    */
-    const now = Date.now();
-    const time_elapsed = now - this.last_request_time;
+  // rate limiter
+  async limit_rate() {
+    const request_promise = new Promise((resolve, reject) => {
+      const request = { resolve, reject };
 
-    // calculate the time required to wait between requests
-    const wait_time = this.request_queue.length * (1000 / this.requests_per_second);
+      this.request_queue.push(request);
+      consume_rate_limit(this);
+    });
 
-    if (time_elapsed < wait_time) {
-      await new Promise((resolve) => setTimeout(resolve, wait_time - time_elapsed));
-    }
-
-    this.last_request_time = now;
-
-    // process the next request in the queue
-    if (this.request_queue.length > 0) {
-      const request = this.request_queue.shift();
-      request.resolve(); // resolve the request promise
-    }
+    // wait for the request promise to resolve before generating the embedding
+    await request_promise;
   }
 
   // placeholder method, to be overridden by subclasses
@@ -363,7 +337,7 @@ export class TextGenerationModel {
   public timeout: number = 60*1000;  // miliseconds
   public request_queue: any[] = null;
   public requests_per_second: number = null;
-  public last_request_time: number = null;
+  public last_request_time: number = 0;
 
   constructor(id: string, max_tokens: number, type: string, memory_tokens: number,
               user_prefix: string, model_prefix: string) {
@@ -385,6 +359,8 @@ export class TextGenerationModel {
   }
 
   async chat(prompt: string): Promise<string> {
+    await this.limit_rate();
+
     let response = '';
     if (this.type === 'chat') {
       prompt = this._sanitize_prompt(prompt);
@@ -397,6 +373,8 @@ export class TextGenerationModel {
   }
 
   async complete(prompt: string): Promise<string> {
+    await this.limit_rate();
+
     prompt = this._sanitize_prompt(prompt);
     return await timeout_with_retry(this.timeout, () => this._complete(prompt));
   }
@@ -404,6 +382,19 @@ export class TextGenerationModel {
   // estimate the number of tokens in the given text
   count_tokens(text: string): number {
     return this.tokenizer.encode(text).length;
+  }
+
+  // rate limiter
+  async limit_rate() {
+    const request_promise = new Promise((resolve, reject) => {
+      const request = { resolve, reject };
+
+      this.request_queue.push(request);
+      consume_rate_limit(this);
+    });
+
+    // wait for the request promise to resolve before generating the embedding
+    await request_promise;
   }
 
   // placeholder method, to be overridden by subclasses
@@ -506,7 +497,10 @@ export class OpenAIGeneration extends TextGenerationModel {
     this.temperature = settings.temperature;
     this.top_p = settings.top_p;
     this.frequency_penalty = settings.frequency_penalty;
-    this.presence_penalty = settings.presence_penalty;
+
+    // rate limiting
+    this.requests_per_second = 10;
+    this.last_request_time = 0;
   }
 
   async initialize() {
