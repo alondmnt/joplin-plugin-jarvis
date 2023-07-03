@@ -8,7 +8,7 @@ export async function connect_to_db(model: any): Promise<any> {
   await migrate_db();  // migrate the database if necessary
   const plugin_dir = await joplin.plugins.dataDir();
   const db_fname = model.id.replace(/[/\\?%*:|"<>]/g, '_');
-  const db = new sqlite3.Database(plugin_dir + `/${db_fname}.sqlite`);
+  const db = await new sqlite3.Database(plugin_dir + `/${db_fname}.sqlite`);
 
   // check the model version
   let [check, model_idx] = await db_update_check(db, model);
@@ -338,10 +338,9 @@ async function migrate_db(): Promise<void> {
   console.log(`migrate_db: found old database at ${db_path_old}`);
   fs.renameSync(db_path_old, db_path_new);
 
-  const db = new sqlite3.Database(db_path_new);
-  db.serialize(() => {
-    // alter the models table
-    db.run(`ALTER TABLE models ADD COLUMN max_block_size INT NOT NULL DEFAULT 512`);
-  });
-  db.close();
+  const db = await new sqlite3.Database(db_path_new);
+  // alter the models table
+  await db.run(`ALTER TABLE models ADD COLUMN max_block_size INT NOT NULL DEFAULT 512`);
+  await db.close();
+  await new Promise(res => setTimeout(res, 1000));  // make sure that the database is closed
 }
