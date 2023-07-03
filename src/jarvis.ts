@@ -441,8 +441,10 @@ export async function skip_db_init_dialog(model: TextEmbeddingModel): Promise<bo
   if (model.embeddings.length > 0) { return false; }
 
   let calc_msg = `This database is calculated locally (offline) by running ${model.id}`;
+  let compute = 'PC';
   if (model.online) {
     calc_msg = `This database is calculated remotely (online) by sending requests to ${model.id}`;
+    compute = 'connection';
   }
   return (await joplin.views.dialogs.showMessageBox(
     `Hi! Jarvis can build a database of your notes, that may be used to search for similar notes, or to chat with your notes.
@@ -451,7 +453,7 @@ export async function skip_db_init_dialog(model: TextEmbeddingModel): Promise<bo
     
     *If* you choose to chat with your notes, short excerpts from the database will be send to an online/offline model of your choosing.
     
-    You can delete the database at any time by deleting the file. Initialization may take between a few minutes (fast PC, ~500 notes collection) and a couple of hours.
+    You can delete the database at any time by deleting the file. Initialization may take between a few minutes (fast ${compute}, ~500 notes collection) and a couple of hours.
     
     Press 'OK' to run it now in the background, or 'Cancel' to postpone it to a later time (e.g., overnight). You can start the process at any time from Tools-->Jarvis-->Update Jarvis note DB. You may delay it indefinitely by setting the 'Database update period' to 0.`
     ) == 1);
