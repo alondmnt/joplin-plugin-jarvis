@@ -15,7 +15,20 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
   let model: TextGenerationModel = null;
   console.log(`load_generation_model: ${settings.model}`);
 
-  return new OpenAIGeneration(settings);
+  if (settings.model === 'Hugging Face') {
+    model = new HuggingFaceGeneration(settings);
+
+  } else if (settings.model.includes('gpt') ||
+             settings.model.includes('davinci')) {
+    model = new OpenAIGeneration(settings);
+
+  } else {
+    console.log(`Unknown model: ${settings.notes_model}`);
+    return model;
+  }
+
+  await model.initialize();
+  return model
 }
 
 export async function load_embedding_model(settings: JarvisSettings): Promise<TextEmbeddingModel> {
@@ -192,7 +205,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
       return;
     }
     if (!this.id) {
-      joplin.views.dialogs.showMessageBox('Please specify a valid HuggingFace model in the settings');
+      joplin.views.dialogs.showMessageBox('Please specify a valid notes HuggingFace model in the settings');
       this.model = null;
       return;
     }
@@ -318,6 +331,7 @@ interface ChatEntry {
 
 export class TextGenerationModel {
   // model
+  public model: any = null;
   public id: string = null;
   public max_tokens: number = null;
   public online: boolean = true;
@@ -354,8 +368,9 @@ export class TextGenerationModel {
     this.last_request_time = 0;
   }
 
-  // placeholder method for loading the model, to be overridden by subclasses
+  // parent method
   async initialize() {
+    await this._load_model();  // model-specific initialization
   }
 
   async chat(prompt: string): Promise<string> {
@@ -404,6 +419,11 @@ export class TextGenerationModel {
 
   // placeholder method, to be overridden by subclasses
   async _complete(prompt: string): Promise<string> {
+    throw new Error('Not implemented');
+  }
+
+  // placeholder method, to be overridden by subclasses
+  async _load_model() {
     throw new Error('Not implemented');
   }
 
@@ -469,6 +489,75 @@ export class TextGenerationModel {
   }
 }
 
+export class HuggingFaceGeneration extends TextGenerationModel {
+  public endpoint: string = null;
+  public timeout: number = 60*1000;  // miliseconds
+
+  constructor(settings: JarvisSettings) {
+    super(settings.chat_hf_model_id,
+      settings.max_tokens,
+      'completion',
+      settings.memory_tokens,
+      settings.chat_suffix,
+      settings.chat_prefix);
+    this.endpoint = settings.chat_hf_endpoint;
+    this.online = true;
+
+    // rate limits
+    this.request_queue = [];  // internal rate limit
+    this.requests_per_second = 20;  // internal rate limit
+    this.last_request_time = 0;  // internal rate limit
+  }
+
+  async _load_model() {
+    const token = await joplin.settings.value('hf_api_key');
+    if (!this.id) {
+      joplin.views.dialogs.showMessageBox('Please specify a valid chat HuggingFace model in the settings');
+      this.model = null;
+      return;
+    }
+    console.log(this.id);
+
+    const options = {retry_on_error: true};
+    this.model = new HfInference(token, options);
+    if ( this.endpoint ) {
+      this.model = this.model.endpoint(this.endpoint);
+    }
+
+    try {
+      const response = await this.complete('Hello world');
+    } catch (e) {
+      console.log(`HuggingFaceGeneration failed to load: ${e}`);
+      this.model = null;
+    }
+  }
+
+  async _complete(prompt: string): Promise<string> {
+    try {
+      const params = {
+        max_length: this.max_tokens,
+      };
+      const result = await this.model.textGeneration({
+        model: this.id,
+        inputs: prompt,
+        parameters: params,
+      });
+      return result['generated_text'].replace(prompt, '');
+
+    } catch (e) {
+      // display error message
+      const errorHandler = await joplin.views.dialogs.showMessageBox(
+        `Error in HuggingFaceGeneration: ${e}\nPress OK to retry.`);
+      // cancel button
+      if (errorHandler === 1) {
+        return '';
+      }
+      // retry
+      return this._complete(prompt);
+    }
+  }
+}
+
 export class OpenAIGeneration extends TextGenerationModel {
   // model
   private api_key: string = null;
@@ -490,20 +579,35 @@ export class OpenAIGeneration extends TextGenerationModel {
       settings.memory_tokens,
       settings.chat_suffix,
       settings.chat_prefix);
-    this.api_key = settings.openai_api_key;
     this.base_chat = [{role: 'system', content: 'You are Jarvis, the helpful assistant.'}];
 
     // model params
     this.temperature = settings.temperature;
     this.top_p = settings.top_p;
     this.frequency_penalty = settings.frequency_penalty;
+    this.presence_penalty = settings.presence_penalty;
 
     // rate limiting
     this.requests_per_second = 10;
     this.last_request_time = 0;
   }
 
-  async initialize() {
+  async _load_model() {
+    this.api_key = await joplin.settings.value('openai_api_key');
+    if (!this.api_key) {
+      joplin.views.dialogs.showMessageBox('Please specify a valid OpenAI API key in the settings');
+      this.model = null;
+      return;
+    }
+    this.model = this.id;  // anything other than null
+    console.log(this.id);
+
+    try {
+      const vec = await this.complete('Hello world');
+    } catch (e) {
+      console.log(`OpenAIGeneration failed to load: ${e}`);
+      this.model = null;
+    }
   }
 
   async _chat(prompt: ChatEntry[]): Promise<string> {

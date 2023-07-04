@@ -27,7 +27,7 @@ joplin.plugins.register({
 
     const find_notes_debounce = debounce(find_notes, delay_panel * 1000);
     if (model_embed.model) { find_notes_debounce(model_embed, panel) };
-    const update_note_db_debounce = debounce(update_note_db, delay_db_update * 1000, {leading: true, trailing: false});
+    let update_note_db_debounce = debounce(update_note_db, delay_db_update * 1000, {leading: true, trailing: false});
 
     let model_gen = await load_generation_model(settings);
 
@@ -178,25 +178,6 @@ joplin.plugins.register({
         }
     });
 
-    await joplin.settings.onChange(async (event) => {
-      settings = await get_settings();
-      delay_db_update = 60 * settings.notes_db_update_delay;
-      model_gen = await load_generation_model(settings);
-      if (event.keys.includes('notes_model') ||
-          event.keys.includes('notes_max_tokens') ||
-          event.keys.includes('notes_hf_model_id') ||
-          event.keys.includes('notes_hf_endpoint')) {
-
-        model_embed = await load_embedding_model(settings);
-        if (model_embed.model) {
-          await update_note_db(model_embed, panel);
-        }
-      }
-      if (model_embed.model) {
-        find_notes_debounce(model_embed, panel)
-      };
-    });
-
     await joplin.views.panels.onMessage(panel, async (message) => {
       if (message.name === 'openRelatedNote') {
         await joplin.commands.execute('openNote', message.note);
@@ -208,6 +189,60 @@ joplin.plugins.register({
             args: [message.line - 1]
           });
         }
+      }
+    });
+
+    await joplin.settings.onChange(async (event) => {
+      settings = await get_settings();
+      // validate hugging face max tokens  
+      if ((event.keys.includes('chat_hf_model_id') ||
+           event.keys.includes('model') ||
+           event.keys.includes('max_tokens')) &&
+          (settings.model === 'Hugging Face') &&
+          (settings.max_tokens > 2048)) {
+        const choice = await joplin.views.dialogs.showMessageBox(
+          `Hugging Face models typically do not exceed 2048 tokens, yet max tokens is currently set to ${settings.max_tokens}. Would you like to change it to 2048?`);
+        if (choice === 0) {
+          await joplin.settings.setValue('max_tokens', 2048);
+          settings = await get_settings();
+        }
+      }
+      // load generation model
+      if (event.keys.includes('openai_api_key') ||
+          event.keys.includes('hf_api_key') ||
+          event.keys.includes('model') ||
+          event.keys.includes('max_tokens') ||
+          event.keys.includes('temperature') ||
+          event.keys.includes('top_p') ||
+          event.keys.includes('frequency_penalty') ||
+          event.keys.includes('presence_penalty') ||
+          event.keys.includes('chat_hf_model_id') ||
+          event.keys.includes('chat_hf_endpoint')) {
+
+        model_gen = await load_generation_model(settings);
+      }
+      // load embedding model
+      if (event.keys.includes('openai_api_key') ||
+          event.keys.includes('hf_api_key') ||
+          event.keys.includes('notes_model') ||
+          event.keys.includes('notes_max_tokens') ||
+          event.keys.includes('notes_hf_model_id') ||
+          event.keys.includes('notes_hf_endpoint')) {
+
+        model_embed = await load_embedding_model(settings);
+        if (model_embed.model) {
+          await update_note_db(model_embed, panel);
+        }
+      }
+      // update panel
+      if (model_embed.model) {
+        find_notes_debounce(model_embed, panel)
+      };
+      // update db refresh interval
+      if (event.keys.includes('notes_db_update_delay')) {
+        delay_db_update = 60 * settings.notes_db_update_delay;
+        update_note_db_debounce = debounce(update_note_db,
+          delay_db_update * 1000, {leading: true, trailing: false});
       }
     });
 	},

@@ -280,6 +280,8 @@ function get_notes_prompt(prompt: string):
   });
   // TODO: one problem with this approach is that the last search string will be used even if
   // the user did not include one in the last prompt, until all memory tokens are exhausted
+  // one way to improve this is to parse the chat using the model, and extract the commands from the
+  // last user prompt
 
   // (user input) parse lines that start with {user_notes_prefix}, and strip them from the prompt
   let notes: any;  // last user string

@@ -26,6 +26,8 @@ export interface JarvisSettings {
   /// model
   notes_model: string;
   notes_max_tokens: number;
+  chat_hf_model_id: string;
+  chat_hf_endpoint: string;
   notes_hf_model_id: string;
   notes_hf_endpoint: string;
   /// other
@@ -112,6 +114,7 @@ export async function get_settings(): Promise<JarvisSettings> {
   const model = await joplin.settings.value('model');
   // if model is in model_max_tokens, use its value, otherwise use the settings value
   let max_tokens = model_max_tokens[model] || await joplin.settings.value('max_tokens');
+
   let memory_tokens = await joplin.settings.value('memory_tokens');
   if (memory_tokens > 0.45*max_tokens) {
     memory_tokens = Math.floor(0.45*max_tokens);
@@ -140,6 +143,8 @@ export async function get_settings(): Promise<JarvisSettings> {
     /// model
     notes_model: await joplin.settings.value('notes_model'),
     notes_max_tokens: await joplin.settings.value('notes_max_tokens'),
+    chat_hf_model_id: await joplin.settings.value('chat_hf_model_id'),
+    chat_hf_endpoint: await joplin.settings.value('chat_hf_endpoint'),
     notes_hf_model_id: await joplin.settings.value('notes_hf_model_id'),
     notes_hf_endpoint: await joplin.settings.value('notes_hf_endpoint'),
     /// other
@@ -203,15 +208,34 @@ export async function register_settings() {
       isEnum: true,
       section: 'jarvis',
       public: true,
-      label: 'Model',
-      description: 'The model to use for asking Jarvis. Default: gpt-3.5-turbo',
+      label: 'Chat: Model',
+      description: 'The model to ask / chat / research with Jarvis. Default: gpt-3.5-turbo',
       options: {
-        'gpt-4-32k': 'gpt-4-32k',
-        'gpt-4': 'gpt-4',
-        'gpt-3.5-turbo-16k': 'gpt-3.5-turbo-16k',
-        'gpt-3.5-turbo': 'gpt-3.5-turbo',
-        'text-davinci-003': 'text-davinci-003',
+        'gpt-4-32k': '(online) OpenAI: gpt-4-32k',
+        'gpt-4': '(online) OpenAI: gpt-4',
+        'gpt-3.5-turbo-16k': '(online) OpenAI: gpt-3.5-turbo-16k',
+        'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo',
+        'text-davinci-003': '(online) OpenAI: text-davinci-003',
+        'Hugging Face': '(online) Hugging Face',
       }
+    },
+    'chat_hf_model_id': {
+      value: 'MBZUAI/LaMini-Flan-T5-248M',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Chat: Hugging Face text generation model ID',
+      description: 'The Hugging Face model ID to use for text generation. Default: tiiuae/falcon-40b-instruct',
+    },
+    'chat_hf_endpoint': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Chat: Hugging Face API endpoint',
+      description: "The Hugging Face API endpoint to use for text generation. Default: empty (HF's default public endpoint)",
     },
     'temp': {
       value: 10,
@@ -221,7 +245,7 @@ export async function register_settings() {
       step: 1,
       section: 'jarvis',
       public: true,
-      label: 'Model: Temperature',
+      label: 'Chat: Temperature',
       description: 'The temperature of the model. 0 is the least creative. 20 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text. Default: 10',
     },
     'max_tokens': {
@@ -232,8 +256,8 @@ export async function register_settings() {
       step: 128,
       section: 'jarvis',
       public: true,
-      label: 'Model: Max Tokens',
-      description: 'The maximal context length of the selected text completion / chat model. This parameter is only used for custom models where the default context length is unknown. Default: 2048',
+      label: 'Chat: Max tokens',
+      description: 'The maximal context length of the selected text generation / chat model. This parameter is only used for custom models where the default context length is unknown. Default: 2048',
     },
     'memory_tokens': {
       value: 512,
@@ -243,7 +267,7 @@ export async function register_settings() {
       step: 16,
       section: 'jarvis',
       public: true,
-      label: 'Chat: Memory Tokens',
+      label: 'Chat: Memory tokens',
       description: 'The context length to keep in memory when chatting with Jarvis. Higher values may result in more coherent conversations. Must be lower than 45% of max_tokens. Default: 512',
     },
     'top_p': {
@@ -254,7 +278,7 @@ export async function register_settings() {
       step: 1,
       section: 'jarvis',
       public: true,
-      label: 'Model: Top P',
+      label: 'Chat: Top P',
       description: 'An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p (between 0 and 100) probability mass. So 10 means only the tokens comprising the top 10% probability mass are considered. Default: 100',
     },
     'frequency_penalty': {
@@ -265,7 +289,7 @@ export async function register_settings() {
       step: 1,
       section: 'jarvis',
       public: true,
-      label: 'Model: Frequency Penalty',
+      label: 'Chat: Frequency penalty',
       description: "A value between -20 and 20. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim. Default: 0",
     },
     'presence_penalty': {
@@ -276,7 +300,7 @@ export async function register_settings() {
       step: 1,
       section: 'jarvis',
       public: true,
-      label: 'Model: Presence Penalty',
+      label: 'Chat: Presence penalty',
       description: "A value between -20 and 20. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics. Default: 0",
     },
     'include_prompt': {
@@ -284,7 +308,7 @@ export async function register_settings() {
       type: SettingItemType.Bool,
       section: 'jarvis',
       public: true,
-      label: 'Include prompt in response',
+      label: 'Chat: Include prompt in response',
       description: 'Include the instructions given to the model in the output of Ask Jarvis. Default: false',
     },
     'notes_model': {
@@ -490,16 +514,16 @@ export async function register_settings() {
       type: SettingItemType.String,
       section: 'jarvis',
       public: true,
-      label: 'Chat: Prefix to add to each chat prompt (before the response)',
-      description: 'e.g., "\\n\\nJarvis: "',
+      label: 'Chat: Jarvis prefix',
+      description: 'Default: "\\n\\nJarvis: "',
     },
     'chat_suffix': {
       value: '\\n\\nUser: ',
       type: SettingItemType.String,
       section: 'jarvis',
       public: true,
-      label: 'Chat Suffix to add to each chat response (after the response)',
-      description: 'e.g., "\\n\\nUser: "',
+      label: 'Chat: User prefix',
+      description: 'Default: "\\n\\nUser: "',
     },
     'instruction': {
       value: '',
