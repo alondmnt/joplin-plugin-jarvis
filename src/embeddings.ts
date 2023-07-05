@@ -155,10 +155,6 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
   const sub_start = Math.max(0, block.indexOf(sub));
   let line_number = note_body.substring(0, block_start + sub_start).split('\n').length;
 
-  if (!sub.startsWith('```')) {
-    line_number -= 2;
-  }
-
   return [line_number, block_start + sub_start];
 }
 
