@@ -384,7 +384,7 @@ export class TextGenerationModel {
     } else {
       response = await this.complete(prompt);
     }
-    return this.model_prefix + response + this.user_prefix;
+    return this.model_prefix + response.replace(this.model_prefix.trim(), '').trim() + this.user_prefix;
   }
 
   async complete(prompt: string): Promise<string> {
