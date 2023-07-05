@@ -600,7 +600,6 @@ export class OpenAIGeneration extends TextGenerationModel {
       return;
     }
     this.model = this.id;  // anything other than null
-    console.log(this.id);
 
     try {
       const vec = await this.complete('Hello world');
