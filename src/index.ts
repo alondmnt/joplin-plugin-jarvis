@@ -217,7 +217,9 @@ joplin.plugins.register({
           event.keys.includes('frequency_penalty') ||
           event.keys.includes('presence_penalty') ||
           event.keys.includes('chat_hf_model_id') ||
-          event.keys.includes('chat_hf_endpoint')) {
+          event.keys.includes('chat_hf_endpoint') ||
+          event.keys.includes('chat_prefix') ||
+          event.keys.includes('chat_suffix')) {
 
         model_gen = await load_generation_model(settings);
       }
