@@ -193,7 +193,7 @@ async function get_chat_prompt(model_gen: TextGenerationModel, strip_links: bool
 
 async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, settings: JarvisSettings):
     Promise<[string, NoteEmbedding[]]> {
-  const prompt = get_notes_prompt(await get_chat_prompt(model_gen, false));
+  const prompt = get_notes_prompt(await get_chat_prompt(model_gen, false), model_gen);
 
   // filter embeddings based on prompt
   let sub_embeds: BlockEmbedding[] = [];
@@ -267,25 +267,30 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
   return [prompt.prompt, nearest];
 }
 
-function get_notes_prompt(prompt: string):
+function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):
     {prompt: string, search: string, notes: Set<string>} {
   // (previous responses) strip lines that start with {ref_notes_prefix}
   prompt = prompt.replace(new RegExp('^' + ref_notes_prefix + '.*$', 'gm'), '');
+  const chat = model_gen._parse_chat(prompt);
+  let last_user_prompt = '';
+  if (chat[chat.length -1].role === 'user') {
+    last_user_prompt = chat[chat.length - 1].content;
+  }
 
   // (user input) parse lines that start with {search_notes_prefix}, and strip them from the prompt
   let search = '';  // last search string
-  prompt = prompt.replace(new RegExp('^' + search_notes_prefix + '.*$', 'igm'), (match) => {
+  const search_regex = new RegExp('^' + search_notes_prefix + '.*$', 'igm');
+  prompt = prompt.replace(search_regex, '');
+  last_user_prompt = last_user_prompt.replace(search_regex, (match) => {
     search = match.substring(search_notes_prefix.length).trim();
     return '';
   });
-  // TODO: one problem with this approach is that the last search string will be used even if
-  // the user did not include one in the last prompt, until all memory tokens are exhausted
-  // one way to improve this is to parse the chat using the model, and extract the commands from the
-  // last user prompt
 
   // (user input) parse lines that start with {user_notes_prefix}, and strip them from the prompt
   let notes: any;  // last user string
-  prompt = prompt.replace(new RegExp('^' + user_notes_prefix + '.*$', 'igm'), (match) => {
+  const notes_regex = new RegExp('^' + user_notes_prefix + '.*$', 'igm');
+  prompt = prompt.replace(notes_regex, '');
+  last_user_prompt = last_user_prompt.replace(notes_regex, (match) => {
     // get all note IDs (32 alphanumeric characters)
     notes = match.match(/[a-zA-Z0-9]{32}/g);
     return '';
