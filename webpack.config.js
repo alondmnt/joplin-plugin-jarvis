@@ -151,7 +151,7 @@ const baseConfig = {
 				test: /\.(js|mjs)$/,
 				exclude: /node_modules/,  // \/(?!(@huggingface\/inference)\/).*
 				use: {
-				  loader: "babel-loader",
+					loader: "babel-loader",
 				},
 			},
 		],
@@ -161,6 +161,9 @@ const baseConfig = {
 			api: path.resolve(__dirname, 'api'),
 		},
 		extensions: ['.js', '.tsx', '.ts', '.json'],
+	},
+	optimization: {
+		minimize: true,
 	},
 };
 
