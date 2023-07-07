@@ -30,7 +30,7 @@ Jarvis (Joplin Assistant Running a Very Intelligent System) is an AI note-taking
 1. Install Jarvis from Joplin's plugin marketplace, or download it from [github](https://github.com/alondmnt/joplin-plugin-jarvis/releases).
 2. Setup your [OpenAI account](https://platform.openai.com/signup).
 3. Enter your [API key](https://platform.openai.com/account/api-keys) in the plugin settings page.
-4. To make Jarvis more verbose and improve chat coherence, it is recommended to increase `max_tokens` (e.g., to 4000) and `memory_tokens` (e.g., to 500-1000). Note that these settings increase query costs.
+4. To improve chat coherence, it may be helpful to increase `memory_tokens`, especially when chatting with your notes.
 5. For literature reviews, you can optionally add free API keys for [Scopus/Elsevier](https://dev.elsevier.com/) as an additional powerful search engine and paper repository, and [Springer](https://dev.springernature.com/) as another paper repository. It is recommended to try both Scopus and Semantic Scholar as each has its pros and cons.
 
 ## Disclaimer
