@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
-import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, ref_notes_prefix, search_notes_prefix, user_notes_prefix } from './settings';
+import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from './settings';
 import { query_edit } from './openai';
 import { do_research } from './research';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, update_embeddings } from './embeddings';
@@ -214,6 +214,14 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
 
   // get embeddings
   const note = await joplin.workspace.selectedNote();
+  if (prompt.context.length > 0) {
+    // replace current note with user-defined context
+    note.body = prompt.context;
+  }
+  if (prompt.not_context.length > 0) {
+    // remove from context
+    note.body = note.body.replace(new RegExp(prompt.not_context, 'g'), '');
+  }
   const nearest = await find_nearest_notes(sub_embeds, note.id, note.title, note.body, model_embed, settings, false);
 
   // post-processing: attach additional blocks to the nearest ones
@@ -268,7 +276,7 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
 }
 
 function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):
-    {prompt: string, search: string, notes: Set<string>} {
+    {prompt: string, search: string, notes: Set<string>, context: string, not_context: string} {
   // (previous responses) strip lines that start with {ref_notes_prefix}
   prompt = prompt.replace(new RegExp('^' + ref_notes_prefix + '.*$', 'gm'), '');
   const chat = model_gen._parse_chat(prompt);
@@ -279,16 +287,16 @@ function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):
 
   // (user input) parse lines that start with {search_notes_prefix}, and strip them from the prompt
   let search = '';  // last search string
-  const search_regex = new RegExp('^' + search_notes_prefix + '.*$', 'igm');
+  const search_regex = new RegExp('^' + search_notes_cmd + '.*$', 'igm');
   prompt = prompt.replace(search_regex, '');
   last_user_prompt = last_user_prompt.replace(search_regex, (match) => {
-    search = match.substring(search_notes_prefix.length).trim();
+    search = match.substring(search_notes_cmd.length).trim();
     return '';
   });
 
   // (user input) parse lines that start with {user_notes_prefix}, and strip them from the prompt
   let notes: any;  // last user string
-  const notes_regex = new RegExp('^' + user_notes_prefix + '.*$', 'igm');
+  const notes_regex = new RegExp('^' + user_notes_cmd + '.*$', 'igm');
   prompt = prompt.replace(notes_regex, '');
   last_user_prompt = last_user_prompt.replace(notes_regex, (match) => {
     // get all note IDs (32 alphanumeric characters)
@@ -297,7 +305,26 @@ function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):
   });
   if (notes) { notes = new Set(notes); } else { notes = new Set(); }
 
-  return {prompt: prompt, search: search, notes: notes};
+  // (user input) parse lines that start with {context_cmd}, and strip them from the prompt
+  let context = '';  // last context string
+  const context_regex = new RegExp('^' + context_cmd + '.*$', 'igm');
+  prompt = prompt.replace(context_regex, '');
+  last_user_prompt = last_user_prompt.replace(context_regex, (match) => {
+    context = match.substring(context_cmd.length).trim();
+    return '';
+  });
+
+  // (user input) parse lines that start with {notcontext_cmd}, and strip *only the command* prompt
+  let not_context = '';  // last not_context string
+  const remove_cmd = new RegExp('^' + notcontext_cmd, 'igm');
+  const get_line = new RegExp('^' + notcontext_cmd + '.*$', 'igm');
+  prompt = prompt.replace(remove_cmd, '');
+  last_user_prompt = last_user_prompt.replace(get_line, (match) => {
+    not_context = match.substring(notcontext_cmd.length).trim();
+    return '';
+  });
+
+  return {prompt, search, notes, context, not_context};
 }
 
 async function get_completion_params(

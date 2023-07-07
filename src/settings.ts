@@ -3,8 +3,10 @@ import { SettingItemType } from 'api/types';
 import prompts = require('./assets/prompts.json');
 
 export const ref_notes_prefix = 'Ref notes:';
-export const search_notes_prefix = 'Search:';
-export const user_notes_prefix = 'Notes:';
+export const search_notes_cmd = 'Search:';
+export const user_notes_cmd = 'Notes:';
+export const context_cmd = 'Context:';
+export const notcontext_cmd = 'Not context:';
 export const title_separator = ' ::: ';
 
 export interface JarvisSettings {
