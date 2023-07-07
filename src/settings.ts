@@ -220,13 +220,13 @@ export async function register_settings() {
       }
     },
     'chat_hf_model_id': {
-      value: 'MBZUAI/LaMini-Flan-T5-248M',
+      value: 'MBZUAI/LaMini-Flan-T5-783M',
       type: SettingItemType.String,
       section: 'jarvis',
       public: true,
       advanced: true,
       label: 'Chat: Hugging Face text generation model ID',
-      description: 'The Hugging Face model ID to use for text generation. Default: tiiuae/falcon-40b-instruct',
+      description: 'The Hugging Face model ID to use for text generation. Default: MBZUAI/LaMini-Flan-T5-783M',
     },
     'chat_hf_endpoint': {
       value: '',
