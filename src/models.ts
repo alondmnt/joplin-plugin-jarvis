@@ -612,6 +612,9 @@ export class OpenAIGeneration extends TextGenerationModel {
   }
 
   async _complete(prompt: string): Promise<string> {
+    if (this.type == 'chat') {
+      return this._chat([...this.base_chat, {role: 'user', content: prompt}]);
+    }
     return await query_completion(prompt, this.api_key, this.id,
       this.max_tokens - this.count_tokens(prompt),
       this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty);

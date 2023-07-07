@@ -63,32 +63,15 @@ export async function query_completion(prompt: string, api_key: string,
     model: string, max_tokens: number, temperature: number, top_p: number,
     frequency_penalty: number, presence_penalty: number): Promise<string> {
 
-  let url = '';
+  let url = 'https://api.openai.com/v1/completions';
   let params: any = {
+    prompt: prompt,
+    max_tokens: max_tokens,
     model: model,
     temperature: temperature,
     top_p: top_p,
     frequency_penalty: frequency_penalty,
     presence_penalty: presence_penalty,
-  }
-
-  const is_chat_model = model.includes('gpt-3.5') || model.includes('gpt-4');
-
-  if (is_chat_model) {
-    // use a chat model for text completion
-    url = 'https://api.openai.com/v1/chat/completions';
-    params = {...params,
-      messages: [
-        {role: 'system', content: 'You are Jarvis, the helpful assistant.'},
-        {role: 'user', content: prompt}
-      ],
-    };
-  } else {
-    url = 'https://api.openai.com/v1/completions';
-    params = {...params,
-      prompt: prompt,
-      max_tokens: max_tokens,
-    };
   }
 
   const response = await fetch(url, {
@@ -129,13 +112,8 @@ export async function query_completion(prompt: string, api_key: string,
     // truncate, and leave some room for a response
     const token_ratio = 0.8 * parseInt(token_limits[0][0]) / parseInt(token_limits[1][0]);
     const new_length = Math.floor(token_ratio * prompt.length);
-    if (is_chat_model) {
-      // take last tokens
-      prompt = prompt.substring(prompt.length - new_length);
-    } else {
-      // take first tokens
-      prompt = prompt.substring(0, new_length);
-    }
+    // take first tokens
+    prompt = prompt.substring(0, new_length);
   }
 
   // retry
@@ -219,6 +197,11 @@ function select_messages(
       result.unshift(messages[i]);
       partial_length += this_length;
     } else {
+      // take the last part of the message
+      result.unshift({
+        role: messages[i].role,
+        content: content.substring(content.length - (fraction * total_length - partial_length - messages[0].content.length)),
+      });
       break;
     }
   }
