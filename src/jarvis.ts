@@ -75,17 +75,17 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
     return;
   }
 
-  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.memory_tokens);
+  const [note_text, selected_embd] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.memory_tokens, prompt.search);
   if (note_text === '') {
     await replace_selection(settings.chat_prefix + 'Could not include notes due to context limits. Try to increase memory tokens in the settings.' + settings.chat_suffix);
     return;
   }
-  nearest[0].embeddings = nearest[0].embeddings.slice(0, note_count);
-  const note_links = extract_blocks_links(nearest[0].embeddings);
+  const note_links = extract_blocks_links(selected_embd);
   const decorate = "\nRespond to the user's prompt above. The following are the user's own notes. You you may refer to the content of any of the notes, and extend it, but only when it is relevant to the prompt. Always cite the [note number] of each note that you use.\n\n";
 
-  let completion = await model_gen.chat(prompt + decorate + note_text + settings.chat_prefix);
+  let completion = await model_gen.chat(prompt.prompt + decorate + note_text + settings.chat_prefix);
   await replace_selection(completion.replace(model_gen.user_prefix, `\n\n${note_links}${model_gen.user_prefix}`));
+  nearest[0].embeddings = selected_embd
   update_panel(panel, nearest, settings);
 }
 
@@ -95,8 +95,8 @@ export async function preview_chat_notes_context(model_embed: TextEmbeddingModel
   const settings = await get_settings();
   const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings);
   console.log(prompt);
-  const [note_text, note_count] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.memory_tokens);
-  nearest[0].embeddings = nearest[0].embeddings.slice(0, note_count);
+  const [note_text, selected_embd] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.memory_tokens, prompt.search);
+  nearest[0].embeddings = selected_embd;
   update_panel(panel, nearest, settings);
 }
 
@@ -192,7 +192,7 @@ async function get_chat_prompt(model_gen: TextGenerationModel, strip_links: bool
 }
 
 async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, settings: JarvisSettings):
-    Promise<[string, NoteEmbedding[]]> {
+    Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string}, NoteEmbedding[]]> {
   const prompt = get_notes_prompt(await get_chat_prompt(model_gen, false), model_gen);
 
   // filter embeddings based on prompt
@@ -272,7 +272,7 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
   }
   nearest[0].embeddings = blocks;
 
-  return [prompt.prompt, nearest];
+  return [prompt, nearest];
 }
 
 function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):

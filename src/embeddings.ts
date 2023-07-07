@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from './settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { TextEmbeddingModel, TextGenerationModel } from './models';
+import { search_keywords } from './utils';
 
 export interface BlockEmbedding {
   id: string;  // note id
@@ -222,11 +223,14 @@ function remove_note_embeddings(embeddings: BlockEmbedding[], note_ids: string[]
 }
 
 export async function extract_blocks_text(embeddings: BlockEmbedding[],
-    model_gen: TextGenerationModel, max_length: number): Promise<[string, number]> {
+    model_gen: TextGenerationModel, max_length: number, search_query: string):
+    Promise<[string, BlockEmbedding[]]> {
   let text: string = '';
   let token_sum = 0;
   let embd: BlockEmbedding;
-  let count = 0;
+  let selected: BlockEmbedding[] = [];
+  let note_idx = 0;
+
   for (let i=0; i<embeddings.length; i++) {
     embd = embeddings[i];
     if (embd.body_idx < 0) {
@@ -235,19 +239,29 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
       continue;
     }
 
-    const note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body']});
+    const note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body'] });
     const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
+    embd = Object.assign({}, embd);  // copy to avoid in-place modification
+    if (embd.title !== note.title) {
+      embd.title = note.title + title_separator + embd.title;
+    }
 
-    let decoration = `\n# note ${i+1}:\n${embd.title}`;
+    if ((search_query.length > 0) &&
+        !search_keywords(embd.title + '\n' + block_text, search_query)) {
+      continue;
+    }
+
+    note_idx += 1;
+    let decoration = `\n# note ${note_idx}:\n${embd.title}`;
     const block_tokens = model_gen.count_tokens(decoration + '\n' + block_text);
     if (token_sum + block_tokens > max_length) {
       break;
     }
     text += decoration + '\n' + block_text;
     token_sum += block_tokens;
-    count += 1;
+    selected.push(embd);
   };
-  return [text, count];
+  return [text, selected];
 }
 
 export function extract_blocks_links(embeddings: BlockEmbedding[]): string {
@@ -320,11 +334,13 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   if (!return_grouped_notes) {
     // return the sorted list of block embeddings in a NoteEmbdedding[] object
+    // we return all blocks without slicing, and select from them later
+    // we do not add titles to the blocks and delay that for later as well
+    // see extract_blocks_text()
     return [{
       id: current_id,
       title: 'Chat context',
-      embeddings: await add_note_title(nearest.sort((a, b) => b.similarity - a.similarity)
-        .slice(0, settings.notes_max_hits)),
+      embeddings: nearest.sort((a, b) => b.similarity - a.similarity),
       similarity: null,
     }];
   }

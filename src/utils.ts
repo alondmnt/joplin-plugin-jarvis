@@ -137,3 +137,43 @@ export async function consume_rate_limit(
     request.resolve(); // resolve the request promise
   }
 }
+
+export function search_keywords(text: string, query: string): boolean {
+  // split the query into words/phrases
+  const parts = preprocess_query(query).match(/"[^"]+"|\S+/g) || [];
+
+  // build regular expression patterns for words/phrases
+  const patterns = parts.map(part => {
+      if (part.startsWith('"') && part.endsWith('"')) {
+        // match exact phrase
+        return `(?=.*\\b${part.slice(1, -1)}\\b)`;
+      } else if (part.endsWith('*')) {
+        // match prefix (remove the '*' and don't require a word boundary at the end)
+        return `(?=.*\\b${part.slice(0, -1)})`;
+      } else {
+        // match individual keywords
+        return `(?=.*\\b${part}\\b)`;
+      }
+  });
+
+  // combine patterns into a single regular expression
+  const regex = new RegExp(patterns.join(''), 'is');
+
+  // return true if all keywords/phrases are found, false otherwise
+  return regex.test(text);
+}
+
+function preprocess_query(query: string) {
+  const operators = [
+    'any', 'title', 'body', 'tag', 'notebook',
+    'created', 'updated', 'due', 'type', 'iscompleted',
+    'latitude', 'longitude', 'altitude', 'resource',
+    'sourceurl', 'id'
+  ];
+
+  // build a regex pattern to match <operator>:<keyword>
+  const regexPattern = new RegExp(`\\b(?:${operators.join('|')}):\\S+`, 'g');
+
+  // remove <operator>:<keyword> patterns from the query
+  return query.replace(regexPattern, '').trim();
+}
