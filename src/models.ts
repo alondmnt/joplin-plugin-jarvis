@@ -9,6 +9,20 @@ import { query_embedding, query_chat, query_completion } from './openai';
 import { BlockEmbedding } from './embeddings';  // maybe move definition to this file
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
 
+import { pipeline } from '@xenova/transformers';
+
+test();
+
+async function test() {
+  // Allocate a pipeline for sentiment-analysis
+  let pipe = await pipeline('sentiment-analysis');
+
+  let out = await pipe('I love transformers!');
+  // [{'label': 'POSITIVE', 'score': 0.999817686}]
+
+  console.log(out);
+}
+
 tf.setBackend('webgl');
 
 export async function load_generation_model(settings: JarvisSettings): Promise<TextGenerationModel> {

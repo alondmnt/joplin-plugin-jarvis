@@ -154,6 +154,13 @@ const baseConfig = {
 					loader: "babel-loader",
 				},
 			},
+			{
+				test: /\.node$/,
+				loader: 'file-loader',
+				options: {
+					name: '[path][name].[ext]'
+				}
+			}
 		],
 	},
 	resolve: {
@@ -176,6 +183,12 @@ const pluginConfig = Object.assign({}, baseConfig, {
 		// JSON files can also be required from scripts so we include this.
 		// https://github.com/joplin/plugin-bibtex/pull/2
 		extensions: ['.js', '.tsx', '.ts', '.json'],
+		fallback: {
+			"child_process": false,
+			"perf_hooks": false,
+			"worker_threads": false,
+			"stream": false
+		},
 	},
 	output: {
 		filename: 'index.js',
