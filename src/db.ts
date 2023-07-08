@@ -15,7 +15,9 @@ export async function connect_to_db(model: any): Promise<any> {
   let choice = -1;
   if (check === 'new') {
     choice = await joplin.views.dialogs.showMessageBox('The note database is based on a different model. Would you like to rebuild it? (Highly recommended)');
-  } else if (check === 'update') {
+  } else if (check === 'embedding_update') {
+    choice = await joplin.views.dialogs.showMessageBox('The note database is based on an older version of the embeddings. Would you like to rebuild it? (Recommended)');
+  } else if (check === 'model_update') {
     choice = await joplin.views.dialogs.showMessageBox('The note database is based on an older version of the model. Would you like to rebuild it? (Recommended)');
   } else if (check === 'size_change') {
     choice = await joplin.views.dialogs.showMessageBox('The note database is based on a different max tokens value. Would you like to rebuild it? (Optional)');
@@ -68,7 +70,7 @@ export async function init_db(db: any, model: any): Promise<void> {
     model_name TEXT NOT NULL,
     model_version TEXT NOT NULL,
     max_block_size INT NOT NULL,
-    embedding_version INTEGER NOT NULL DEFAULT 1,
+    embedding_version INTEGER NOT NULL DEFAULT 2,
     UNIQUE (model_name, model_version, max_block_size, embedding_version)
   )`);
 
@@ -109,7 +111,14 @@ async function db_update_check(db: any, model: any): Promise<[String, number]> {
   }
   return new Promise((resolve, reject) => {
     db.serialize(() => {
-      db.all(`SELECT idx, model_name, model_version, max_block_size FROM models`, (err, rows: {idx: number, model_name: string, model_version: string, max_block_size: number}[]) => {
+      db.all(`SELECT idx, model_name, model_version, max_block_size, embedding_version FROM models`,
+          (err, rows: {
+            idx: number,
+            model_name: string,
+            embedding_version: number
+            model_version: string,
+            max_block_size: number,
+          }[]) => {
         if (err) {
           reject(err);
         } else {
@@ -117,6 +126,7 @@ async function db_update_check(db: any, model: any): Promise<[String, number]> {
           // if any of the rows matches the model metadata, then return OK
           let model_exists = false;
           let model_update = true;
+          let embedding_update = true;
           let model_size_change = true;
           let model_idx = 0;
 
@@ -125,12 +135,16 @@ async function db_update_check(db: any, model: any): Promise<[String, number]> {
             if (row.model_name === model.id) {
               model_exists = true;
 
-              if (row.model_version === model.version) {
-                model_update = false;
+              if (row.embedding_version === model.embedding_version) {
+                embedding_update = false;
 
-                if (row.max_block_size === model.max_block_size) {
-                  model_size_change = false;
-                  model_idx = row.idx;
+                if (row.model_version === model.version) {
+                  model_update = false;
+
+                  if (row.max_block_size === model.max_block_size) {
+                    model_size_change = false;
+                    model_idx = row.idx;
+                  }
                 }
               }
             }
@@ -139,8 +153,11 @@ async function db_update_check(db: any, model: any): Promise<[String, number]> {
           if (!model_exists) {
             resolve(['new', 0]);
           }
+          if (embedding_update) {
+            resolve(['embedding_update', 0]);
+          }
           if (model_update) {
-            resolve(['update', 0]);
+            resolve(['model_update', 0]);
           }
           if (model_size_change) {
             resolve(['size_change', 0]);

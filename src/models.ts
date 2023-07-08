@@ -63,6 +63,7 @@ export class TextEmbeddingModel {
   // embeddings
   public embeddings: BlockEmbedding[] = [];  // in-memory
   public db: any = null;  // file system
+  public embedding_version: number = 2;
 
   // model
   public id: string = null;
