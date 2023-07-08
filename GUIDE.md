@@ -10,7 +10,7 @@ When chatting with your notes, Jarvis will look for note excerpts that are seman
 
 3. You may add links to notes that are related to the subject of the chat. These linked notes will not be included automatically, but they will help to shape the context of the chat. The weight that is given to linked notes can be defined in the setting `Weight of links in semantic search` (which is 0 by default).
 
-4. You may use commands within your prompts (the user parts of the conversation), as long as they appear in the beginning of a new line. For example: `Notes: 0f04d08b65ad4047a1f1a424d8c73331, 586c7786099e48449d5f696c8f950e95` will tell Jarvis to consider the most relevant excerpts from these 2 notes specifically as context for the chat. See the table below for a complete list of supported commands. 
+4. You may use commands within your prompts (the user parts of the conversation), as long as they appear in the beginning of a new line. For example: `Notes: 0f04d08b65ad4047a1f1a424d8c73331, 586c7786099e48449d5f696c8f950e95` will tell Jarvis to consider the most relevant excerpts from these 2 notes specifically as context for the chat. Only commands from the most recent user prompt will apply. See the table below for a complete list of supported commands. 
 
 |        Command |                                                                                                         Description | Content included<br>in Jarvis prompt | Content included<br>in context search |
 |----------------|---------------------------------------------------------------------------------------------------------------------|----------------------------------|-----------------------------------|
