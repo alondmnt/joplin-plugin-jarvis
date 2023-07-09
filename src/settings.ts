@@ -339,13 +339,13 @@ export async function register_settings() {
       description: 'The maximal context to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
     },
     'notes_hf_model_id': {
-      value: 'sentence-transformers/paraphrase-xlm-r-multilingual-v1',
+      value: 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2',
       type: SettingItemType.String,
       section: 'jarvis',
       public: true,
       advanced: true,
       label: 'Notes: Hugging Face feature extraction model ID',
-      description: 'The Hugging Face model ID to use for calculating text embeddings. Default: sentence-transformers/paraphrase-xlm-r-multilingual-v1',
+      description: 'The Hugging Face model ID to use for calculating text embeddings. Default: sentence-transformers/paraphrase-multilingual-mpnet-base-v2',
     },
     'notes_hf_endpoint': {
       value: '',
