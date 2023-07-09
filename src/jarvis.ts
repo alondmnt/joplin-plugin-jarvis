@@ -224,7 +224,6 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
       note.body = note.body.replace(new RegExp(nc, 'g'), '');
     }
   }
-  console.log(note.body);
   const nearest = await find_nearest_notes(sub_embeds, note.id, note.title, note.body, model_embed, settings, false);
 
   // post-processing: attach additional blocks to the nearest ones
