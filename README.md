@@ -2,7 +2,7 @@
 
 <img src=img/jarvis-logo-circle.png width=70> [![DOI](https://zenodo.org/badge/568521268.svg)](https://zenodo.org/badge/latestdoi/568521268)
 
-Jarvis (Joplin Assistant Running a Very Intelligent System) is an AI note-taking assistant for [Joplin](https://joplinapp.org), powered by online and offline NLP models (such as OpenAI's ChatGPT or GPT-4, HuggingFace, Universal Sentence Encoder). You can chat with it, use your notes as additional context in the chat, perform semantic search, or compile an [automatic review of the scientific literature](https://medium.com/@alondmnt/ai-powered-literature-review-6918ee180304).
+Jarvis (Joplin Assistant Running a Very Intelligent System) is an AI note-taking assistant for [Joplin](https://joplinapp.org), powered by online and offline NLP models (such as OpenAI's ChatGPT or GPT-4, Hugging Face, Universal Sentence Encoder). You can chat with it, use your notes as additional context in the chat, perform semantic search, or compile an [automatic review of the scientific literature](https://medium.com/@alondmnt/ai-powered-literature-review-6918ee180304).
 
 Community discussion: https://discourse.joplinapp.org/t/28316
 
@@ -15,7 +15,7 @@ Community discussion: https://discourse.joplinapp.org/t/28316
 - **Chat with your notes:**
     - To add additional context to your conversation based on your notes, repeat the steps above but select the command `Chat with your notes` (from the Tools/Jarvis menu) instead. Relevant short excerpts from your notes will be sent to the chat model in addition to the usual conversation prompt / context. To exclude certain notes from this feature, add the tag `#exclude.from.jarvis` to the notes you wish to exclude. You may combine regular chat and note-based chat on the same note. For more information see [this guide](GUIDE.md).
 - **Related notes:**
-    - Find notes based on semantic similarity to the currently open note, or to selected text. This is done locally (offline), without sending the content of your notes to a remote server. Notes are displayed in a dedicated panel. To run semantic search based on selected text, click on the `Find related notes` (toolbar button or context menu option).
+    - Find notes based on semantic similarity to the currently open note, or to selected text. By default, this is done locally (offline), without sending the content of your notes to a remote server (online models can be selected). Notes are displayed in a dedicated panel. To run semantic search based on selected text, click on the `Find related notes` (toolbar button or context menu option).
 - **Literature review:**
     - Run the command `Research with Jarvis`, write what you're interested in, and optionally adjust the search parameters (high `max tokens` setting is recommended). Wait 2-3 minutes for all the output to appear in the note (depending on internet traffic). Jarvis will update the content as it finds new information on the web (using Semantic Scholar, Crossref, Elsevier, Springer & Wikipedia databases). In the end you will get a report with the following sections: title, prompt, research questions, queries, references, review and follow-up questions. For more information see [this post](https://medium.com/@alondmnt/ai-powered-literature-review-6918ee180304).
 - **Autocomplete anything:**
@@ -35,7 +35,7 @@ Community discussion: https://discourse.joplinapp.org/t/28316
 ## Disclaimer
 
 - This plugin sends your queries to your selected models (and only to these ones, whether they are online or offline models). Research queries are also sent to the selected literature search engine (Semantic Scholar / Scopus).
-- This plugin may use your OpenAI or HuggingFace API key in order to do so (and uses it for this sole purpose).
+- This plugin may use your OpenAI or Hugging Face API key in order to do so (and uses it for this sole purpose).
 - You may incur charges (if you are a paying user) from OpenAI by using this plugin.
 - Therefore, always check your usage statistics on OpenAI periodically.
 - It is also recommended to rotate your API keys occasionally.

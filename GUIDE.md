@@ -6,7 +6,7 @@ When chatting with your notes, Jarvis will look for note excerpts that are seman
 
 1. You may preview in advance the selected context that will be sent to the model, by placing the cursor at the end of your prompt and running `Tools-->Jarvis-->Preview chat notes context`. The Related Notes panel will display the selected excerpts. This allows one to iterate and refine the prompt until a reasonable context is generated.
 
-2. You may affect the total length of the context by changing the `Memory tokens` setting.
+2. You may affect the total length of the context (and the number of included note excerpts) by changing the `Memory tokens` setting.
 
 3. You may add links to notes that are related to the subject of the chat. These linked notes will not be included automatically, but they will help to shape the context of the chat. The weight that is given to linked notes can be defined in the setting `Weight of links in semantic search` (which is 0 by default).
 
@@ -17,4 +17,4 @@ When chatting with your notes, Jarvis will look for note excerpts that are seman
 |      ` Notes:` |                                   The following list of note IDs (or internal<br>links) will be the source for chat context |                               No |                               Yes |
 |      `Search:` |   The following Joplin search query will<br>be used to search for related notes<br>(in addition to semantic search), and<br>search keywords must appear in the<br>selected context |                               No |                               Yes |
 |     `Context:` |   The following text will be the one<br>used to semantically search for related<br>notes instead of the entire note |                               No |                               Yes |
-| `Not Context:` | The following excerpt will be not be<br>used to search for related notes (e.g.,<br>it can be used to define Jarvis' role),<br> but the rest of the note will |                              Yes |                                No |
+| `Not Context:` | The following text will be excluded<br>from semantic search (e.g., it can be used<br>to define Jarvis' role), but the rest of the<br> conversation will still be used |                              Yes |                                No |
