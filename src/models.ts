@@ -201,12 +201,12 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
   async _load_model() {
     const token = await joplin.settings.value('hf_api_key');
     if (!token) {
-      joplin.views.dialogs.showMessageBox('Please specify a valid HuggingFace API key in the settings');
+      joplin.views.dialogs.showMessageBox('Please specify a valid Hugging Face API key in the settings');
       this.model = null;
       return;
     }
     if (!this.id) {
-      joplin.views.dialogs.showMessageBox('Please specify a valid notes HuggingFace model in the settings');
+      joplin.views.dialogs.showMessageBox('Please specify a valid notes Hugging Face model in the settings');
       this.model = null;
       return;
     }
@@ -510,7 +510,7 @@ export class HuggingFaceGeneration extends TextGenerationModel {
   async _load_model() {
     const token = await joplin.settings.value('hf_api_key');
     if (!this.id) {
-      joplin.views.dialogs.showMessageBox('Please specify a valid chat HuggingFace model in the settings');
+      joplin.views.dialogs.showMessageBox('Please specify a valid chat Hugging Face model in the settings');
       this.model = null;
       return;
     }
