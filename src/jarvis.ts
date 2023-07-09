@@ -192,7 +192,7 @@ async function get_chat_prompt(model_gen: TextGenerationModel, strip_links: bool
 }
 
 async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, settings: JarvisSettings):
-    Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string}, NoteEmbedding[]]> {
+    Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]}, NoteEmbedding[]]> {
   const prompt = get_notes_prompt(await get_chat_prompt(model_gen, false), model_gen);
 
   // filter embeddings based on prompt
@@ -220,8 +220,11 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
   }
   if (prompt.not_context.length > 0) {
     // remove from context
-    note.body = note.body.replace(new RegExp(prompt.not_context, 'g'), '');
+    for (const nc of prompt.not_context) {
+      note.body = note.body.replace(new RegExp(nc, 'g'), '');
+    }
   }
+  console.log(note.body);
   const nearest = await find_nearest_notes(sub_embeds, note.id, note.title, note.body, model_embed, settings, false);
 
   // post-processing: attach additional blocks to the nearest ones
@@ -276,7 +279,7 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
 }
 
 function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):
-    {prompt: string, search: string, notes: Set<string>, context: string, not_context: string} {
+    {prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]} {
   // (previous responses) strip lines that start with {ref_notes_prefix}
   prompt = prompt.replace(new RegExp('^' + ref_notes_prefix + '.*$', 'gm'), '');
   const chat = model_gen._parse_chat(prompt);
@@ -289,40 +292,42 @@ function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):
   let search = '';  // last search string
   const search_regex = new RegExp('^' + search_notes_cmd + '.*$', 'igm');
   prompt = prompt.replace(search_regex, '');
-  last_user_prompt = last_user_prompt.replace(search_regex, (match) => {
-    search = match.substring(search_notes_cmd.length).trim();
-    return '';
-  });
+  let matches = last_user_prompt.match(search_regex);
+  if (matches !== null) {
+    search = matches[matches.length - 1].substring(search_notes_cmd.length).trim();
+  };
 
   // (user input) parse lines that start with {user_notes_prefix}, and strip them from the prompt
-  let notes: any;  // last user string
+  let note_ids: string[] = [];  // last user string
   const notes_regex = new RegExp('^' + user_notes_cmd + '.*$', 'igm');
   prompt = prompt.replace(notes_regex, '');
-  last_user_prompt = last_user_prompt.replace(notes_regex, (match) => {
+  matches = last_user_prompt.match(notes_regex);
+  if (matches !== null) {
     // get all note IDs (32 alphanumeric characters)
-    notes = match.match(/[a-zA-Z0-9]{32}/g);
-    return '';
-  });
-  if (notes) { notes = new Set(notes); } else { notes = new Set(); }
+    note_ids = matches[matches.length - 1].match(/[a-zA-Z0-9]{32}/g);
+  }
+  const notes = new Set(note_ids);
 
   // (user input) parse lines that start with {context_cmd}, and strip them from the prompt
   let context = '';  // last context string
   const context_regex = new RegExp('^' + context_cmd + '.*$', 'igm');
   prompt = prompt.replace(context_regex, '');
-  last_user_prompt = last_user_prompt.replace(context_regex, (match) => {
-    context = match.substring(context_cmd.length).trim();
-    return '';
-  });
+  matches = last_user_prompt.match(context_regex);
+  if (matches !== null) {
+    context = matches[matches.length - 1].substring(context_cmd.length).trim();
+  }
 
   // (user input) parse lines that start with {notcontext_cmd}, and strip *only the command* prompt
-  let not_context = '';  // last not_context string
+  let not_context: string[] = [];  // all not_context strings (to be excluded later)
   const remove_cmd = new RegExp('^' + notcontext_cmd, 'igm');
   const get_line = new RegExp('^' + notcontext_cmd + '.*$', 'igm');
+  matches = prompt.match(get_line);
+  if (matches !== null) {
+    matches.forEach((match) => {
+      not_context.push(match.substring(notcontext_cmd.length).trim());
+    });
+  }
   prompt = prompt.replace(remove_cmd, '');
-  last_user_prompt = last_user_prompt.replace(get_line, (match) => {
-    not_context = match.substring(notcontext_cmd.length).trim();
-    return '';
-  });
 
   return {prompt, search, notes, context, not_context};
 }
