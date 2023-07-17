@@ -340,6 +340,13 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
     });
   }
   prompt = prompt.replace(remove_cmd, '');
+  const last_match = last_user_prompt.match(get_line);
+  const global_match = commands[notcontext_cmd.slice(0, -1)];
+  if ((last_match === null) && global_match) {
+    // last user prompt does not contain a not_context command
+    // add the global not_context command to the prompt
+    prompt += '\n' + global_match;
+  }
 
   return {prompt, search, notes, context, not_context};
 }
