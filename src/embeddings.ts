@@ -246,7 +246,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
       embd.title = note.title + title_separator + embd.title;
     }
 
-    if ((search_query.length > 0) &&
+    if ((search_query) &&
         !search_keywords(embd.title + '\n' + block_text, search_query)) {
       continue;
     }

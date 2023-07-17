@@ -174,7 +174,10 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
   await update_panel(panel, nearest, settings);
 }
 
-async function get_chat_prompt(model_gen: TextGenerationModel, strip_links: boolean = true): Promise<string> {
+type ParsedData = { [key: string]: string };
+const cmd_block_pattern: RegExp = /```jarvis[\s\S]*?```/gm;
+
+async function get_chat_prompt(model_gen: TextGenerationModel): Promise<string> {
   // get cursor position
   const cursor = await joplin.commands.execute('editor.execCommand', {
     name: 'getCursor',
@@ -185,6 +188,8 @@ async function get_chat_prompt(model_gen: TextGenerationModel, strip_links: bool
     name: 'getRange',
     args: [{line: 0, ch: 0}, cursor],
   });
+  // remove chat commands
+  prompt = prompt.replace(cmd_block_pattern, '');
   // get last tokens
   prompt = split_by_tokens([prompt], model_gen, model_gen.memory_tokens, 'last')[0].join(' ');
 
@@ -193,7 +198,8 @@ async function get_chat_prompt(model_gen: TextGenerationModel, strip_links: bool
 
 async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, settings: JarvisSettings):
     Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]}, NoteEmbedding[]]> {
-  const prompt = get_notes_prompt(await get_chat_prompt(model_gen, false), model_gen);
+  const note = await joplin.workspace.selectedNote();
+  const prompt = get_notes_prompt(await get_chat_prompt(model_gen), note, model_gen);
 
   // filter embeddings based on prompt
   let sub_embeds: BlockEmbedding[] = [];
@@ -213,7 +219,6 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
   }
 
   // get embeddings
-  const note = await joplin.workspace.selectedNote();
   if (prompt.context.length > 0) {
     // replace current note with user-defined context
     note.body = prompt.context;
@@ -277,18 +282,22 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
   return [prompt, nearest];
 }
 
-function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):
+function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationModel):
     {prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]} {
+  // get global commands
+  const commands = get_global_commands(note.body);
+  note.body = note.body.replace(cmd_block_pattern, '');
+
   // (previous responses) strip lines that start with {ref_notes_prefix}
   prompt = prompt.replace(new RegExp('^' + ref_notes_prefix + '.*$', 'gm'), '');
   const chat = model_gen._parse_chat(prompt);
-  let last_user_prompt = '';
+  let last_user_prompt = commands[ref_notes_prefix.slice(0, -1)];
   if (chat[chat.length -1].role === 'user') {
     last_user_prompt = chat[chat.length - 1].content;
   }
 
   // (user input) parse lines that start with {search_notes_prefix}, and strip them from the prompt
-  let search = '';  // last search string
+  let search = commands[search_notes_cmd.slice(0, -1)];  // last search string
   const search_regex = new RegExp('^' + search_notes_cmd + '.*$', 'igm');
   prompt = prompt.replace(search_regex, '');
   let matches = last_user_prompt.match(search_regex);
@@ -297,7 +306,11 @@ function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):
   };
 
   // (user input) parse lines that start with {user_notes_prefix}, and strip them from the prompt
-  let note_ids: string[] = [];  // last user string
+  const global_ids = commands[user_notes_cmd.slice(0, -1)];
+  let note_ids: string[] = []
+  if (global_ids) {
+     note_ids = global_ids.match(/[a-zA-Z0-9]{32}/g);
+  }
   const notes_regex = new RegExp('^' + user_notes_cmd + '.*$', 'igm');
   prompt = prompt.replace(notes_regex, '');
   matches = last_user_prompt.match(notes_regex);
@@ -308,7 +321,7 @@ function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):
   const notes = new Set(note_ids);
 
   // (user input) parse lines that start with {context_cmd}, and strip them from the prompt
-  let context = '';  // last context string
+  let context = commands[context_cmd.slice(0, -1)];  // last context string
   const context_regex = new RegExp('^' + context_cmd + '.*$', 'igm');
   prompt = prompt.replace(context_regex, '');
   matches = last_user_prompt.match(context_regex);
@@ -329,6 +342,40 @@ function get_notes_prompt(prompt: string, model_gen: TextGenerationModel):
   prompt = prompt.replace(remove_cmd, '');
 
   return {prompt, search, notes, context, not_context};
+}
+
+function get_global_commands(text: string): ParsedData {
+    // define a regex pattern to match the code block
+    const cmd_block_match: RegExpMatchArray | null = text.match(cmd_block_pattern);
+
+    // if no code block is found, return an empty object and the original string
+    if (!cmd_block_match) return {};
+
+    const cmd_block: string = cmd_block_match[0];
+
+    // remove the opening and closing tags
+    const cleaned_cmd_block: string = cmd_block.replace(/```jarvis|\```/g, '');
+
+    // split into lines
+    const lines: string[] = cleaned_cmd_block.split('\n');
+
+    // define an object to store the parsed data
+    let parsed_data: ParsedData = {};
+
+    // iterate over each line and parse the key/value pairs
+    lines.forEach((line: string) => {
+        // Skip if line doesn't contain a colon
+        if (!line.includes(':')) return;
+
+        let split_line: string[] = line.split(':');
+        if (split_line.length > 1) {
+            let key: string = split_line[0].trim();
+            let value: string = split_line.slice(1).join(':').trim();
+            parsed_data[key] = value;
+        }
+    });
+
+    return parsed_data;
 }
 
 async function get_completion_params(
