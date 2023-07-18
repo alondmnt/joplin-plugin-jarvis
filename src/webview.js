@@ -9,3 +9,13 @@ document.addEventListener('click', event => {
 		});
 	}
 });
+
+document.addEventListener('search', event => {
+	const element = event.target;
+	if (element.className === 'jarvis-semantic-query') {
+		webviewApi.postMessage({
+			name: 'searchRelatedNote',
+			query: element.value,
+		});
+	}
+});

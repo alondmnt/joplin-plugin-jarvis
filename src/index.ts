@@ -4,7 +4,8 @@ import * as debounce from 'lodash.debounce';
 import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog } from './jarvis';
 import { get_settings, register_settings, set_folders } from './settings';
 import { load_embedding_model, load_generation_model } from './models';
-import { register_panel } from './panel';
+import { register_panel, update_panel } from './panel';
+import { find_nearest_notes } from './embeddings';
 
 joplin.plugins.register({
 	onStart: async function() {
@@ -189,6 +190,12 @@ joplin.plugins.register({
             args: [message.line - 1]
           });
         }
+      }
+      if (message.name == 'searchRelatedNote') {
+        console.log(`searchRelatedNote: ${message.query}`);
+        const nearest = await find_nearest_notes(
+          model_embed.embeddings, '1234', '', message.query, model_embed, settings);
+        await update_panel(panel, nearest, settings);
       }
     });
 
