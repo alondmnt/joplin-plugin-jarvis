@@ -192,7 +192,6 @@ joplin.plugins.register({
         }
       }
       if (message.name == 'searchRelatedNote') {
-        console.log(`searchRelatedNote: ${message.query}`);
         const nearest = await find_nearest_notes(
           model_embed.embeddings, '1234', '', message.query, model_embed, settings);
         await update_panel(panel, nearest, settings);

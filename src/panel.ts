@@ -17,6 +17,9 @@ export async function register_panel(panel: string, settings: JarvisSettings, mo
 
 export async function update_panel(panel: string, nearest: NoteEmbedding[], settings: JarvisSettings) {
   // TODO: collapse according to settings
+  let search_box = '<p><input class="jarvis-semantic-query" type="search" id="jarvis-search" placeholder="Search notes..."></p>';
+  if (!settings.notes_search_box) { search_box = ''; }
+
   await joplin.views.panels.setHtml(panel, `
   <html>
   <style>
@@ -24,7 +27,7 @@ export async function update_panel(panel: string, nearest: NoteEmbedding[], sett
   </style>
   <div class="container">
     <p class="jarvis-semantic-title">${settings.notes_panel_title}</p>
-    <p><input class="jarvis-semantic-query" type="search" id="jarvis-search" placeholder="Search notes..."></p>
+    ${search_box}
     ${(await Promise.all(nearest)).map((n) => `
     <details ${n.title === "Chat context" ? "open" : ""}>
       <summary class="jarvis-semantic-note">
