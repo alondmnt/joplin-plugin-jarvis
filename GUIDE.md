@@ -12,6 +12,14 @@ When chatting with your notes, Jarvis will look for note excerpts that are seman
 
 4. You may use commands within your prompts (the user parts of the conversation), as long as they appear in the beginning of a new line. For example: `Notes: 0f04d08b65ad4047a1f1a424d8c73331, 586c7786099e48449d5f696c8f950e95` will tell Jarvis to consider the most relevant excerpts from these 2 notes specifically as context for the chat. Only commands from the most recent user prompt will apply. See the table below for a complete list of supported commands. 
 
+5. You can set default commands for a chat by placing them in a "jarvis" code block. The commands that appear in this block will apply to every prompt in the note, unless they are overridden by a command in the prompt itself. For example:
+
+        ```jarvis
+        Context: This is the default context for each prompt in the chat.
+        Search: This is the default search query.
+        Not context: This is the default text that will be excluded from semantic search, and appended to every prompt.
+        ```
+
 |        Command |                                                                                                         Description | Content included<br>in Jarvis prompt | Content included<br>in context search |
 |----------------|---------------------------------------------------------------------------------------------------------------------|----------------------------------|-----------------------------------|
 |      ` Notes:` |                                   The following list of note IDs (or internal<br>links) will be the source for chat context |                               No |                               Yes |
