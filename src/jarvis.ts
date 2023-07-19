@@ -352,37 +352,37 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
 }
 
 function get_global_commands(text: string): ParsedData {
-    // define a regex pattern to match the code block
-    const cmd_block_match: RegExpMatchArray | null = text.match(cmd_block_pattern);
+  // define a regex pattern to match the code block
+  const cmd_block_match: RegExpMatchArray | null = text.match(cmd_block_pattern);
 
-    // if no code block is found, return an empty object and the original string
-    if (!cmd_block_match) return {};
+  // if no code block is found, return an empty object and the original string
+  if (!cmd_block_match) return {};
 
-    const cmd_block: string = cmd_block_match[0];
+  const cmd_block: string = cmd_block_match[0];
 
-    // remove the opening and closing tags
-    const cleaned_cmd_block: string = cmd_block.replace(/```jarvis|\```/g, '');
+  // remove the opening and closing tags
+  const cleaned_cmd_block: string = cmd_block.replace(/```jarvis|\```/g, '');
 
-    // split into lines
-    const lines: string[] = cleaned_cmd_block.split('\n');
+  // split into lines
+  const lines: string[] = cleaned_cmd_block.split('\n');
 
-    // define an object to store the parsed data
-    let parsed_data: ParsedData = {};
+  // define an object to store the parsed data
+  let parsed_data: ParsedData = {};
 
-    // iterate over each line and parse the key/value pairs
-    lines.forEach((line: string) => {
-        // Skip if line doesn't contain a colon
-        if (!line.includes(':')) return;
+  // iterate over each line and parse the key/value pairs
+  lines.forEach((line: string) => {
+    // Skip if line doesn't contain a colon
+    if (!line.includes(':')) return;
 
-        let split_line: string[] = line.split(':');
-        if (split_line.length > 1) {
-            let key: string = split_line[0].trim();
-            let value: string = split_line.slice(1).join(':').trim();
-            parsed_data[key] = value;
-        }
-    });
+    let split_line: string[] = line.split(':');
+    if (split_line.length > 1) {
+      let key: string = split_line[0].trim();
+      let value: string = split_line.slice(1).join(':').trim();
+      parsed_data[key] = value;
+    }
+  });
 
-    return parsed_data;
+  return parsed_data;
 }
 
 async function get_completion_params(
