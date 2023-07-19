@@ -17,7 +17,7 @@ export async function register_panel(panel: string, settings: JarvisSettings, mo
 
 export async function update_panel(panel: string, nearest: NoteEmbedding[], settings: JarvisSettings) {
   // TODO: collapse according to settings
-  let search_box = '<p><input class="jarvis-semantic-query" type="search" id="jarvis-search" placeholder="Search notes..."></p>';
+  let search_box = '<p align="center"><input class="jarvis-semantic-query" type="search" id="jarvis-search" placeholder="Semantic search..."></p>';
   if (!settings.notes_search_box) { search_box = ''; }
 
   await joplin.views.panels.setHtml(panel, `

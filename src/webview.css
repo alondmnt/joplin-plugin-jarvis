@@ -21,6 +21,7 @@ html {
   background-color: var(--joplin-background-color);
   font-size: calc(var(--joplin-font-size) * 1.1);
   width: 97%;
+  margin: 0px;
 }
 
 .jarvis-semantic-note {
