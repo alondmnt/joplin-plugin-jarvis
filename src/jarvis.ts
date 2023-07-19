@@ -291,13 +291,13 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
   // (previous responses) strip lines that start with {ref_notes_prefix}
   prompt = prompt.replace(new RegExp('^' + ref_notes_prefix + '.*$', 'gm'), '');
   const chat = model_gen._parse_chat(prompt);
-  let last_user_prompt = commands[ref_notes_prefix.slice(0, -1)];
+  let last_user_prompt = commands[ref_notes_prefix.slice(0, -1).toLocaleLowerCase()];
   if (chat[chat.length -1].role === 'user') {
     last_user_prompt = chat[chat.length - 1].content;
   }
 
   // (user input) parse lines that start with {search_notes_prefix}, and strip them from the prompt
-  let search = commands[search_notes_cmd.slice(0, -1)];  // last search string
+  let search = commands[search_notes_cmd.slice(0, -1).toLocaleLowerCase()];  // last search string
   const search_regex = new RegExp('^' + search_notes_cmd + '.*$', 'igm');
   prompt = prompt.replace(search_regex, '');
   let matches = last_user_prompt.match(search_regex);
@@ -306,7 +306,7 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
   };
 
   // (user input) parse lines that start with {user_notes_prefix}, and strip them from the prompt
-  const global_ids = commands[user_notes_cmd.slice(0, -1)];
+  const global_ids = commands[user_notes_cmd.slice(0, -1).toLocaleLowerCase()];
   let note_ids: string[] = []
   if (global_ids) {
      note_ids = global_ids.match(/[a-zA-Z0-9]{32}/g);
@@ -321,7 +321,7 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
   const notes = new Set(note_ids);
 
   // (user input) parse lines that start with {context_cmd}, and strip them from the prompt
-  let context = commands[context_cmd.slice(0, -1)];  // last context string
+  let context = commands[context_cmd.slice(0, -1).toLocaleLowerCase()];  // last context string
   const context_regex = new RegExp('^' + context_cmd + '.*$', 'igm');
   prompt = prompt.replace(context_regex, '');
   matches = last_user_prompt.match(context_regex);
@@ -341,7 +341,7 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
   }
   prompt = prompt.replace(remove_cmd, '');
   const last_match = last_user_prompt.match(get_line);
-  const global_match = commands[notcontext_cmd.slice(0, -1)];
+  const global_match = commands[notcontext_cmd.slice(0, -1).toLocaleLowerCase()];
   if ((last_match === null) && global_match) {
     // last user prompt does not contain a not_context command
     // add the global not_context command to the prompt
@@ -376,7 +376,7 @@ function get_global_commands(text: string): ParsedData {
 
     let split_line: string[] = line.split(':');
     if (split_line.length > 1) {
-      let key: string = split_line[0].trim();
+      let key: string = split_line[0].trim().toLowerCase();
       let value: string = split_line.slice(1).join(':').trim();
       parsed_data[key] = value;
     }
