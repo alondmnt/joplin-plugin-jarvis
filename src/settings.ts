@@ -120,7 +120,6 @@ export async function get_settings(): Promise<JarvisSettings> {
     model_id = await joplin.settings.value('chat_openai_model_id');
     model_id = model_id.replace(/-\d{4}$/, '');  // remove the date suffix
   }
-  console.log(model_id);
   // if model is in model_max_tokens, use its value, otherwise use the settings value
   let max_tokens = model_max_tokens[model_id] || await joplin.settings.value('max_tokens');
 
