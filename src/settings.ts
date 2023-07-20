@@ -17,6 +17,7 @@ export interface JarvisSettings {
   springer_api_key: string;
   // OpenAI
   model: string;
+  chat_openai_model_id: string;
   temperature: number;
   max_tokens: number;
   memory_tokens: number;
@@ -114,9 +115,14 @@ async function parse_dropdown_setting(name: string): Promise<string> {
 }
 
 export async function get_settings(): Promise<JarvisSettings> {
-  const model = await joplin.settings.value('model');
+  let model_id = await joplin.settings.value('model');
+  if (model_id == 'openai-custom') {
+    model_id = await joplin.settings.value('chat_openai_model_id');
+    model_id = model_id.replace(/-\d{4}$/, '');  // remove the date suffix
+  }
+  console.log(model_id);
   // if model is in model_max_tokens, use its value, otherwise use the settings value
-  let max_tokens = model_max_tokens[model] || await joplin.settings.value('max_tokens');
+  let max_tokens = model_max_tokens[model_id] || await joplin.settings.value('max_tokens');
 
   let memory_tokens = await joplin.settings.value('memory_tokens');
   if (memory_tokens > 0.45*max_tokens) {
@@ -133,7 +139,8 @@ export async function get_settings(): Promise<JarvisSettings> {
     springer_api_key: await joplin.settings.value('springer_api_key'),
 
     // OpenAI
-    model: model,
+    model: await joplin.settings.value('model'),
+    chat_openai_model_id: await joplin.settings.value('chat_openai_model_id'),
     temperature: (await joplin.settings.value('temp')) / 10,
     max_tokens: max_tokens,
     memory_tokens: await joplin.settings.value('memory_tokens'),
@@ -220,8 +227,18 @@ export async function register_settings() {
         'gpt-3.5-turbo-16k': '(online) OpenAI: gpt-3.5-turbo-16k',
         'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo',
         'text-davinci-003': '(online) OpenAI: text-davinci-003',
+        'openai-custom': '(online) OpenAI: custom',
         'Hugging Face': '(online) Hugging Face',
       }
+    },
+    'chat_openai_model_id': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Chat: OpenAI custom model ID',
+      description: 'The OpenAI model ID to use for character-level text generation. Default: empty',
     },
     'chat_hf_model_id': {
       value: 'MBZUAI/LaMini-Flan-T5-783M',

@@ -19,7 +19,8 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
     model = new HuggingFaceGeneration(settings);
 
   } else if (settings.model.includes('gpt') ||
-             settings.model.includes('davinci')) {
+             settings.model.includes('davinci') ||
+             settings.model.includes('openai')) {
     model = new OpenAIGeneration(settings);
 
   } else {
@@ -568,10 +569,14 @@ export class OpenAIGeneration extends TextGenerationModel {
 
   constructor(settings: JarvisSettings) {
     let type = 'completion';
-    if (settings.model.includes('gpt-3.5') || settings.model.includes('gpt-4')) {
+    let model_id = settings.model;
+    if (settings.model == 'openai-custom') {
+      model_id = settings.chat_openai_model_id;
+    }
+    if (model_id.includes('gpt-3.5') || model_id.includes('gpt-4')) {
       type = 'chat';
     }
-    super(settings.model,
+    super(model_id,
       settings.max_tokens,
       type,
       settings.memory_tokens,
