@@ -237,7 +237,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Chat: OpenAI custom model ID',
-      description: 'The OpenAI model ID to use for character-level text generation. Default: empty',
+      description: 'The OpenAI model ID to use for text generation. Default: empty',
     },
     'chat_hf_model_id': {
       value: 'MBZUAI/LaMini-Flan-T5-783M',
