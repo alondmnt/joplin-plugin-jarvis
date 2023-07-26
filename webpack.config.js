@@ -156,7 +156,7 @@ const baseConfig = {
 			},
 			{
 				test: /\.node$/,
-				loader: 'file-loader',
+				loader: 'node-loader',
 				options: {
 					name: '[path][name].[ext]'
 				}
