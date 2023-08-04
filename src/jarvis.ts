@@ -8,6 +8,8 @@ import { update_panel, update_progress_bar } from './panel';
 import { TextEmbeddingModel, TextGenerationModel } from './models';
 import { split_by_tokens } from './utils';
 
+/////// JARVIS COMMANDS ///////
+
 export async function ask_jarvis(model_gen: TextGenerationModel, dialogHandle: string) {
   const settings = await get_settings();
   const result = await get_completion_params(dialogHandle, settings);
@@ -173,6 +175,24 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
   // write results to panel
   await update_panel(panel, nearest, settings);
 }
+
+export async function set_note_title(model_gen: TextGenerationModel, settings: JarvisSettings) {
+  const note = await joplin.workspace.selectedNote();
+  if (!note) {
+    return;
+  }
+  const text = split_by_tokens([note.body], model_gen, model_gen.max_tokens - 50, 'first')[0].join(' ');
+  // get the first number or date in the current title
+  let title = note.title.match(/^[\d-/.]+/);
+  if (title) { title = title[0] + ' '; } else { title = ''; }
+
+  const prompt = `${settings.prompts.title}\n\nNote content\n""""""""${text}""""""""\n\nNote Title\n""""""""`;
+  title += await model_gen.complete(prompt);
+
+  await joplin.data.put(['notes', note.id], null, { title: title });
+}
+
+/////// HELPER FUNCTIONS ///////
 
 type ParsedData = { [key: string]: string };
 const cmd_block_pattern: RegExp = /```jarvis[\s\S]*?```/gm;

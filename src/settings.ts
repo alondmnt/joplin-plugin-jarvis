@@ -57,6 +57,7 @@ export interface JarvisSettings {
   scope: string;
   role: string;
   reasoning: string;
+  prompts: { [prompt: string] : string; };
   // chat
   chat_prefix: string;
   chat_suffix: string;
@@ -89,6 +90,8 @@ export const search_prompts: { [engine: string] : string; } = {
     only if explicitly required in the prompt, you can use additional fields to filter the results, such as &year=, &publicationTypes=, &fieldsOfStudy=.
     keep the search queries short and simple.`,
 };
+
+const title_prompt = `Summarize the following note in a title that contains a single sentence which encapsulates the note's main conclusion or idea. Avoid ending the title with a period.`;
 
 export function parse_dropdown_json(json: any, selected?: string): string {
   let options = '';
@@ -182,6 +185,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     scope: await parse_dropdown_setting('scope'),
     role: await parse_dropdown_setting('role'),
     reasoning: await parse_dropdown_setting('reasoning'),
+    prompts: { title: title_prompt },
 
     // chat
     chat_prefix: (await joplin.settings.value('chat_prefix')).replace(/\\n/g, '\n'),

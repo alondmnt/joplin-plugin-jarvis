@@ -1,7 +1,7 @@
 import joplin from 'api';
 import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
-import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog } from './jarvis';
+import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog, set_note_title } from './jarvis';
 import { get_settings, register_settings, set_folders } from './settings';
 import { load_embedding_model, load_generation_model } from './models';
 import { register_panel, update_panel } from './panel';
@@ -64,6 +64,14 @@ joplin.plugins.register({
         edit_with_jarvis(dialogAsk);
       }
     });
+
+    joplin.commands.register({
+      name: 'jarvis.annotate.title',
+      label: 'Annotate note with title',
+      execute: async () => {
+        await set_note_title(model_gen, settings);
+      }
+    })
 
     joplin.commands.register({
       name: 'jarvis.notes.db.update',
@@ -155,6 +163,7 @@ joplin.plugins.register({
       {commandName: 'jarvis.ask', accelerator: 'CmdOrCtrl+Shift+J'},
       {commandName: 'jarvis.research', accelerator: 'CmdOrCtrl+Shift+R'},
       {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+E'},
+      {commandName: 'jarvis.annotate.title'},
       {commandName: 'jarvis.notes.find', accelerator: 'CmdOrCtrl+Alt+F'},
       {commandName: 'jarvis.notes.preview'},
       {commandName: 'jarvis.notes.db.update'},
