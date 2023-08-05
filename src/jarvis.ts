@@ -176,7 +176,7 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
   await update_panel(panel, nearest, settings);
 }
 
-export async function set_note_title(model_gen: TextGenerationModel, settings: JarvisSettings) {
+export async function annotate_title(model_gen: TextGenerationModel, settings: JarvisSettings) {
   const note = await joplin.workspace.selectedNote();
   if (!note) {
     return;
@@ -186,10 +186,33 @@ export async function set_note_title(model_gen: TextGenerationModel, settings: J
   let title = note.title.match(/^[\d-/.]+/);
   if (title) { title = title[0] + ' '; } else { title = ''; }
 
-  const prompt = `${settings.prompts.title}\n\nNote content\n""""""""${text}""""""""\n\nNote Title\n""""""""`;
+  const prompt = `${settings.prompts.title}\n\nNote content\n""""""""${text}""""""""\n\nNote title in [detected language of note content]\n""""""""`;
   title += await model_gen.complete(prompt);
 
   await joplin.data.put(['notes', note.id], null, { title: title });
+}
+
+export async function annotate_summary(model_gen: TextGenerationModel, settings: JarvisSettings) {
+  const note = await joplin.workspace.selectedNote();
+  if (!note) {
+    return;
+  }
+  const find_summary = /<!-- jarvis-summary-start -->[\s\S]*?<!-- jarvis-summary-end -->/
+  const text = split_by_tokens([note.body.replace(find_summary, '')], model_gen, model_gen.max_tokens - 100, 'first')[0].join(' ');
+
+  const prompt = `${settings.prompts.summary}\n\nNote content\n""""""""${text}""""""""\n\nNote summary in [detected language of note content]\n""""""""`;
+  const summary = `<!-- jarvis-summary-start -->\n${await model_gen.complete(prompt)}\n<!-- jarvis-summary-end -->`;
+
+  // replace existing summary block, or add if not present
+  if (note.body.includes('<!-- jarvis-summary-start -->') &&
+      note.body.includes('<!-- jarvis-summary-end -->')) {
+    note.body = note.body.replace(find_summary, summary);
+  } else {
+    note.body = `${summary}\n\n${note.body}`;
+  }
+
+  await joplin.commands.execute('editor.setText', note.body);
+  await joplin.data.put(['notes', note.id], null, { body: note.body });
 }
 
 /////// HELPER FUNCTIONS ///////

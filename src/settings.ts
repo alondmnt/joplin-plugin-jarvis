@@ -92,6 +92,7 @@ export const search_prompts: { [engine: string] : string; } = {
 };
 
 const title_prompt = `Summarize the following note in a title that contains a single sentence which encapsulates the note's main conclusion or idea. Avoid ending the title with a period.`;
+const summary_prompt = `Summarize the following note in a short paragraph that contains 2-4 sentences which encapsulates the note's main conclusion or idea in a concise way.`;
 
 export function parse_dropdown_json(json: any, selected?: string): string {
   let options = '';
@@ -185,7 +186,10 @@ export async function get_settings(): Promise<JarvisSettings> {
     scope: await parse_dropdown_setting('scope'),
     role: await parse_dropdown_setting('role'),
     reasoning: await parse_dropdown_setting('reasoning'),
-    prompts: { title: title_prompt },
+    prompts: {
+      title: title_prompt,
+      summary: summary_prompt
+    },
 
     // chat
     chat_prefix: (await joplin.settings.value('chat_prefix')).replace(/\\n/g, '\n'),
