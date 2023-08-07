@@ -102,11 +102,14 @@ joplin.plugins.register({
       label: 'Annotate note with Jarvis',
       iconName: 'fas fa-lightbulb',
       execute: async () => {
-        // use a single big prompt to generate a summary, and then reuse it for title and tags
-        const summary = await annotate_summary(model_gen, settings);
-        await annotate_title(model_gen, settings, summary);
-        await annotate_links(model_embed, settings);
-        await annotate_tags(model_gen, model_embed, settings, summary);
+        if (settings.annotate_links_flag) { await annotate_links(model_embed, settings); }
+
+        if (settings.annotate_summary_flag || settings.annotate_title_flag || settings.annotate_tags_flag) {
+          // use a single big prompt to generate a summary, and then reuse it for title and tags
+          const summary = await annotate_summary(model_gen, settings, settings.annotate_summary_flag);
+          if (settings.annotate_title_flag) { await annotate_title(model_gen, settings, summary); }
+          if (settings.annotate_tags_flag) { await annotate_tags(model_gen, model_embed, settings, summary); }
+          }
       }
     });
 
