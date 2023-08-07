@@ -177,3 +177,19 @@ function preprocess_query(query: string) {
   // remove <operator>:<keyword> patterns from the query
   return query.replace(regexPattern, '').trim();
 }
+
+export async function get_all_tags(): Promise<Array<string>> {
+  // TODO: get only *used* tags based on all notes
+  const tags: Array<string> = [];
+  let page = 0;
+  let some_tags: any;
+
+  do {
+    page += 1;
+    some_tags = await joplin.data.get(['tags'], { fields: ['title'], page: page });
+
+    tags.push(...some_tags.items.map((tag: any) => tag.title));
+  } while(some_tags.has_more);
+
+  return tags;
+}

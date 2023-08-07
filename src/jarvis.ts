@@ -6,7 +6,7 @@ import { do_research } from './research';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, update_embeddings } from './embeddings';
 import { update_panel, update_progress_bar } from './panel';
 import { TextEmbeddingModel, TextGenerationModel } from './models';
-import { split_by_tokens } from './utils';
+import { get_all_tags, split_by_tokens } from './utils';
 
 /////// JARVIS COMMANDS ///////
 
@@ -181,26 +181,30 @@ export async function annotate_title(model_gen: TextGenerationModel, settings: J
   if (!note) {
     return;
   }
-  const text = split_by_tokens([note.body], model_gen, model_gen.max_tokens - 50, 'first')[0].join(' ');
+  const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.title) - 30;
+  const text = split_by_tokens([note.body], model_gen, text_tokens, 'first')[0].join(' ');
   // get the first number or date in the current title
   let title = note.title.match(/^[\d-/.]+/);
   if (title) { title = title[0] + ' '; } else { title = ''; }
 
-  const prompt = `${settings.prompts.title}\n\nNote content\n""""""""${text}""""""""\n\nNote title in [detected language of note content]\n""""""""`;
+  const prompt = `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${settings.prompts.title}\n""""""""\n\nNote title in [detected language of note content]\n""""""""`;
   title += await model_gen.complete(prompt);
 
   await joplin.data.put(['notes', note.id], null, { title: title });
 }
 
-export async function annotate_summary(model_gen: TextGenerationModel, settings: JarvisSettings) {
+export async function annotate_summary(model_gen: TextGenerationModel, settings: JarvisSettings, edit_note: boolean = true) {
   const note = await joplin.workspace.selectedNote();
   if (!note) {
     return;
   }
   const find_summary = /<!-- jarvis-summary-start -->[\s\S]*?<!-- jarvis-summary-end -->/
-  const text = split_by_tokens([note.body.replace(find_summary, '')], model_gen, model_gen.max_tokens - 100, 'first')[0].join(' ');
+  const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.summary) - 80;
+  const text = split_by_tokens([note.body.replace(find_summary, '')], model_gen, text_tokens, 'first')[0].join(' ');
 
-  const prompt = `${settings.prompts.summary}\n\nNote content\n""""""""${text}""""""""\n\nNote summary in [detected language of note content]\n""""""""`;
+  const prompt = `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${settings.prompts.summary}\n""""""""\n\nNote summary in [detected language of note content]\n""""""""`;
+
+  if ( !edit_note ) { return await model_gen.complete(prompt); }
   const summary = `<!-- jarvis-summary-start -->\n${await model_gen.complete(prompt)}\n<!-- jarvis-summary-end -->`;
 
   // replace existing summary block, or add if not present
@@ -213,6 +217,73 @@ export async function annotate_summary(model_gen: TextGenerationModel, settings:
 
   await joplin.commands.execute('editor.setText', note.body);
   await joplin.data.put(['notes', note.id], null, { body: note.body });
+}
+
+export async function annotate_tags(model_gen: TextGenerationModel, model_embed: TextEmbeddingModel,
+      settings: JarvisSettings) {
+  const note = await joplin.workspace.selectedNote();
+  if (!note) {
+    return;
+  }
+  if (model_gen.model === null) {
+    joplin.views.dialogs.showMessageBox('Error: no text generation model found');
+    return;
+  }
+
+  let prompt = '';
+  let tag_list: string[] = [];
+  if ( settings.annotate_tags_method === 'unsupervised' ) {
+    prompt = `${settings.prompts.tags} Return *at most* ${settings.annotate_tags_max} keywords.`;
+
+  } else if ( settings.annotate_tags_method === 'from_list' ) {
+    tag_list = await get_all_tags();
+    if (tag_list.length == 0) {
+      joplin.views.dialogs.showMessageBox('Error: no tags found');
+      return;
+    }
+    prompt = `${settings.prompts.tags} Return *at most* ${settings.annotate_tags_max} keywords in total from the keyword bank below.\n\nKeyword bank\n""""""""\n${tag_list.join(', ')}\n""""""""`;
+
+  } else if ( settings.annotate_tags_method === 'from_notes' ) {
+    if (model_embed.model === null) {
+      joplin.views.dialogs.showMessageBox('Error: no text embedding model found');
+      return;
+    }
+    if (model_embed.embeddings.length == 0) {
+      joplin.views.dialogs.showMessageBox('Error: notes DB is empty');
+      return;
+    }
+
+    // semantic search
+    const nearest = await find_nearest_notes(model_embed.embeddings, note.id, note.title, note.body, model_embed, settings);
+    // generate examples
+    let notes: string[] = [];
+    for (const n of nearest) {
+      const tags = (await joplin.data.get(['notes', n.id, 'tags'], { fields: ['title'] }))
+        .items.map(t => t.title);
+      if (tags.length > 0) {
+        tag_list = tag_list.concat(tags);
+        notes = notes.concat(`The note "${n.title}" has the keywords: ${tags.join(', ')}.`);
+      }
+    }
+    if (tag_list.length == 0) { return; }
+
+    prompt = `${settings.prompts.tags} Return *at most* ${settings.annotate_tags_max} keywords in total from the examples below.\n""""""""\n\nKeyword examples\n""""""""\n${notes.join('\n')}\n""""""""`
+  }
+
+  // summarize the note
+  const text = await annotate_summary(model_gen, settings, false);
+
+  let tags = (await model_gen.complete(
+    `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${prompt}\n""""""""\n\nSuggested keywords\n""""""""\n`))
+    .split(', ').map(tag => tag.trim().toLowerCase());
+
+  // post-processing
+  if ( tag_list.length > 0 ) {
+    tags = tags.filter(tag => tag_list.includes(tag));
+  }
+  tags = tags.slice(0, settings.annotate_tags_max);
+
+  await joplin.data.put(['notes', note.id], null, { tags: tags.join(', ') });
 }
 
 /////// HELPER FUNCTIONS ///////

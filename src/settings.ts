@@ -48,6 +48,8 @@ export interface JarvisSettings {
   notes_exclude_folders: Set<string>;
   notes_panel_title: string;
   notes_panel_user_style: string;
+  annotate_tags_method: string;
+  annotate_tags_max: number;
   // research
   paper_search_engine: string;
   use_wikipedia: boolean;
@@ -93,6 +95,11 @@ export const search_prompts: { [engine: string] : string; } = {
 
 const title_prompt = `Summarize the following note in a title that contains a single sentence which encapsulates the note's main conclusion or idea. Avoid ending the title with a period.`;
 const summary_prompt = `Summarize the following note in a short paragraph that contains 2-4 sentences which encapsulates the note's main conclusion or idea in a concise way.`;
+const tags_prompt = {
+  'unsupervised': `Suggest keywords for the following note, based on its content. The keywords should make the note easier to find, and should be short and concise (perferably *single-word* keywords). Also select one keyword that describes the note type (such as: article, diary, review, guide, project, etc.). List all keywords in a single line, separated by commas.`,
+  'from_list': `Suggest keywords for the following note, based on its content. The keywords should make the note easier to find, and should be short and concise. THIS IS IMPORTANT: You may only suggest keywords from the bank below.`,
+  'from_notes': `Suggest keywords for the following note, based on its content. The keywords should make the note easier to find, and should be short and concise. Below are a few examples for notes with similar content, and their keywords. You may only suggest keywords from the examples given below.`,
+};
 
 export function parse_dropdown_json(json: any, selected?: string): string {
   let options = '';
@@ -133,6 +140,8 @@ export async function get_settings(): Promise<JarvisSettings> {
     await joplin.settings.setValue('memory_tokens', memory_tokens);
     joplin.views.dialogs.showMessageBox(`The maximum number of memory tokens is 45% of the maximum number of tokens (${memory_tokens}). The value has been updated.`);
   }
+
+  const annotate_tags_method = await joplin.settings.value('annotate_tags_method');
 
   return {
     // APIs
@@ -175,6 +184,8 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
+    annotate_tags_method: annotate_tags_method,
+    annotate_tags_max: await joplin.settings.value('annotate_tags_max'),
 
     // research
     paper_search_engine: await joplin.settings.value('paper_search_engine'),
@@ -188,7 +199,8 @@ export async function get_settings(): Promise<JarvisSettings> {
     reasoning: await parse_dropdown_setting('reasoning'),
     prompts: {
       title: title_prompt,
-      summary: summary_prompt
+      summary: summary_prompt,
+      tags: tags_prompt[annotate_tags_method],
     },
 
     // chat
@@ -500,6 +512,30 @@ export async function register_settings() {
         'max': 'max',
         'avg': 'avg',
       }
+    },
+    'annotate_tags_method': {
+      value: 'from_notes',
+      type: SettingItemType.String,
+      isEnum: true,
+      section: 'jarvis',
+      public: true,
+      label: 'Annotate: Tags method',
+      description: 'The method to use for tagging notes. Default: Suggest based on notes',
+      options: {
+        'from_notes': 'Suggest based on notes',
+        'from_list': 'Suggest based on existing tags',
+        'unsupervised': 'Suggest new tags',
+      }
+    },
+    'annotate_tags_max': {
+      value: 5,
+      type: SettingItemType.Int,
+      minimum: 1,
+      maximum: 100,
+      step: 1,
+      section: 'jarvis',
+      public: true,
+      label: 'Annotate: Maximal number of tags to suggest',
     },
     'scopus_api_key': {
       value: '',

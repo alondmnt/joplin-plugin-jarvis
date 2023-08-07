@@ -1,7 +1,7 @@
 import joplin from 'api';
 import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
-import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog, annotate_title, annotate_summary } from './jarvis';
+import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog, annotate_title, annotate_summary, annotate_tags } from './jarvis';
 import { get_settings, register_settings, set_folders } from './settings';
 import { load_embedding_model, load_generation_model } from './models';
 import { register_panel, update_panel } from './panel';
@@ -78,6 +78,14 @@ joplin.plugins.register({
       label: 'Annotate note with summary',
       execute: async () => {
         await annotate_summary(model_gen, settings);
+      }
+    })
+
+    joplin.commands.register({
+      name: 'jarvis.annotate.tags',
+      label: 'Annotate note with tags',
+      execute: async () => {
+        await annotate_tags(model_gen, model_embed, settings);
       }
     })
 
@@ -173,6 +181,7 @@ joplin.plugins.register({
       {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+E'},
       {commandName: 'jarvis.annotate.title'},
       {commandName: 'jarvis.annotate.summary'},
+      {commandName: 'jarvis.annotate.tags'},
       {commandName: 'jarvis.notes.find', accelerator: 'CmdOrCtrl+Alt+F'},
       {commandName: 'jarvis.notes.preview'},
       {commandName: 'jarvis.notes.db.update'},
