@@ -187,7 +187,7 @@ export async function annotate_title(model_gen: TextGenerationModel, settings: J
   let title = note.title.match(/^[\d-/.]+/);
   if (title) { title = title[0] + ' '; } else { title = ''; }
 
-  const prompt = `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${settings.prompts.title}\n""""""""\n\nNote title in [detected language of note content]\n""""""""`;
+  const prompt = `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${settings.prompts.title}\n""""""""\n\nNote title\n""""""""`;
   title += await model_gen.complete(prompt);
 
   await joplin.data.put(['notes', note.id], null, { title: title });
@@ -202,7 +202,7 @@ export async function annotate_summary(model_gen: TextGenerationModel, settings:
   const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.summary) - 80;
   const text = split_by_tokens([note.body.replace(find_summary, '')], model_gen, text_tokens, 'first')[0].join(' ');
 
-  const prompt = `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${settings.prompts.summary}\n""""""""\n\nNote summary in [detected language of note content]\n""""""""`;
+  const prompt = `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${settings.prompts.summary}\n""""""""\n\nNote summary\n""""""""`;
 
   if ( !edit_note ) { return await model_gen.complete(prompt); }
   const summary = `<!-- jarvis-summary-start -->\n${await model_gen.complete(prompt)}\n<!-- jarvis-summary-end -->`;
