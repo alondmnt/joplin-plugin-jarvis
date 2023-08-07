@@ -206,8 +206,8 @@ export async function get_settings(): Promise<JarvisSettings> {
     role: await parse_dropdown_setting('role'),
     reasoning: await parse_dropdown_setting('reasoning'),
     prompts: {
-      title: title_prompt,
-      summary: summary_prompt,
+      title: (await joplin.settings.value('annotate_title_prompt')) || title_prompt,
+      summary: (await joplin.settings.value('annotate_summary_prompt')) || summary_prompt,
       tags: tags_prompt[annotate_tags_method],
     },
 
@@ -529,6 +529,15 @@ export async function register_settings() {
       label: 'Annotate button: suggest title',
       description: 'Default: true',
     },
+    'annotate_title_prompt': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Annotate: Custom title prompt',
+      description: 'The prompt to use for generating the title. Default: empty',
+    },
     'annotate_summary_flag': {
       value: true,
       type: SettingItemType.Bool,
@@ -536,6 +545,15 @@ export async function register_settings() {
       public: true,
       label: 'Annotate button: suggest summary',
       description: 'Default: true',
+    },
+    'annotate_summary_prompt': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Annotate: Custom summary prompt',
+      description: 'The prompt to use for generating the summary. Default: empty',
     },
     'annotate_tags_flag': {
       value: true,
