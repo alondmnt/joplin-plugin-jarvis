@@ -1,7 +1,7 @@
 import joplin from 'api';
 import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
-import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog, annotate_title, annotate_summary, annotate_tags } from './jarvis';
+import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog, annotate_title, annotate_summary, annotate_tags, annotate_links } from './jarvis';
 import { get_settings, register_settings, set_folders } from './settings';
 import { load_embedding_model, load_generation_model } from './models';
 import { register_panel, update_panel } from './panel';
@@ -90,6 +90,14 @@ joplin.plugins.register({
     });
 
     joplin.commands.register({
+      name: 'jarvis.annotate.links',
+      label: 'Annotate note: links',
+      execute: async () => {
+        await annotate_links(model_embed, settings);
+      }
+    });
+
+    joplin.commands.register({
       name: 'jarvis.annotate.button',
       label: 'Annotate note with Jarvis',
       iconName: 'fas fa-lightbulb',
@@ -97,6 +105,7 @@ joplin.plugins.register({
         // use a single big prompt to generate a summary, and then reuse it for title and tags
         const summary = await annotate_summary(model_gen, settings);
         await annotate_title(model_gen, settings, summary);
+        await annotate_links(model_embed, settings);
         await annotate_tags(model_gen, model_embed, settings, summary);
       }
     });
@@ -193,6 +202,7 @@ joplin.plugins.register({
       {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+E'},
       {commandName: 'jarvis.annotate.title'},
       {commandName: 'jarvis.annotate.summary'},
+      {commandName: 'jarvis.annotate.links'},
       {commandName: 'jarvis.annotate.tags'},
       {commandName: 'jarvis.notes.find', accelerator: 'CmdOrCtrl+Alt+F'},
       {commandName: 'jarvis.notes.preview'},

@@ -51,6 +51,9 @@ export interface JarvisSettings {
   // annotations
   annotate_title_flag: boolean;
   annotate_summary_flag: boolean;
+  annotate_summary_title: string;
+  annotate_links_flag: boolean;
+  annotate_links_title: string;
   annotate_tags_flag: boolean;
   annotate_tags_method: string;
   annotate_tags_max: number;
@@ -191,6 +194,9 @@ export async function get_settings(): Promise<JarvisSettings> {
     // annotations
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
     annotate_summary_flag: await joplin.settings.value('annotate_summary_flag'),
+    annotate_summary_title: await joplin.settings.value('annotate_summary_title'),
+    annotate_links_flag: await joplin.settings.value('annotate_links_flag'),
+    annotate_links_title: await joplin.settings.value('annotate_links_title'),
     annotate_title_flag: await joplin.settings.value('annotate_title_flag'),
     annotate_tags_method: annotate_tags_method,
     annotate_tags_max: await joplin.settings.value('annotate_tags_max'),
@@ -554,6 +560,32 @@ export async function register_settings() {
       advanced: true,
       label: 'Annotate: Custom summary prompt',
       description: 'The prompt to use for generating the summary. Default: empty',
+    },
+    'annotate_summary_title': {
+      value: '# Summary',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Annotate: Summary section title',
+      description: 'The title of the section containing the suggested summary. Default: # Summary',
+    },
+    'annotate_links_flag': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis',
+      public: true,
+      label: 'Annotate button: suggest links',
+      description: 'Default: true',
+    },
+    'annotate_links_title': {
+      value: '# Related notes',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Annotate: Links section title',
+      description: 'The title of the section containing the suggested links. Default: # Related notes',
     },
     'annotate_tags_flag': {
       value: true,

@@ -210,7 +210,11 @@ export async function annotate_summary(model_gen: TextGenerationModel,
   if (!note) {
     return;
   }
-  const find_summary = /<!-- jarvis-summary-start -->[\s\S]*?<!-- jarvis-summary-end -->/
+
+  const summary_start = '<!-- jarvis-summary-start -->';
+  const summary_end = '<!-- jarvis-summary-end -->';
+  const find_summary = new RegExp(`${summary_start}[\\s\\S]*?${summary_end}`);
+
   const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.summary) - 80;
   const text = split_by_tokens([note.body.replace(find_summary, '')], model_gen, text_tokens, 'first')[0].join(' ');
 
@@ -219,19 +223,46 @@ export async function annotate_summary(model_gen: TextGenerationModel,
   const summary = await model_gen.complete(prompt);
 
   if ( !edit_note ) { return summary }
-  const insert = `<!-- jarvis-summary-start -->\n${summary}\n<!-- jarvis-summary-end -->`;
 
   // replace existing summary block, or add if not present
-  if (note.body.includes('<!-- jarvis-summary-start -->') &&
-      note.body.includes('<!-- jarvis-summary-end -->')) {
-    note.body = note.body.replace(find_summary, insert);
+  if (note.body.includes(summary_start) &&
+      note.body.includes(summary_end)) {
+    note.body = note.body.replace(find_summary, `${summary_start}\n${settings.annotate_summary_title}\n${summary}\n${summary_end}`);
   } else {
-    note.body = `${insert}\n\n${note.body}`;
+    note.body = `${summary_start}\n${settings.annotate_summary_title}\n${summary}\n${summary_end}\n\n${note.body}`;
   }
 
   await joplin.commands.execute('editor.setText', note.body);
   await joplin.data.put(['notes', note.id], null, { body: note.body });
   return summary;
+}
+
+export async function annotate_links(model_embed: TextEmbeddingModel, settings: JarvisSettings) {
+  if (model_embed.model === null) { return; }
+  const note = await joplin.workspace.selectedNote();
+  if (!note) {
+    return;
+  }
+
+  // semantic search
+  const nearest = await find_nearest_notes(model_embed.embeddings, note.id, note.title, note.body, model_embed, settings);
+
+  // generate links
+  const links = nearest.map(n => `[${n.title}](:/${n.id})`).join('\n');
+
+  // replace existing links block, or add if not present
+  const links_start = '<!-- jarvis-links-start -->';
+  const links_end = '<!-- jarvis-links-end -->';
+  const find_links = new RegExp(`${links_start}[\\s\\S]*?${links_end}`);
+  if (note.body.includes(links_start) &&
+      note.body.includes(links_end)) {
+    note.body = note.body.replace(find_links, `${links_start}\n${settings.annotate_links_title}\n${links}\n${links_end}`);
+  } else {
+    note.body = `${note.body}\n\n${links_start}\n${settings.annotate_links_title}\n${links}\n${links_end}`;
+  }
+
+  await joplin.commands.execute('editor.setText', note.body);
+  await joplin.data.put(['notes', note.id], null, { body: note.body });
 }
 
 export async function annotate_tags(model_gen: TextGenerationModel, model_embed: TextEmbeddingModel,
