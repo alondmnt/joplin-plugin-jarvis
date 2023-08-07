@@ -48,6 +48,10 @@ export interface JarvisSettings {
   notes_exclude_folders: Set<string>;
   notes_panel_title: string;
   notes_panel_user_style: string;
+  // annotations
+  annotate_title_flag: boolean;
+  annotate_summary_flag: boolean;
+  annotate_tags_flag: boolean;
   annotate_tags_method: string;
   annotate_tags_max: number;
   // research
@@ -184,6 +188,10 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
+    // annotations
+    annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
+    annotate_summary_flag: await joplin.settings.value('annotate_summary_flag'),
+    annotate_title_flag: await joplin.settings.value('annotate_title_flag'),
     annotate_tags_method: annotate_tags_method,
     annotate_tags_max: await joplin.settings.value('annotate_tags_max'),
 
@@ -512,6 +520,30 @@ export async function register_settings() {
         'max': 'max',
         'avg': 'avg',
       }
+    },
+    'annotate_title_flag': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis',
+      public: true,
+      label: 'Annotate button: suggest title',
+      description: 'Default: true',
+    },
+    'annotate_summary_flag': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis',
+      public: true,
+      label: 'Annotate button: suggest summary',
+      description: 'Default: true',
+    },
+    'annotate_tags_flag': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis',
+      public: true,
+      label: 'Annotate button: suggest tags',
+      description: 'Default: true',
     },
     'annotate_tags_method': {
       value: 'from_notes',

@@ -176,13 +176,19 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
   await update_panel(panel, nearest, settings);
 }
 
-export async function annotate_title(model_gen: TextGenerationModel, settings: JarvisSettings) {
+export async function annotate_title(model_gen: TextGenerationModel,
+      settings: JarvisSettings, text: string = '') {
+  // generate a title for the current note
+  // if text is empty, use the note body
   const note = await joplin.workspace.selectedNote();
   if (!note) {
     return;
   }
-  const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.title) - 30;
-  const text = split_by_tokens([note.body], model_gen, text_tokens, 'first')[0].join(' ');
+
+  if (text.length === 0) {
+    const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.title) - 30;
+    text = split_by_tokens([note.body], model_gen, text_tokens, 'first')[0].join(' ');
+  }
   // get the first number or date in the current title
   let title = note.title.match(/^[\d-/.]+/);
   if (title) { title = title[0] + ' '; } else { title = ''; }
@@ -193,7 +199,11 @@ export async function annotate_title(model_gen: TextGenerationModel, settings: J
   await joplin.data.put(['notes', note.id], null, { title: title });
 }
 
-export async function annotate_summary(model_gen: TextGenerationModel, settings: JarvisSettings, edit_note: boolean = true) {
+export async function annotate_summary(model_gen: TextGenerationModel,
+      settings: JarvisSettings, edit_note: boolean = true): Promise<string> {
+  // generate a summary
+  // insert summary into note (replace existing one)
+  // if edit_note is false, then just return the summary
   const note = await joplin.workspace.selectedNote();
   if (!note) {
     return;
@@ -204,23 +214,26 @@ export async function annotate_summary(model_gen: TextGenerationModel, settings:
 
   const prompt = `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${settings.prompts.summary}\n""""""""\n\nNote summary\n""""""""`;
 
-  if ( !edit_note ) { return await model_gen.complete(prompt); }
-  const summary = `<!-- jarvis-summary-start -->\n${await model_gen.complete(prompt)}\n<!-- jarvis-summary-end -->`;
+  const summary = await model_gen.complete(prompt);
+
+  if ( !edit_note ) { return summary }
+  const insert = `<!-- jarvis-summary-start -->\n${summary}\n<!-- jarvis-summary-end -->`;
 
   // replace existing summary block, or add if not present
   if (note.body.includes('<!-- jarvis-summary-start -->') &&
       note.body.includes('<!-- jarvis-summary-end -->')) {
-    note.body = note.body.replace(find_summary, summary);
+    note.body = note.body.replace(find_summary, insert);
   } else {
-    note.body = `${summary}\n\n${note.body}`;
+    note.body = `${insert}\n\n${note.body}`;
   }
 
   await joplin.commands.execute('editor.setText', note.body);
   await joplin.data.put(['notes', note.id], null, { body: note.body });
+  return summary;
 }
 
 export async function annotate_tags(model_gen: TextGenerationModel, model_embed: TextEmbeddingModel,
-      settings: JarvisSettings) {
+      settings: JarvisSettings, summary: string = '') {
   const note = await joplin.workspace.selectedNote();
   if (!note) {
     return;
@@ -271,10 +284,12 @@ export async function annotate_tags(model_gen: TextGenerationModel, model_embed:
   }
 
   // summarize the note
-  const text = await annotate_summary(model_gen, settings, false);
+  if (summary.length === 0) {
+    summary = await annotate_summary(model_gen, settings, false);
+  }
 
   let tags = (await model_gen.complete(
-    `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${prompt}\n""""""""\n\nSuggested keywords\n""""""""\n`))
+    `Note content\n""""""""\n${summary}\n""""""""\n\nInstruction\n""""""""\n${prompt}\n""""""""\n\nSuggested keywords\n""""""""\n`))
     .split(', ').map(tag => tag.trim().toLowerCase());
 
   // post-processing

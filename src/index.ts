@@ -67,27 +67,39 @@ joplin.plugins.register({
 
     joplin.commands.register({
       name: 'jarvis.annotate.title',
-      label: 'Annotate note with title',
+      label: 'Annotate note: title',
       execute: async () => {
         await annotate_title(model_gen, settings);
       }
-    })
+    });
 
     joplin.commands.register({
       name: 'jarvis.annotate.summary',
-      label: 'Annotate note with summary',
+      label: 'Annotate note: summary',
       execute: async () => {
         await annotate_summary(model_gen, settings);
       }
-    })
+    });
 
     joplin.commands.register({
       name: 'jarvis.annotate.tags',
-      label: 'Annotate note with tags',
+      label: 'Annotate note: tags',
       execute: async () => {
         await annotate_tags(model_gen, model_embed, settings);
       }
-    })
+    });
+
+    joplin.commands.register({
+      name: 'jarvis.annotate.button',
+      label: 'Annotate note with Jarvis',
+      iconName: 'fas fa-lightbulb',
+      execute: async () => {
+        // use a single big prompt to generate a summary, and then reuse it for title and tags
+        const summary = await annotate_summary(model_gen, settings);
+        await annotate_title(model_gen, settings, summary);
+        await annotate_tags(model_gen, model_embed, settings, summary);
+      }
+    });
 
     joplin.commands.register({
       name: 'jarvis.notes.db.update',
@@ -193,6 +205,7 @@ joplin.plugins.register({
 
     joplin.views.toolbarButtons.create('jarvis.toolbar.notes.find', 'jarvis.notes.find', ToolbarButtonLocation.EditorToolbar);
     joplin.views.toolbarButtons.create('jarvis.toolbar.chat', 'jarvis.chat', ToolbarButtonLocation.EditorToolbar);
+    joplin.views.toolbarButtons.create('jarvis.toolbar.annotate', 'jarvis.annotate.button', ToolbarButtonLocation.EditorToolbar);
 
     joplin.views.menuItems.create('jarvis.context.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
 
