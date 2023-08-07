@@ -180,6 +180,7 @@ export async function annotate_title(model_gen: TextGenerationModel,
       settings: JarvisSettings, text: string = '') {
   // generate a title for the current note
   // if text is empty, use the note body
+  if (model_gen.model === null) { return; }
   const note = await joplin.workspace.selectedNote();
   if (!note) {
     return;
@@ -204,6 +205,7 @@ export async function annotate_summary(model_gen: TextGenerationModel,
   // generate a summary
   // insert summary into note (replace existing one)
   // if edit_note is false, then just return the summary
+  if (model_gen.model === null) { return; }
   const note = await joplin.workspace.selectedNote();
   if (!note) {
     return;
@@ -234,12 +236,9 @@ export async function annotate_summary(model_gen: TextGenerationModel,
 
 export async function annotate_tags(model_gen: TextGenerationModel, model_embed: TextEmbeddingModel,
       settings: JarvisSettings, summary: string = '') {
+  if (model_gen.model === null) { return; }
   const note = await joplin.workspace.selectedNote();
   if (!note) {
-    return;
-  }
-  if (model_gen.model === null) {
-    joplin.views.dialogs.showMessageBox('Error: no text generation model found');
     return;
   }
 
@@ -257,10 +256,7 @@ export async function annotate_tags(model_gen: TextGenerationModel, model_embed:
     prompt = `${settings.prompts.tags} Return *at most* ${settings.annotate_tags_max} keywords in total from the keyword bank below.\n\nKeyword bank\n""""""""\n${tag_list.join(', ')}\n""""""""`;
 
   } else if ( settings.annotate_tags_method === 'from_notes' ) {
-    if (model_embed.model === null) {
-      joplin.views.dialogs.showMessageBox('Error: no text embedding model found');
-      return;
-    }
+    if (model_embed.model === null) { return; }
     if (model_embed.embeddings.length == 0) {
       joplin.views.dialogs.showMessageBox('Error: notes DB is empty');
       return;
