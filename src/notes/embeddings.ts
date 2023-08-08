@@ -1,9 +1,9 @@
 import joplin from 'api';
 import { createHash } from 'crypto';
-import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from './settings';
+import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
-import { TextEmbeddingModel, TextGenerationModel } from './models';
-import { search_keywords } from './utils';
+import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
+import { search_keywords } from '../utils';
 
 export interface BlockEmbedding {
   id: string;  // note id

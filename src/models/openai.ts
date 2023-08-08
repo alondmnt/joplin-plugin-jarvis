@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { JarvisSettings } from './settings';
+import { JarvisSettings } from '../ux/settings';
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,

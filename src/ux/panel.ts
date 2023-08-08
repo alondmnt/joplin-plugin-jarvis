@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { NoteEmbedding } from './embeddings';
+import { NoteEmbedding } from '../notes/embeddings';
 import { JarvisSettings } from './settings';
 
 export async function register_panel(panel: string, settings: JarvisSettings, model: any) {
@@ -10,8 +10,8 @@ export async function register_panel(panel: string, settings: JarvisSettings, mo
       model_str += `Note that ${model.id} runs completely locally, but requires network access in order to load the model.`;
     }
   }
-  await joplin.views.panels.addScript(panel, './webview.css');
-  await joplin.views.panels.addScript(panel, './webview.js');
+  await joplin.views.panels.addScript(panel, 'ux/webview.css');
+  await joplin.views.panels.addScript(panel, 'ux/webview.js');
   await joplin.views.panels.setHtml(panel, `<div class="container"><p class="jarvis-semantic-title">${settings.notes_panel_title}</p><p>${model_str}</p></div>`);
 }
 

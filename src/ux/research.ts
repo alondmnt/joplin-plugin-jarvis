@@ -1,8 +1,8 @@
 import joplin from 'api';
 import { JarvisSettings } from './settings';
-import { PaperInfo, SearchParams, search_papers, sample_and_summarize_papers } from './papers';
-import { WikiInfo, search_wikipedia } from './wikipedia';
-import { TextGenerationModel } from './models';
+import { PaperInfo, SearchParams, search_papers, sample_and_summarize_papers } from '../research/papers';
+import { WikiInfo, search_wikipedia } from '../research/wikipedia';
+import { TextGenerationModel } from '../models/models';
 
 export async function do_research(model_gen: TextGenerationModel, prompt: string, n_papers: number,
     paper_tokens: number, use_wikipedia: boolean, only_search: boolean, settings: JarvisSettings) {

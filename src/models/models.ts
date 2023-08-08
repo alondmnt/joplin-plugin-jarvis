@@ -3,11 +3,11 @@ import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { encodingForModel } from 'js-tiktoken';
 import { HfInference } from '@huggingface/inference'
-import { JarvisSettings } from './settings';
-import { consume_rate_limit, timeout_with_retry } from './utils';
+import { JarvisSettings } from '../ux/settings';
+import { consume_rate_limit, timeout_with_retry } from '../utils';
 import { query_embedding, query_chat, query_completion } from './openai';
-import { BlockEmbedding } from './embeddings';  // maybe move definition to this file
-import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from './db';
+import { BlockEmbedding } from '../notes/embeddings';  // maybe move definition to this file
+import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from '../notes/db';
 
 tf.setBackend('webgl');
 

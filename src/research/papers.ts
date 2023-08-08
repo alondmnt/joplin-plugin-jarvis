@@ -1,7 +1,7 @@
 import joplin from "api";
-import { JarvisSettings, search_prompts } from './settings';
-import { TextGenerationModel } from "./models";
-import { split_by_tokens, with_timeout } from "./utils";
+import { JarvisSettings, search_prompts } from '../ux/settings';
+import { TextGenerationModel } from "../models/models";
+import { split_by_tokens, with_timeout } from "../utils";
 
 export interface PaperInfo {
   title: string;

@@ -1,12 +1,12 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
 import { get_settings, JarvisSettings, search_engines, parse_dropdown_json, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from './settings';
-import { query_edit } from './openai';
+import { query_edit } from '../models/openai';
 import { do_research } from './research';
-import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, update_embeddings } from './embeddings';
+import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, update_embeddings } from '../notes/embeddings';
 import { update_panel, update_progress_bar } from './panel';
-import { TextEmbeddingModel, TextGenerationModel } from './models';
-import { get_all_tags, split_by_tokens } from './utils';
+import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
+import { get_all_tags, split_by_tokens } from '../utils';
 
 /////// JARVIS COMMANDS ///////
 
@@ -576,7 +576,7 @@ async function get_completion_params(
     </form>
     `);
 
-  await joplin.views.dialogs.addScript(dialogHandle, 'view.css');
+  await joplin.views.dialogs.addScript(dialogHandle, 'ux/view.css');
   await joplin.views.dialogs.setButtons(dialogHandle,
     [{ id: "submit", title: "Submit"},
      { id: "cancel", title: "Cancel"}]);
@@ -627,7 +627,7 @@ async function get_research_params(
     </form>
     `);
 
-  await joplin.views.dialogs.addScript(dialogHandle, 'view.css');
+  await joplin.views.dialogs.addScript(dialogHandle, 'ux/view.css');
   await joplin.views.dialogs.setButtons(dialogHandle,
     [{ id: "submit", title: "Submit"},
     { id: "cancel", title: "Cancel"}]);
@@ -650,7 +650,7 @@ async function get_edit_params(dialogHandle: string): Promise<DialogResult> {
       </div>
     </form>
   `);
-  await joplin.views.dialogs.addScript(dialogHandle, 'view.css');
+  await joplin.views.dialogs.addScript(dialogHandle, 'ux/view.css');
   await joplin.views.dialogs.setButtons(dialogHandle,
     [{ id: "submit", title: "Submit"},
      { id: "cancel", title: "Cancel"}]);

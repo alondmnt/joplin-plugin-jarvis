@@ -1,8 +1,8 @@
 import joplin from 'api';
-import { JarvisSettings } from './settings';
+import { JarvisSettings } from '../ux/settings';
 import { SearchParams } from './papers';
-import { TextGenerationModel } from './models';
-import { split_by_tokens } from './utils';
+import { TextGenerationModel } from '../models/models';
+import { split_by_tokens } from '../utils';
 
 export interface WikiInfo {
   [key: string]: any;
