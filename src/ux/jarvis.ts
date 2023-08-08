@@ -376,7 +376,7 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
   }
 
   // get embeddings
-  if (prompt.context.length > 0) {
+  if (prompt.context && prompt.context.length > 0) {
     // replace current note with user-defined context
     note.body = prompt.context;
   }
