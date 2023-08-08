@@ -100,7 +100,7 @@ export const search_prompts: { [engine: string] : string; } = {
     keep the search queries short and simple.`,
 };
 
-const title_prompt = `Summarize the following note in a title that contains a single sentence *in the same language as the note* which encapsulates the note's main conclusion or idea. Avoid ending the title with a period or placing it within quotation marks.`;
+const title_prompt = `Summarize the following note in a title that contains a single sentence *in the same language as the note* which encapsulates the note's main conclusion or idea.`;
 const summary_prompt = `Summarize the following note in a short paragraph *in the same language as the note* that contains 2-4 sentences which encapsulates the note's main conclusion or idea in a concise way.`;
 const tags_prompt = {
   'unsupervised': `Suggest keywords for the following note, based on its content. The keywords should make the note easier to find, and should be short and concise (perferably *single-word* keywords). Also select one keyword that describes the note type (such as: article, diary, review, guide, project, etc.). List all keywords in a single line, separated by commas.`,
@@ -618,6 +618,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Annotate: Maximal number of tags to suggest',
+      description: 'Default: 5',
     },
     'scopus_api_key': {
       value: '',

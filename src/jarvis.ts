@@ -194,8 +194,9 @@ export async function annotate_title(model_gen: TextGenerationModel,
   let title = note.title.match(/^[\d-/.]+/);
   if (title) { title = title[0] + ' '; } else { title = ''; }
 
-  const prompt = `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${settings.prompts.title}\n""""""""\n\nNote title\n""""""""`;
+  const prompt = `Note content\n===\n${text}\n===\n\nInstruction\n===\n${settings.prompts.title}\n===\n\nNote title\n===\n`;
   title += await model_gen.complete(prompt);
+  if (title.slice(-1) === '.') { title = title.slice(0, -1); }
 
   await joplin.data.put(['notes', note.id], null, { title: title });
 }
@@ -218,7 +219,7 @@ export async function annotate_summary(model_gen: TextGenerationModel,
   const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.summary) - 80;
   const text = split_by_tokens([note.body.replace(find_summary, '')], model_gen, text_tokens, 'first')[0].join(' ');
 
-  const prompt = `Note content\n""""""""\n${text}\n""""""""\n\nInstruction\n""""""""\n${settings.prompts.summary}\n""""""""\n\nNote summary\n""""""""`;
+  const prompt = `Note content\n===\n${text}\n===\n\nInstruction\n===\n${settings.prompts.summary}\n===\n\nNote summary\n===\n`;
 
   const summary = await model_gen.complete(prompt);
 
@@ -284,7 +285,7 @@ export async function annotate_tags(model_gen: TextGenerationModel, model_embed:
       joplin.views.dialogs.showMessageBox('Error: no tags found');
       return;
     }
-    prompt = `${settings.prompts.tags} Return *at most* ${settings.annotate_tags_max} keywords in total from the keyword bank below.\n\nKeyword bank\n""""""""\n${tag_list.join(', ')}\n""""""""`;
+    prompt = `${settings.prompts.tags} Return *at most* ${settings.annotate_tags_max} keywords in total from the keyword bank below.\n\nKeyword bank\n===\n${tag_list.join(', ')}\n===`;
 
   } else if ( settings.annotate_tags_method === 'from_notes' ) {
     if (model_embed.model === null) { return; }
@@ -307,7 +308,7 @@ export async function annotate_tags(model_gen: TextGenerationModel, model_embed:
     }
     if (tag_list.length == 0) { return; }
 
-    prompt = `${settings.prompts.tags} Return *at most* ${settings.annotate_tags_max} keywords in total from the examples below.\n""""""""\n\nKeyword examples\n""""""""\n${notes.join('\n')}\n""""""""`
+    prompt = `${settings.prompts.tags} Return *at most* ${settings.annotate_tags_max} keywords in total from the examples below.\n===\n\nKeyword examples\n===\n${notes.join('\n')}\n===`
   }
 
   // summarize the note
@@ -316,7 +317,7 @@ export async function annotate_tags(model_gen: TextGenerationModel, model_embed:
   }
 
   let tags = (await model_gen.complete(
-    `Note content\n""""""""\n${summary}\n""""""""\n\nInstruction\n""""""""\n${prompt}\n""""""""\n\nSuggested keywords\n""""""""\n`))
+    `Note content\n===\n${summary}\n===\n\nInstruction\n===\n${prompt}\n===\n\nSuggested keywords\n===\n`))
     .split(', ').map(tag => tag.trim().toLowerCase());
 
   // post-processing
