@@ -501,6 +501,7 @@ export class HuggingFaceGeneration extends TextGenerationModel {
       settings.chat_prefix);
     this.endpoint = settings.chat_hf_endpoint;
     this.online = true;
+    this.base_chat = [{role: 'system', content: settings.chat_system_message}];
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -533,6 +534,7 @@ export class HuggingFaceGeneration extends TextGenerationModel {
 
   async _complete(prompt: string): Promise<string> {
     try {
+      prompt = this.base_chat[0].content + '\n' + prompt;
       const params = {
         max_length: this.max_tokens,
       };
@@ -582,7 +584,7 @@ export class OpenAIGeneration extends TextGenerationModel {
       settings.memory_tokens,
       settings.chat_suffix,
       settings.chat_prefix);
-    this.base_chat = [{role: 'system', content: 'You are Jarvis, the helpful assistant.'}];
+    this.base_chat = [{role: 'system', content: settings.chat_system_message}];
 
     // model params
     this.temperature = settings.temperature;
@@ -621,6 +623,7 @@ export class OpenAIGeneration extends TextGenerationModel {
     if (this.type == 'chat') {
       return this._chat([...this.base_chat, {role: 'user', content: prompt}]);
     }
+    prompt = this.base_chat[0].content + '\n' + prompt;
     return await query_completion(prompt, this.api_key, this.id,
       this.max_tokens - this.count_tokens(prompt),
       this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty);

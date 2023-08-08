@@ -29,6 +29,7 @@ export interface JarvisSettings {
   /// model
   notes_model: string;
   notes_max_tokens: number;
+  chat_system_message: string;
   chat_hf_model_id: string;
   chat_hf_endpoint: string;
   notes_hf_model_id: string;
@@ -172,6 +173,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     /// model
     notes_model: await joplin.settings.value('notes_model'),
     notes_max_tokens: await joplin.settings.value('notes_max_tokens'),
+    chat_system_message: await joplin.settings.value('chat_system_message'),
     chat_hf_model_id: await joplin.settings.value('chat_hf_model_id'),
     chat_hf_endpoint: await joplin.settings.value('chat_hf_endpoint'),
     notes_hf_model_id: await joplin.settings.value('notes_hf_model_id'),
@@ -263,6 +265,15 @@ export async function register_settings() {
         'openai-custom': '(online) OpenAI: custom',
         'Hugging Face': '(online) Hugging Face',
       }
+    },
+    'chat_system_message': {
+      value: 'You are Jarvis, the helpful assistant.',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Chat: System message',
+      description: 'The message to inform Jarvis who he is, what is his purpose, and more information about the user. Default: You are Jarvis, the helpful assistant.',
     },
     'chat_openai_model_id': {
       value: '',

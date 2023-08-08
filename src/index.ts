@@ -268,6 +268,7 @@ joplin.plugins.register({
       }
       // load generation model
       if (event.keys.includes('openai_api_key') ||
+          event.keys.includes('chat_system_message') ||
           event.keys.includes('hf_api_key') ||
           event.keys.includes('model') ||
           event.keys.includes('max_tokens') ||
