@@ -1,5 +1,23 @@
 # Jarvis Guide
 
+## Annotate note with Jarvis
+
+Jarvis can automatically annotate your notes based on its content in 4 ways: By setting the title of the note; by adding a summary section; by adding links to related notes; and by adding tags. These annotations are performed when executing the command / button `Annotate note with Jarvis`. Each of these 4 features can be turned on or off in the settings in order to customize the behavior of the command. In addition, each sub-command can be run separately.
+
+Once you run the command again, all annotations will be replaced and updated. You may move the summary / links sections to a different location in the note, and they will be updated in the next run. Finally, you can define in the settings custom prompts for titles and summaries, as well as custom headings for these sections. For example, you may define a custom summary prompt that reads: "Summarize why this note is important to me as a medical doctor", and Jarvis will use this prompt to generate the summary.
+
+### Automatic tagging
+
+The tagging feature, specifically, works best with GPT-4, which follows more closely the instructions in the following methods. There are 3 method to automatically tag notes:
+
+1. **Suggest based on notes**: (Default) This method attempts to mimic your unique tagging patterns. Jarvis will search for notes that are semantically similar to the current note, and will add tags that from the most similar notes.
+
+2. **Suggest based on existing tags**: This method will suggest relevant tags from all tags that are currently used throughout your notebooks.
+
+3. **Suggest new tags**: This method will suggest any relevant tags even if they are not currently used in your notebooks. This is useful for discovering new tags that you might want to use.
+
+You may select your preferred method in the setting `Annotate: Tags method`. In any case, the number of tags that will be added can be defined in the setting `Annotate: Maximal number of tags to suggest`.
+
 ## Chat with your notes
 
 When chatting with your notes, Jarvis will look for note excerpts that are semantically similar to the content of the current chat. This search is performed each time the command is run, so that different notes may be selected throughout the conversation. There are a number of ways to help Jarvis find the right notes and context.
