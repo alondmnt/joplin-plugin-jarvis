@@ -1,5 +1,4 @@
 import joplin from 'api';
-import { DialogResult } from 'api/types';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from './settings';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks } from '../notes/embeddings';
 import { update_panel } from './panel';
@@ -7,7 +6,6 @@ import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { split_by_tokens } from '../utils';
 
 
-// this function takes the last tokens from the current note and uses them as a completion prompt
 export async function chat_with_jarvis(model_gen: TextGenerationModel) {
   const prompt = await get_chat_prompt(model_gen);
 
