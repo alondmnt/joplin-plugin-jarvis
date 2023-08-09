@@ -1,7 +1,7 @@
 import joplin from 'api';
-import { get_settings } from './settings';
 import { find_nearest_notes, update_embeddings } from '../notes/embeddings';
-import { update_panel, update_progress_bar } from './panel';
+import { update_panel, update_progress_bar } from '../ux/panel';
+import { get_settings } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
 
 

@@ -1,7 +1,7 @@
 import joplin from 'api';
-import { JarvisSettings } from './settings';
-import { find_nearest_notes } from '../notes/embeddings';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
+import { find_nearest_notes } from '../notes/embeddings';
+import { JarvisSettings } from '../ux/settings';
 import { get_all_tags, split_by_tokens } from '../utils';
 
 

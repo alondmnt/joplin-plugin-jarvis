@@ -1,9 +1,9 @@
 import joplin from 'api';
-import { JarvisSettings, get_settings, parse_dropdown_json, search_engines } from './settings';
+import { DialogResult } from 'api/types';
+import { TextGenerationModel } from '../models/models';
 import { PaperInfo, SearchParams, search_papers, sample_and_summarize_papers } from '../research/papers';
 import { WikiInfo, search_wikipedia } from '../research/wikipedia';
-import { TextGenerationModel } from '../models/models';
-import { DialogResult } from 'api/types';
+import { JarvisSettings, get_settings, parse_dropdown_json, search_engines } from '../ux/settings';
 
 
 export async function research_with_jarvis(model_gen: TextGenerationModel, dialogHandle: string) {

@@ -1,15 +1,15 @@
 import joplin from 'api';
 import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
-import { annotate_title, annotate_summary, annotate_tags, annotate_links } from './ux/annotate';
-import { ask_jarvis, edit_with_jarvis } from './ux/ask';
-import { chat_with_jarvis, chat_with_notes, preview_chat_notes_context } from './ux/chat';
-import { find_notes, update_note_db, skip_db_init_dialog } from './ux/notes';
-import { register_panel, update_panel } from './ux/panel';
-import { research_with_jarvis } from './ux/research';
-import { get_settings, register_settings, set_folders } from './ux/settings';
+import { annotate_title, annotate_summary, annotate_tags, annotate_links } from './commands/annotate';
+import { ask_jarvis, edit_with_jarvis } from './commands/ask';
+import { chat_with_jarvis, chat_with_notes, preview_chat_notes_context } from './commands/chat';
+import { find_notes, update_note_db, skip_db_init_dialog } from './commands/notes';
+import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
 import { find_nearest_notes } from './notes/embeddings';
+import { register_panel, update_panel } from './ux/panel';
+import { get_settings, register_settings, set_folders } from './ux/settings';
 
 joplin.plugins.register({
 	onStart: async function() {

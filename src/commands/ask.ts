@@ -1,8 +1,8 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
-import { JarvisSettings, get_settings } from './settings';
 import { TextGenerationModel } from '../models/models';
 import { query_edit } from '../models/openai';
+import { JarvisSettings, get_settings } from '../ux/settings';
 
 
 export async function ask_jarvis(model_gen: TextGenerationModel, dialogHandle: string) {
