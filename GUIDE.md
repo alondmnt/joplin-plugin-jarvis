@@ -2,7 +2,7 @@
 
 ## Annotate note with Jarvis
 
-Jarvis can automatically annotate your notes based on its content in 4 ways: By setting the title of the note; by adding a summary section; by adding links to related notes; and by adding tags. These annotations are performed when executing the command / button `Annotate note with Jarvis`. Each of these 4 features can be turned on or off in the settings in order to customize the behavior of the command. In addition, each sub-command can be run separately.
+Jarvis can automatically annotate your notes based on their content in 4 ways: By setting the title of the note; by adding a summary section; by adding links to related notes; and by adding tags. These annotations are performed when executing the command / button `Annotate note with Jarvis`. Each of these 4 features can be turned on or off in the settings in order to customize the behavior of the command. In addition, each sub-command can be run separately.
 
 Once you run the command again, all annotations will be replaced and updated. You may move the summary / links sections to a different location in the note, and they will be updated in the next run. Finally, you can define in the settings custom prompts for titles and summaries, as well as custom headings for these sections. For example, you may define a custom summary prompt that reads: "Summarize why this note is important to me as a medical doctor", and Jarvis will use this prompt to generate the summary.
 
