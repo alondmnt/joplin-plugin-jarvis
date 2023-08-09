@@ -1,8 +1,12 @@
 import joplin from 'api';
 import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
-import { ask_jarvis, chat_with_jarvis, edit_with_jarvis, find_notes, update_note_db, research_with_jarvis, chat_with_notes, preview_chat_notes_context, skip_db_init_dialog, annotate_title, annotate_summary, annotate_tags, annotate_links } from './ux/jarvis';
+import { chat_with_jarvis, chat_with_notes, preview_chat_notes_context } from './ux/jarvis';
+import { annotate_title, annotate_summary, annotate_tags, annotate_links } from './ux/annotate';
+import { find_notes, update_note_db, skip_db_init_dialog } from './ux/notes';
 import { get_settings, register_settings, set_folders } from './ux/settings';
+import { ask_jarvis, edit_with_jarvis } from './ux/ask';
+import { research_with_jarvis } from './ux/research';
 import { load_embedding_model, load_generation_model } from './models/models';
 import { register_panel, update_panel } from './ux/panel';
 import { find_nearest_notes } from './notes/embeddings';
