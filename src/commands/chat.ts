@@ -167,7 +167,7 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
   // (previous responses) strip lines that start with {ref_notes_prefix}
   prompt = prompt.replace(new RegExp('^' + ref_notes_prefix + '.*$', 'gm'), '');
   const chat = model_gen._parse_chat(prompt);
-  let last_user_prompt = commands[ref_notes_prefix.slice(0, -1).toLocaleLowerCase()];
+  let last_user_prompt = '';
   if (chat[chat.length -1].role === 'user') {
     last_user_prompt = chat[chat.length - 1].content;
   }
