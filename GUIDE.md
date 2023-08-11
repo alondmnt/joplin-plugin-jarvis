@@ -10,7 +10,7 @@ Once you run the command again, all annotations will be replaced and updated. Yo
 
 The tagging feature, specifically, works best with GPT-4, which follows more closely the instructions in the methods below. There are 3 method to automatically tag notes:
 
-1. **Suggest based on notes**: (Default) This method attempts to mimic your unique tagging patterns. Jarvis will search for notes that are semantically similar to the current note, and will add tags that from most similar notes.
+1. **Suggest based on notes**: (Default) This method attempts to mimic your unique tagging patterns. Jarvis will search for notes that are semantically similar to the current note, and will add tags from the most similar notes.
 
 2. **Suggest based on existing tags**: Jarvis will suggest relevant tags from all tags that are currently used throughout your notebooks.
 
