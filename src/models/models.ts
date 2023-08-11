@@ -9,6 +9,16 @@ import { query_embedding, query_chat, query_completion } from './openai';
 import { BlockEmbedding } from '../notes/embeddings';  // maybe move definition to this file
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from '../notes/db';
 
+import { LLM } from "llama-node";
+import { LLamaCpp, type LoadConfig } from "llama-node/dist/llm/llama-cpp.js";
+import { resolve } from 'path';
+
+function test_llama() {
+  const model = resolve(process.cwd(), "../ggml-vic7b-q5_1.bin");
+
+  const llama = new LLM(LLamaCpp);
+}
+
 tf.setBackend('webgl');
 
 export async function load_generation_model(settings: JarvisSettings): Promise<TextGenerationModel> {

@@ -154,10 +154,18 @@ const baseConfig = {
 					loader: "babel-loader",
 				},
 			},
+			{
+				test: /\.node$/,
+				loader: 'node-loader',
+				options: {
+					name: 'llama-node/[name].[ext]'
+				},
+			}
 		],
 	},
 	resolve: {
 		alias: {
+			'@llama-node': path.resolve(__dirname, 'dist/llama-node'),
 			api: path.resolve(__dirname, 'api'),
 		},
 		extensions: ['.js', '.tsx', '.ts', '.json'],
