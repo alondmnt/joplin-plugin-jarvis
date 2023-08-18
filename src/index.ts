@@ -275,6 +275,9 @@ joplin.plugins.register({
           event.keys.includes('chat_system_message') ||
           event.keys.includes('hf_api_key') ||
           event.keys.includes('model') ||
+          event.keys.includes('chat_openai_model_id') ||
+          event.keys.includes('chat_openai_model_type') ||
+          event.keys.includes('chat_openai_endpoint') ||
           event.keys.includes('max_tokens') ||
           event.keys.includes('temperature') ||
           event.keys.includes('top_p') ||

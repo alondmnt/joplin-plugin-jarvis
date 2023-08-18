@@ -562,6 +562,7 @@ export class HuggingFaceGeneration extends TextGenerationModel {
 export class OpenAIGeneration extends TextGenerationModel {
   // model
   private api_key: string = null;
+  private endpoint: string = null;
 
   // model
   public temperature: number = 0.5;
@@ -572,11 +573,17 @@ export class OpenAIGeneration extends TextGenerationModel {
   constructor(settings: JarvisSettings) {
     let type = 'completion';
     let model_id = settings.model;
-    if (settings.model == 'openai-custom') {
-      model_id = settings.chat_openai_model_id;
-    }
     if (model_id.includes('gpt-3.5') || model_id.includes('gpt-4')) {
       type = 'chat';
+    }
+    if (settings.model === 'openai-custom') {
+      model_id = settings.chat_openai_model_id;
+      // always override model type for custom models
+      if (settings.chat_openai_model_type) {
+        type = 'chat';
+      } else {
+        type = 'completion';
+      }
     }
     super(model_id,
       settings.max_tokens,
@@ -585,6 +592,9 @@ export class OpenAIGeneration extends TextGenerationModel {
       settings.chat_suffix,
       settings.chat_prefix);
     this.base_chat = [{role: 'system', content: settings.chat_system_message}];
+    if ((settings.model === 'openai-custom') && (settings.chat_openai_endpoint.length > 0)) {
+      this.endpoint = settings.chat_openai_endpoint;
+    }
 
     // model params
     this.temperature = settings.temperature;
@@ -616,7 +626,8 @@ export class OpenAIGeneration extends TextGenerationModel {
 
   async _chat(prompt: ChatEntry[]): Promise<string> {
     return query_chat(prompt, this.api_key, this.id,
-      this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty);
+      this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty,
+      this.endpoint);
   }
 
   async _complete(prompt: string): Promise<string> {
@@ -626,6 +637,7 @@ export class OpenAIGeneration extends TextGenerationModel {
     prompt = this.base_chat[0].content + '\n' + prompt;
     return await query_completion(prompt, this.api_key, this.id,
       this.max_tokens - this.count_tokens(prompt),
-      this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty);
+      this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty,
+      this.endpoint);
   }
 }

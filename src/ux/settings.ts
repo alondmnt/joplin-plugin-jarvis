@@ -18,6 +18,8 @@ export interface JarvisSettings {
   // OpenAI
   model: string;
   chat_openai_model_id: string;
+  chat_openai_model_type: boolean;
+  chat_openai_endpoint: string;
   temperature: number;
   max_tokens: number;
   memory_tokens: number;
@@ -161,6 +163,8 @@ export async function get_settings(): Promise<JarvisSettings> {
     // OpenAI
     model: await joplin.settings.value('model'),
     chat_openai_model_id: await joplin.settings.value('chat_openai_model_id'),
+    chat_openai_model_type: await joplin.settings.value('chat_openai_model_type'),
+    chat_openai_endpoint: await joplin.settings.value('chat_openai_endpoint'),
     temperature: (await joplin.settings.value('temp')) / 10,
     max_tokens: max_tokens,
     memory_tokens: await joplin.settings.value('memory_tokens'),
@@ -262,7 +266,7 @@ export async function register_settings() {
         'gpt-3.5-turbo-16k': '(online) OpenAI: gpt-3.5-turbo-16k',
         'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo',
         'text-davinci-003': '(online) OpenAI: text-davinci-003',
-        'openai-custom': '(online) OpenAI: custom',
+        'openai-custom': '(online) OpenAI or compatible: custom model',
         'Hugging Face': '(online) Hugging Face',
       }
     },
@@ -281,8 +285,26 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       advanced: true,
-      label: 'Chat: OpenAI custom model ID',
+      label: 'Chat: OpenAI (or compatible) custom model ID',
       description: 'The OpenAI model ID to use for text generation. Default: empty',
+    },
+    'chat_openai_model_type': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Chat: custom model is a conversation model',
+      description: 'Whether to use the conversation API or the legacy completion API. Default: false',
+    },
+    'chat_openai_endpoint': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Chat: custom model API endpoint',
+      description: "The OpenAI (or compatible) API endpoint to use for text generation. Default: empty (OpenAI's default public endpoint)",
     },
     'chat_hf_model_id': {
       value: 'MBZUAI/LaMini-Flan-T5-783M',

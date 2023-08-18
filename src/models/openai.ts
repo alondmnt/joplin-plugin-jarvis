@@ -4,9 +4,14 @@ import { JarvisSettings } from '../ux/settings';
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,
     api_key: string, model: string, temperature: number, top_p: number,
-    frequency_penalty: number, presence_penalty: number): Promise<string> {
+    frequency_penalty: number, presence_penalty: number, custom_url: string=null): Promise<string> {
 
-  const url = 'https://api.openai.com/v1/chat/completions';
+  let url = '';
+  if (custom_url) {
+    url = custom_url;
+  } else {
+    url = 'https://api.openai.com/v1/chat/completions';
+  }
   const params = {
     messages: prompt,
     model: model,
@@ -61,9 +66,14 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
 // get the next response for a completion for *arbitrary string prompt* from a any model
 export async function query_completion(prompt: string, api_key: string,
     model: string, max_tokens: number, temperature: number, top_p: number,
-    frequency_penalty: number, presence_penalty: number): Promise<string> {
+    frequency_penalty: number, presence_penalty: number, custom_url: string=null): Promise<string> {
 
-  let url = 'https://api.openai.com/v1/completions';
+  let url = '';
+  if (custom_url) {
+    url = custom_url;
+  } else {
+    url = 'https://api.openai.com/v1/completions';
+  }
   let params: any = {
     prompt: prompt,
     max_tokens: max_tokens,
