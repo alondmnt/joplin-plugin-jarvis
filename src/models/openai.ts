@@ -26,6 +26,8 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
     headers: {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + api_key,
+      'HTTP-Referer': 'https://joplinapp.org/',
+      'X-Title': 'Joplin/Jarvis'
     },
     body: JSON.stringify(params),
   });
@@ -89,6 +91,8 @@ export async function query_completion(prompt: string, api_key: string,
     headers: {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + api_key,
+      'HTTP-Referer': 'https://joplinapp.org/',
+      'X-Title': 'Joplin/Jarvis'
     },
     body: JSON.stringify(params),
   });

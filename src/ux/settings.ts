@@ -294,7 +294,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       advanced: true,
-      label: 'Chat: custom model is a conversation model',
+      label: 'Chat: Custom model is a conversation model',
       description: 'Whether to use the conversation API or the legacy completion API. Default: false',
     },
     'chat_openai_endpoint': {
@@ -303,7 +303,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       advanced: true,
-      label: 'Chat: custom model API endpoint',
+      label: 'Chat: Custom model API endpoint',
       description: "The OpenAI (or compatible) API endpoint to use for text generation. Default: empty (OpenAI's default public endpoint)",
     },
     'chat_hf_model_id': {
