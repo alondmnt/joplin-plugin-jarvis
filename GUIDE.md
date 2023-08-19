@@ -1,5 +1,17 @@
 # Jarvis Guide
 
+## Setup a custom model
+
+Any model that has an OpenAI-compatible API can (probably) be set up to work with Jarvis. Here is an example of how to set up Claude V2 via [OpenRouter](https://openrouter.ai/):
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Model: OpenAI API Key | No | Your OpenRouter API key |
+| Chat: Model | No | (online) OpenAI or compatible: custom model |
+| Chat: OpenAI (or compatible) custom model ID | Yes | anthropic/claude-2 |
+| Chat: Custom model is a conversation model | Yes | Yes |
+| Chat: Custom model API endpoint | Yes | https://openrouter.ai/api/v1/chat/completions |
+
 ## Annotate note with Jarvis
 
 Jarvis can automatically annotate your notes based on their content in 4 ways: By setting the title of the note; by adding a summary section; by adding links to related notes; and by adding tags. These annotations are performed when executing the command / button `Annotate note with Jarvis`. Each of these 4 features can be turned on or off in the settings in order to customize the behavior of the command. In addition, each sub-command can be run separately.
