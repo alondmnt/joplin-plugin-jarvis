@@ -17,9 +17,12 @@ export interface JarvisSettings {
   springer_api_key: string;
   // OpenAI
   model: string;
+  chat_system_message: string;
   chat_openai_model_id: string;
   chat_openai_model_type: boolean;
   chat_openai_endpoint: string;
+  chat_hf_model_id: string;
+  chat_hf_endpoint: string;
   temperature: number;
   max_tokens: number;
   memory_tokens: number;
@@ -31,9 +34,8 @@ export interface JarvisSettings {
   /// model
   notes_model: string;
   notes_max_tokens: number;
-  chat_system_message: string;
-  chat_hf_model_id: string;
-  chat_hf_endpoint: string;
+  notes_openai_model_id: string;
+  notes_openai_endpoint: string;
   notes_hf_model_id: string;
   notes_hf_endpoint: string;
   /// other
@@ -162,9 +164,12 @@ export async function get_settings(): Promise<JarvisSettings> {
 
     // OpenAI
     model: await joplin.settings.value('model'),
+    chat_system_message: await joplin.settings.value('chat_system_message'),
     chat_openai_model_id: await joplin.settings.value('chat_openai_model_id'),
     chat_openai_model_type: await joplin.settings.value('chat_openai_model_type'),
     chat_openai_endpoint: await joplin.settings.value('chat_openai_endpoint'),
+    chat_hf_model_id: await joplin.settings.value('chat_hf_model_id'),
+    chat_hf_endpoint: await joplin.settings.value('chat_hf_endpoint'),
     temperature: (await joplin.settings.value('temp')) / 10,
     max_tokens: max_tokens,
     memory_tokens: await joplin.settings.value('memory_tokens'),
@@ -177,9 +182,8 @@ export async function get_settings(): Promise<JarvisSettings> {
     /// model
     notes_model: await joplin.settings.value('notes_model'),
     notes_max_tokens: await joplin.settings.value('notes_max_tokens'),
-    chat_system_message: await joplin.settings.value('chat_system_message'),
-    chat_hf_model_id: await joplin.settings.value('chat_hf_model_id'),
-    chat_hf_endpoint: await joplin.settings.value('chat_hf_endpoint'),
+    notes_openai_model_id: await joplin.settings.value('notes_openai_model_id'),
+    notes_openai_endpoint: await joplin.settings.value('notes_openai_endpoint'),
     notes_hf_model_id: await joplin.settings.value('notes_hf_model_id'),
     notes_hf_endpoint: await joplin.settings.value('notes_hf_endpoint'),
     /// other
@@ -410,6 +414,7 @@ export async function register_settings() {
         'Universal Sentence Encoder': '(offline) Universal Sentence Encoder [English]',
         'Hugging Face': '(online) Hugging Face [Multilingual]',
         'OpenAI': '(online) OpenAI: text-embedding-ada-002 [Multilingual]',
+        'openai-custom': '(online) OpenAI or compatible: custom model',
       }
     },
     'notes_max_tokens': {
@@ -422,6 +427,24 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Max tokens',
       description: 'The maximal context to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
+    },
+    'notes_openai_model_id': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Notes: OpenAI (or compatible) custom model ID',
+      description: 'The OpenAI model ID to use for calculating text embeddings. Default: empty',
+    },
+    'notes_openai_endpoint': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Notes: OpenAI (or compatible) API endpoint',
+      description: "The OpenAI (or compatible) API endpoint to use for calculating text embeddings. Default: empty (OpenAI's default public endpoint)",
     },
     'notes_hf_model_id': {
       value: 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2',

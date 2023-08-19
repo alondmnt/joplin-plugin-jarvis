@@ -26,7 +26,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
     headers: {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + api_key,
-      'HTTP-Referer': 'https://joplinapp.org/',
+      'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
       'X-Title': 'Joplin/Jarvis'
     },
     body: JSON.stringify(params),
@@ -91,7 +91,7 @@ export async function query_completion(prompt: string, api_key: string,
     headers: {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + api_key,
-      'HTTP-Referer': 'https://joplinapp.org/',
+      'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
       'X-Title': 'Joplin/Jarvis'
     },
     body: JSON.stringify(params),
@@ -135,16 +135,24 @@ export async function query_completion(prompt: string, api_key: string,
     temperature, top_p, frequency_penalty, presence_penalty);
 }
 
-export async function query_embedding(input: string, model: string, api_key: string): Promise<Float32Array> {
+export async function query_embedding(input: string, model: string, api_key: string, custom_url: string=null): Promise<Float32Array> {
   const responseParams = {
     input: input,
     model: model,
   }
-  const response = await fetch('https://api.openai.com/v1/embeddings', {
+  let url = '';
+  if (custom_url) {
+    url = custom_url;
+  } else {
+    url = 'https://api.openai.com/v1/embeddings';
+  }
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + api_key,
+      'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
+      'X-Title': 'Joplin/Jarvis'
     },
     body: JSON.stringify(responseParams),
   });

@@ -51,6 +51,12 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_max_tokens,
     );
 
+  } else if (settings.notes_model === 'openai-custom') {
+    model = new OpenAIEmbedding(
+      settings.notes_openai_model_id,
+      settings.notes_max_tokens,
+      settings.notes_openai_endpoint);
+
   } else {
     console.log(`Unknown model: ${settings.notes_model}`);
     return model;
@@ -281,6 +287,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
 
 class OpenAIEmbedding extends TextEmbeddingModel {
   private api_key: string = null;
+  private endpoint: string = null;
   // rate limits
   public page_size = 5;  // external: notes
   public page_cycle = 100;  // external: pages
@@ -291,6 +298,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     this.id = id
     this.version = '1';
     this.max_block_size = max_tokens;
+    this.endpoint = endpoint;
     this.online = true;
 
     // rate limits
@@ -322,7 +330,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    return query_embedding(text, this.id, this.api_key);
+    return query_embedding(text, this.id, this.api_key, this.endpoint);
   }
 }
 
