@@ -106,6 +106,9 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
     }
   }
   const nearest = await find_nearest_notes(sub_embeds, note.id, note.title, note.body, model_embed, settings, false);
+  if (nearest.length === 0) {
+    nearest.push({id: note.id, title: 'Chat context', embeddings: [], similarity: null});
+  }
 
   // post-processing: attach additional blocks to the nearest ones
   let attached: Set<string> = new Set();
