@@ -2,7 +2,28 @@
 
 ## Setup a custom model
 
-Any model that has an OpenAI-compatible API can (probably) be set up to work with Jarvis. Here is an example of how to set up Claude V2 via [OpenRouter](https://openrouter.ai/):
+Any model that has an OpenAI-compatible API can (probably) be set up to work with Jarvis.
+
+### Offline chat model with GPT4All
+
+Here is an example of how to set up GPT4All as a local server:
+
+1. Clone the [GPT4All](https://github.com/nomic-ai/gpt4all) repo
+2. Follow the instructions in the gpt4all-api/README.md
+3. Set the model in docker-compose.yml and docker-compose.gpu.yml to `ggml-model-gpt4all-falcon-q4_0`
+4. Use docker compose to start the server, and then setup Jarvis as follows
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Chat: Model | No | (online) OpenAI or compatible: custom model |
+| Chat: Timeout (sec) | Yes | 600 |
+| Chat: OpenAI (or compatible) custom model ID | Yes | ggml-model-gpt4all-falcon-q4_0 |
+| Chat: Custom model is a conversation model | Yes | No |
+| Chat: Custom model API endpoint | Yes | http://localhost:4891/v1/completions |
+
+### OpenRouter
+
+Here is an example of how to set up Claude V2 via [OpenRouter](https://openrouter.ai/):
 
 | Setting | Advanced | Value |
 |---------|----------|-------|
