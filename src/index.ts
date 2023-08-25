@@ -296,6 +296,8 @@ joplin.plugins.register({
           event.keys.includes('hf_api_key') ||
           event.keys.includes('notes_model') ||
           event.keys.includes('notes_max_tokens') ||
+          event.keys.includes('notes_openai_model_id') ||
+          event.keys.includes('notes_openai_endpoint') ||
           event.keys.includes('notes_hf_model_id') ||
           event.keys.includes('notes_hf_endpoint')) {
 
