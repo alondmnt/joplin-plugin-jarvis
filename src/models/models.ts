@@ -364,7 +364,7 @@ export class TextGenerationModel {
   public last_request_time: number = 0;
 
   constructor(id: string, max_tokens: number, type: string, memory_tokens: number,
-              user_prefix: string, model_prefix: string) {
+              user_prefix: string, model_prefix: string, timeout: number) {
     this.id = id;
     this.max_tokens = max_tokens;
     this.type = type;
@@ -376,6 +376,8 @@ export class TextGenerationModel {
     this.request_queue = [];
     this.requests_per_second = null;
     this.last_request_time = 0;
+
+    this.timeout = timeout * 1000;  // convert to miliseconds
   }
 
   // parent method
@@ -498,7 +500,6 @@ export class TextGenerationModel {
 
 export class HuggingFaceGeneration extends TextGenerationModel {
   public endpoint: string = null;
-  public timeout: number = 60*1000;  // miliseconds
 
   constructor(settings: JarvisSettings) {
     super(settings.chat_hf_model_id,
@@ -506,7 +507,8 @@ export class HuggingFaceGeneration extends TextGenerationModel {
       'completion',
       settings.memory_tokens,
       settings.chat_suffix,
-      settings.chat_prefix);
+      settings.chat_prefix,
+      settings.chat_timeout);
     this.endpoint = settings.chat_hf_endpoint;
     this.online = true;
     this.base_chat = [{role: 'system', content: settings.chat_system_message}];
@@ -598,7 +600,8 @@ export class OpenAIGeneration extends TextGenerationModel {
       type,
       settings.memory_tokens,
       settings.chat_suffix,
-      settings.chat_prefix);
+      settings.chat_prefix,
+      settings.chat_timeout);
     this.base_chat = [{role: 'system', content: settings.chat_system_message}];
     if ((settings.model === 'openai-custom') && (settings.chat_openai_endpoint.length > 0)) {
       this.endpoint = settings.chat_openai_endpoint;

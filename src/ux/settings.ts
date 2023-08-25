@@ -17,6 +17,7 @@ export interface JarvisSettings {
   springer_api_key: string;
   // OpenAI
   model: string;
+  chat_timeout: number;
   chat_system_message: string;
   chat_openai_model_id: string;
   chat_openai_model_type: boolean;
@@ -164,6 +165,7 @@ export async function get_settings(): Promise<JarvisSettings> {
 
     // OpenAI
     model: await joplin.settings.value('model'),
+    chat_timeout: await joplin.settings.value('chat_timeout'),
     chat_system_message: await joplin.settings.value('chat_system_message'),
     chat_openai_model_id: await joplin.settings.value('chat_openai_model_id'),
     chat_openai_model_type: await joplin.settings.value('chat_openai_model_type'),
@@ -273,6 +275,18 @@ export async function register_settings() {
         'openai-custom': '(online) OpenAI or compatible: custom model',
         'Hugging Face': '(online) Hugging Face',
       }
+    },
+    'chat_timeout': {
+      value: 60,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 600,
+      step: 1,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Chat: Timeout (sec)',
+      description: 'The maximal time to wait for a response from the model in seconds. Default: 60',
     },
     'chat_system_message': {
       value: 'You are Jarvis, the helpful assistant.',
