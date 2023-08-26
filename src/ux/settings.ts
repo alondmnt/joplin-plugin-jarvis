@@ -289,13 +289,13 @@ export async function register_settings() {
       description: 'The maximal time to wait for a response from the model in seconds. Default: 60',
     },
     'chat_system_message': {
-      value: 'You are Jarvis, the helpful assistant.',
+      value: 'You are Jarvis, the helpful assistant, and I am User.',
       type: SettingItemType.String,
       section: 'jarvis',
       public: true,
       advanced: true,
       label: 'Chat: System message',
-      description: 'The message to inform Jarvis who he is, what is his purpose, and more information about the user. Default: You are Jarvis, the helpful assistant.',
+      description: 'The message to inform Jarvis who he is, what is his purpose, and more information about the user. Default: You are Jarvis, the helpful assistant, and I am User.',
     },
     'chat_openai_model_id': {
       value: '',
