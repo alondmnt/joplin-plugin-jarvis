@@ -165,8 +165,13 @@ async function update_note(note: any,
   if (note.is_conflict) {
     return [];
   }
-  const note_tags = (await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] }))
-    .items.map((t: any) => t.title);
+  let note_tags: string[];
+  try {
+    note_tags = (await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] }))
+      .items.map((t: any) => t.title);
+  } catch (error) {
+    note_tags = ['exclude.from.jarvis'];
+  }
   if (note_tags.includes('exclude.from.jarvis') || 
       settings.notes_exclude_folders.has(note.parent_id)) {
     console.log(`Excluding note ${note.id} from Jarvis`);
@@ -239,7 +244,13 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
       continue;
     }
 
-    const note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body'] });
+    let note: any;
+    try {
+      note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body'] });
+    } catch (error) {
+      console.log(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
+      continue;
+    }
     const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
     embd = Object.assign({}, embd);  // copy to avoid in-place modification
     if (embd.title !== note.title) {
@@ -287,7 +298,12 @@ function get_slug(title: string): string {
 
 export async function add_note_title(embeddings: BlockEmbedding[]): Promise<BlockEmbedding[]> {
   return Promise.all(embeddings.map(async (embd: BlockEmbedding) => {
-    const note = await joplin.data.get(['notes', embd.id], { fields: ['title']});
+    let note: any;
+    try {
+      note = await joplin.data.get(['notes', embd.id], { fields: ['title']});
+    } catch (error) {
+      note = {title: 'Unknown'};
+    }
     const new_embd = Object.assign({}, embd);  // copy to avoid in-place modification
     if (new_embd.title !== note.title) {
       new_embd.title = note.title + title_separator + embd.title;
@@ -305,8 +321,13 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   let query_embeddings = embeddings.filter(embd => embd.id === current_id);
   if ((query_embeddings.length == 0) || (query_embeddings[0].hash !== calc_hash(query))) {
     // re-calculate embedding of the query
-    const note_tags = (await joplin.data.get(['notes', current_id, 'tags'], { fields: ['title'] }))
-    .items.map((t: any) => t.title);
+    let note_tags: string[];
+    try {
+      note_tags = (await joplin.data.get(['notes', current_id, 'tags'], { fields: ['title'] }))
+        .items.map((t: any) => t.title);
+    } catch (error) {
+      note_tags = [];
+    }
     query_embeddings = await calc_note_embeddings(
       {id: current_id, body: query, title: current_title}, note_tags, model, settings.notes_include_code);
   }
@@ -364,10 +385,16 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     } else if (settings.notes_agg_similarity === 'avg') {
       agg_sim = sorted_embed.reduce((acc, embd) => acc + embd.similarity, 0) / sorted_embed.length;
     }
+    let title: string;
+    try {
+      title = (await joplin.data.get(['notes', note_id], {fields: ['title']})).title;
+    } catch (error) {
+      title = 'Unknown';
+    }
 
     return {
       id: note_id,
-      title: (await joplin.data.get(['notes', note_id], {fields: ['title']})).title,
+      title: title,
       embeddings: sorted_embed,
       similarity: agg_sim,
     };
