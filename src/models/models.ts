@@ -5,7 +5,8 @@ import { encodingForModel } from 'js-tiktoken';
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings } from '../ux/settings';
 import { consume_rate_limit, timeout_with_retry } from '../utils';
-import { query_embedding, query_chat, query_completion } from './openai';
+import * as openai from './openai';
+import * as palm from './google_palm';
 import { BlockEmbedding } from '../notes/embeddings';  // maybe move definition to this file
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from '../notes/db';
 
@@ -23,8 +24,11 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
              settings.model.includes('openai')) {
     model = new OpenAIGeneration(settings);
 
+  } else if (settings.model === 'bison-001') {
+    model = new PaLMGeneration(settings);
+
   } else {
-    console.log(`Unknown model: ${settings.notes_model}`);
+    console.log(`Unknown model: ${settings.model}`);
     return model;
   }
 
@@ -330,7 +334,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    return query_embedding(text, this.id, this.api_key, this.endpoint);
+    return openai.query_embedding(text, this.id, this.api_key, this.endpoint);
   }
 }
 
@@ -636,7 +640,7 @@ export class OpenAIGeneration extends TextGenerationModel {
   }
 
   async _chat(prompt: ChatEntry[]): Promise<string> {
-    return query_chat(prompt, this.api_key, this.id,
+    return openai.query_chat(prompt, this.api_key, this.id,
       this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty,
       this.endpoint);
   }
@@ -646,9 +650,64 @@ export class OpenAIGeneration extends TextGenerationModel {
       return this._chat([...this.base_chat, {role: 'user', content: prompt}]);
     }
     prompt = this.base_chat[0].content + '\n' + prompt;
-    return await query_completion(prompt, this.api_key, this.id,
+    return await openai.query_completion(prompt, this.api_key, this.id,
       this.max_tokens - this.count_tokens(prompt),
       this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty,
       this.endpoint);
+  }
+}
+
+export class PaLMGeneration extends TextGenerationModel {
+  // model
+  private api_key: string = null;
+  public temperature: number = 0.5;
+  public top_p: number = 1;
+
+  constructor(settings: JarvisSettings) {
+    let type = 'chat';
+    super(settings.model,
+      settings.max_tokens,
+      type,
+      settings.memory_tokens,
+      settings.chat_suffix,
+      settings.chat_prefix,
+      settings.chat_timeout);
+    this.base_chat = [{role: 'system', content: settings.chat_system_message}];
+
+    // model params
+    this.temperature = settings.temperature / 2;
+    this.top_p = settings.top_p;
+
+    // rate limiting
+    this.requests_per_second = 10;
+    this.last_request_time = 0;
+  }
+
+  async _load_model() {
+    this.api_key = await joplin.settings.value('google_api_key');
+    if (!this.api_key) {
+      joplin.views.dialogs.showMessageBox('Please specify a valid Google API key in the settings');
+      this.model = null;
+      return;
+    }
+
+    this.model = this.id;  // anything other than null
+
+    try {
+      const vec = await this._complete('Hello world');
+    } catch (e) {
+        console.log(`PaLMGeneration failed to load: ${e}`);
+        this.model = null;
+    }
+  }
+
+  async _chat(prompt: ChatEntry[]): Promise<string> {
+    return palm.query_chat(
+      prompt, this.api_key, 'chat-' + this.id, this.temperature, this.top_p);
+  }
+
+  async _complete(prompt: string): Promise<string> {
+    return palm.query_completion(
+      prompt, this.api_key, 'text-' + this.id, this.temperature, this.top_p);
   }
 }

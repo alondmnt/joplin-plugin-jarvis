@@ -272,10 +272,11 @@ joplin.plugins.register({
       }
       // load generation model
       if (event.keys.includes('openai_api_key') ||
-          event.keys.includes('chat_system_message') ||
           event.keys.includes('hf_api_key') ||
-          event.keys.includes('chat_timeout') ||
+          event.keys.includes('google_api_key') ||
           event.keys.includes('model') ||
+          event.keys.includes('chat_system_message') ||
+          event.keys.includes('chat_timeout') ||
           event.keys.includes('chat_openai_model_id') ||
           event.keys.includes('chat_openai_model_type') ||
           event.keys.includes('chat_openai_endpoint') ||

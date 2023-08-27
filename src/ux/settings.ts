@@ -13,6 +13,7 @@ export interface JarvisSettings {
   // APIs
   openai_api_key: string;
   hf_api_key: string;
+  google_api_key: string;
   scopus_api_key: string;
   springer_api_key: string;
   // OpenAI
@@ -84,6 +85,7 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gpt-3.5-turbo-16k': 16384,
   'gpt-3.5-turbo': 4096,
   'text-davinci-003': 4096,
+  'bison-001': 8196,
 };
 
 export const search_engines: { [engine: string] : string; } = {
@@ -160,6 +162,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     // APIs
     openai_api_key: await joplin.settings.value('openai_api_key'),
     hf_api_key: await joplin.settings.value('hf_api_key'),
+    google_api_key: await joplin.settings.value('google_api_key'),
     scopus_api_key: await joplin.settings.value('scopus_api_key'),
     springer_api_key: await joplin.settings.value('springer_api_key'),
 
@@ -258,6 +261,14 @@ export async function register_settings() {
       public: true,
       label: 'Model: Hugging Face API Key',
     },
+    'google_api_key': {
+      value: '',
+      type: SettingItemType.String,
+      secure: true,
+      section: 'jarvis',
+      public: true,
+      label: 'Model: Google PaLM API Key',
+    },
     'model': {
       value: 'gpt-3.5-turbo',
       type: SettingItemType.String,
@@ -273,6 +284,7 @@ export async function register_settings() {
         'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo',
         'text-davinci-003': '(online) OpenAI: text-davinci-003',
         'openai-custom': '(online) OpenAI or compatible: custom model',
+        'bison-001': '(online) Google PaLM',
         'Hugging Face': '(online) Hugging Face',
       }
     },
