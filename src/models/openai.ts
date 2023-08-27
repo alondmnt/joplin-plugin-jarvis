@@ -62,7 +62,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
 
   // retry
   return await query_chat(prompt, api_key, model, temperature, top_p,
-    frequency_penalty, presence_penalty);
+    frequency_penalty, presence_penalty, custom_url);
 }
 
 // get the next response for a completion for *arbitrary string prompt* from a any model
@@ -132,7 +132,7 @@ export async function query_completion(prompt: string, api_key: string,
 
   // retry
   return await query_completion(prompt, api_key, model, max_tokens,
-    temperature, top_p, frequency_penalty, presence_penalty);
+    temperature, top_p, frequency_penalty, presence_penalty, custom_url);
 }
 
 export async function query_embedding(input: string, model: string, api_key: string, custom_url: string=null): Promise<Float32Array> {
