@@ -164,7 +164,7 @@ export async function query_embedding(input: string, model: string, api_key: str
       `Error: ${data.error.message}\nPress OK to retry.`);
       if (errorHandler === 0) {
       // OK button
-      return query_embedding(input, model, api_key);
+      return query_embedding(input, model, api_key, custom_url);
     }
     return new Float32Array();
   }
