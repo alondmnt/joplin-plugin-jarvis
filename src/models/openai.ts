@@ -126,8 +126,8 @@ export async function query_completion(prompt: string, api_key: string,
     // truncate, and leave some room for a response
     const token_ratio = 0.8 * parseInt(token_limits[0][0]) / parseInt(token_limits[1][0]);
     const new_length = Math.floor(token_ratio * prompt.length);
-    // take first tokens
-    prompt = prompt.substring(0, new_length);
+    // take last tokens (for completion-based chat)
+    prompt = prompt.substring(prompt.length - new_length);
   }
 
   // retry
