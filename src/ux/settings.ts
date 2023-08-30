@@ -441,6 +441,7 @@ export async function register_settings() {
         'Hugging Face': '(online) Hugging Face [Multilingual]',
         'OpenAI': '(online) OpenAI: text-embedding-ada-002 [Multilingual]',
         'openai-custom': '(online) OpenAI or compatible: custom model',
+        'gecko-001': '(online) Google PaLM [English]',
       }
     },
     'notes_max_tokens': {

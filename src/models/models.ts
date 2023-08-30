@@ -61,6 +61,11 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_max_tokens,
       settings.notes_openai_endpoint);
 
+  } else if (settings.notes_model === 'gecko-001') {
+    model = new PaLMEmbedding(
+      'embedding-' + settings.notes_model,
+      settings.notes_max_tokens);
+
   } else {
     console.log(`Unknown model: ${settings.notes_model}`);
     return model;
@@ -335,6 +340,53 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     }
 
     return openai.query_embedding(text, this.id, this.api_key, this.endpoint);
+  }
+}
+
+class PaLMEmbedding extends TextEmbeddingModel {
+  private api_key: string = null;
+  // rate limits
+  public page_size = 5;  // external: notes
+  public page_cycle = 100;  // external: pages
+  public wait_period = 5;  // external: sec
+  
+  constructor(id: string, max_tokens: number, endpoint: string=null) {
+    super();
+    this.id = id;
+    this.version = '1';
+    this.max_block_size = max_tokens;
+    this.online = true;
+
+    // rate limits
+    this.request_queue = [];  // internal rate limit
+    this.requests_per_second = 20;  // internal rate limit
+    this.last_request_time = 0;  // internal rate limit
+  }
+
+  async _load_model() {
+    this.api_key = await joplin.settings.value('google_api_key');
+    if (!this.api_key) {
+      joplin.views.dialogs.showMessageBox('Please specify a valid Google PaLM API key in the settings');
+      this.model = null;
+      return;
+    }
+    this.model = this.id;  // anything other than null
+    console.log(this.id);
+
+    try {
+      const vec = await this.embed('Hello world');
+    } catch (e) {
+      console.log(`PaLMEmbedding failed to load: ${e}`);
+      this.model = null;
+    }
+  }
+
+  async _calc_embedding(text: string): Promise<Float32Array> {
+    if (!this.model) {
+      throw new Error('Model not initialized');
+    }
+
+    return palm.query_embedding(text, this.id, this.api_key);
   }
 }
 
