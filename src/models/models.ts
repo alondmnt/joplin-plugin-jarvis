@@ -393,11 +393,15 @@ export class TextGenerationModel {
     await this.limit_rate();
 
     let response = '';
+    prompt = this._sanitize_prompt(prompt);
     if (this.type === 'chat') {
-      prompt = this._sanitize_prompt(prompt);
       const chat_prompt = this._parse_chat(prompt);
       response = await timeout_with_retry(this.timeout, () => this._chat(chat_prompt));
+
     } else {
+      prompt = this._parse_chat(prompt, true).map((message: ChatEntry) => {
+        return `${message.role}${message.content}`;
+      }).join('') + this.model_prefix;
       response = await this.complete(prompt);
     }
     return this.model_prefix + response.replace(this.model_prefix.trim(), '').trim() + this.user_prefix;
@@ -444,8 +448,11 @@ export class TextGenerationModel {
   }
 
   // extract chat history from the prompt
-  _parse_chat(text: string): ChatEntry[] {
+  _parse_chat(text: string, convert_roles_to_names=false): ChatEntry[] {
     const chat: ChatEntry[] = [...this.base_chat];
+    if (convert_roles_to_names) {
+      chat[0].role = 'Context: ';
+    }
     const lines: string[] = text.split('\n');
     let current_role: string = null;
     let current_message: string = null;
@@ -457,19 +464,19 @@ export class TextGenerationModel {
         if (current_role && current_message) {
           if (first_role) {
             // apparently, the first role was assistant (now it's the user)
-            current_role = 'assistant';
+            current_role = convert_roles_to_names ? this.model_prefix : 'assistant';
             first_role = false;
           }
           chat.push({ role: current_role, content: current_message });
         }
-        current_role = 'user';
+        current_role = convert_roles_to_names ? this.user_prefix : 'user';
         current_message = trimmed_line.replace(this.user_prefix.trim(), '').trim();
 
       } else if (trimmed_line.match(this.model_prefix.trim())) {
         if (current_role && current_message) {
           chat.push({ role: current_role, content: current_message });
         }
-        current_role = 'assistant';
+        current_role = convert_roles_to_names ? this.model_prefix : 'assistant';
         current_message = trimmed_line.replace(this.model_prefix.trim(), '').trim()
 
       } else {
@@ -478,7 +485,7 @@ export class TextGenerationModel {
         } else {
           // init the chat with the first message
           first_role = true;
-          current_role = 'user';
+          current_role = convert_roles_to_names ? this.user_prefix : 'user';
           current_message = trimmed_line;
         }
       }
@@ -548,7 +555,6 @@ export class HuggingFaceGeneration extends TextGenerationModel {
 
   async _complete(prompt: string): Promise<string> {
     try {
-      prompt = this.base_chat[0].content + '\n' + prompt;
       const params = {
         max_length: this.max_tokens,
       };
@@ -649,7 +655,6 @@ export class OpenAIGeneration extends TextGenerationModel {
     if (this.type == 'chat') {
       return this._chat([...this.base_chat, {role: 'user', content: prompt}]);
     }
-    prompt = this.base_chat[0].content + '\n' + prompt;
     return await openai.query_completion(prompt, this.api_key, this.id,
       this.max_tokens - this.count_tokens(prompt),
       this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty,
