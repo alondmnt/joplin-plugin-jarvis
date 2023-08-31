@@ -30,15 +30,15 @@ Community discussion: https://discourse.joplinapp.org/t/28316
 ## Installation
 
 1. Install Jarvis from Joplin's plugin marketplace, or download it from [github](https://github.com/alondmnt/joplin-plugin-jarvis/releases).
-2. Select a model for chatting with Jarvis, and a model for indexing your notes. If you prefer OpenAI's models, you will need an [OpenAI account](https://platform.openai.com/signup), and an [API key](https://platform.openai.com/account/api-keys) that can be defined in the plugin settings.
+2. Select a model for chatting with Jarvis, and a model for indexing your notes. Depending on your choice of models to connect Jarvis with, you may need to setup an API key in the plugin settings for [OpenAI](https://platform.openai.com/account/api-keys), [Google PaLM](https://makersuite.google.com/app/apikey), [Hugging Face](https://huggingface.co/settings/tokens), or other supported services.
 3. To improve chat coherence, it may be helpful to increase `Memory tokens` in the settings, especially when chatting with your notes.
 4. For literature reviews, you can optionally add free API keys for [Scopus/Elsevier](https://dev.elsevier.com/) as an additional powerful search engine and paper repository, and [Springer](https://dev.springernature.com/) as another paper repository. It is recommended to try both Scopus and Semantic Scholar as each has its pros and cons.
 
 ## Disclaimer
 
 - This plugin sends your queries to your selected models (and only to these ones, whether they are online or offline models). Research queries are also sent to the selected literature search engine (Semantic Scholar / Scopus).
-- This plugin may use your OpenAI or Hugging Face API key in order to do so (and uses it for this sole purpose).
-- You may incur charges (if you are a paying user) from OpenAI by using this plugin.
-- Therefore, always check your usage statistics on OpenAI periodically.
+- This plugin may use your OpenAI, Google PaLM or Hugging Face API key in order to do so (and use it for this sole purpose).
+- You may incur charges (if you are a paying user) from these services by using this plugin.
+- Therefore, it is recommended to check your usage statistics periodically.
 - It is also recommended to rotate your API keys occasionally.
-- The developer is not affiliated with any of these services.
+- The developer is not affiliated with any of the services above.
