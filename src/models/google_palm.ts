@@ -42,6 +42,11 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
 
   if (data.hasOwnProperty('candidates') && data.candidates[0].content) {
     return data.candidates[0].content;
+  } else if (data.hasOwnProperty('filters')) {
+    await joplin.views.dialogs.showMessageBox(
+      `Request rejected due to: ${data.filters[0].reason}. Please revise your prompt.`
+      );
+    return '';
   }
 
   // display error message
@@ -89,6 +94,11 @@ export async function query_completion(prompt: string, api_key: string,
 
   if (data.hasOwnProperty('candidates') && data.candidates[0].output) {
     return data.candidates[0].output;
+  } else if (data.hasOwnProperty('filters')) {
+    await joplin.views.dialogs.showMessageBox(
+      `Request rejected due to: ${data.filters[0].reason}. Please revise your prompt.`
+      );
+    return '';
   }
 
   // display error message
