@@ -21,6 +21,20 @@ Here is an example of how to set up GPT4All as a local server:
 | Chat: Custom model is a conversation model | Yes | No |
 | Chat: Custom model API endpoint | Yes | http://localhost:4891/v1/completions |
 
+### Offline chat model with LM Studio
+
+1. Download [LM Studio](https://lmstudio.ai/)
+2. Open the LM Studio app
+3. Download a model
+4. Go to the Local Server tab, and press Start Server
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Chat: Model | No | (online) OpenAI or compatible: custom model |
+| Chat: Timeout (sec) | Yes | 600 |
+| Chat: Custom model is a conversation model | Yes | Yes |
+| Chat: Custom model API endpoint | Yes | http://localhost:1234/v1/chat/completions |
+
 ### OpenRouter
 
 Here is an example of how to set up Claude V2 via [OpenRouter](https://openrouter.ai/):
