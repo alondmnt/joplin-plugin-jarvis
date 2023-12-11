@@ -47,6 +47,20 @@ Here is an example of how to set up Claude V2 via [OpenRouter](https://openroute
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | https://openrouter.ai/api/v1/chat/completions |
 
+### Offline chat model with LiteLLM/ollama 
+
+1. Install [LiteLLM](https://docs.litellm.ai/docs/) and [ollama](https://ollama.ai)
+2. Pick a [LLM model to use from the ollama library](https://ollama.ai/library) and run `ollama run MODELNAME` (e.g., `ollama run orca-mini`) in a terminal
+3. While `ollama` is serving the model run `litellm --model ollama/MODELNAME --drop_params` (e.g, `litellm --model ollama/orca-mini --drop_param`) in a second terminal to create an OpenAI API interface to the model.
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Chat: Model | No | (online) OpenAI or compatible: custom model |
+| Chat: OpenAI (or compatible) custom model ID | Yes | ollama/MODELNAME |
+| Chat: Custom model is a conversation model | Yes | Yes |
+| Chat: Custom model API endpoint | Yes | http://0.0.0.0:8000/chat/completions |
+
+
 ## Annotate note with Jarvis
 
 Jarvis can automatically annotate your notes based on their content in 4 ways: By setting the title of the note; by adding a summary section; by adding links to related notes; and by adding tags. These annotations are performed when executing the command / button `Annotate note with Jarvis`. Each of these 4 features can be turned on or off in the settings in order to customize the behavior of the command. In addition, each sub-command can be run separately.
