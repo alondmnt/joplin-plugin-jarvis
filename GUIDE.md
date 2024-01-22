@@ -60,28 +60,16 @@ Here is an example of how to set up Claude V2 via [OpenRouter](https://openroute
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | http://0.0.0.0:8000/chat/completions |
 
-### Offline embedding model with LiteLLM/Xinference
+### Offline embedding model with Xinference
 
-1. Install [LiteLLM](https://docs.litellm.ai/docs/) and [Xinference](https://github.com/xorbitsai/inference)
-2. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/index.html) and launch it from the Xinference GUI.
-3. Add the Xinference model to a [LiteLLM `config.yml`](https://docs.litellm.ai/docs/proxy/configs), for example like this: 
-```
-model_list: 
-  - model_name: multilingual-e5-large
-    litellm_params:
-      model: xinference/multilingual-e5-large
-      api_base: "http://0.0.0.0:9997/v1/"
-      api_key: "anything"
-litellm_settings:
-  drop_params: True
-```
-4. Launch the LiteLLM proxy with `litellm --config /path/to/config.yaml`   
+1. [Xinference](https://github.com/xorbitsai/inference)
+2. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/index.html) and launch it from the Xinference GUI.  
 
 | Setting | Advanced | Value |
 |---------|----------|-------|
 | Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
 | Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
-| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://0.0.0.0:8000/embeddings |
+| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/embeddings |
 
 ## Annotate note with Jarvis
 
