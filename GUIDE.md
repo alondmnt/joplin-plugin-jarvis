@@ -62,7 +62,7 @@ Here is an example of how to set up Claude V2 via [OpenRouter](https://openroute
 
 ### Offline embedding model with Xinference
 
-1. [Xinference](https://github.com/xorbitsai/inference)
+1. Install [Xinference](https://github.com/xorbitsai/inference)
 2. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/index.html) and launch it from the Xinference GUI.  
 
 | Setting | Advanced | Value |
