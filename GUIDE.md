@@ -60,6 +60,16 @@ Here is an example of how to set up Claude V2 via [OpenRouter](https://openroute
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | http://0.0.0.0:8000/chat/completions |
 
+### Offline embedding model with Xinference
+
+1. Install [Xinference](https://github.com/xorbitsai/inference)
+2. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/index.html) and launch it from the Xinference GUI.  
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
+| Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
+| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/embeddings |
 
 ## Annotate note with Jarvis
 
