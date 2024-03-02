@@ -8,13 +8,14 @@
 
 Any model that has an OpenAI-compatible API can (probably) be set up to work with Jarvis. Below are some examples of how to set up a few different models.
 
-| Engine | Offline | Chat | Embedding |
-|--------|---------|------|-----------|
-| [LM Studio](#offline-chat-model-with-lm-studio) | Yes | Yes | Yes | No |
-| [LiteLLM/ollama](#offline-chat-model-with-litellmollama) | Yes | Yes | No |
-| [GPT4All](#offline-chat-model-with-gpt4all) | Yes | Yes | No |
-| [Xinference](#offline-embedding-model-with-xinference) | Yes | No | Yes |
-| [OpenRouter](#openrouter) | No | Yes | No |
+| Engine | Offline | Free | Open Source | Difficulty | Chat | Embedding |
+|--------|---------|------|-------------|------------|------|-----------|
+| [LM Studio](#offline-chat-model-with-lm-studio) | Yes | Yes | No | Easy | Yes | No |
+| [Jan](#offline-chat-model-with-jan) | Yes | Yes | Yes | Easy | Yes | No |
+| [Xinference](#offline-embedding-model-with-xinference) | Yes | Yes | Yes | Intermediate | Not covered | Yes |
+| [LiteLLM/ollama](#offline-chat-model-with-litellmollama) | Yes | Yes | Yes | Intermediate| Yes | Not covered |
+| [GPT4All](#offline-chat-model-with-gpt4all) | Yes | Yes | Yes | Hard | Yes | No |
+| [OpenRouter](#openrouter) | No | No | No | Easy | Yes | No |
 
 ### Offline chat model with LM Studio
 
@@ -31,6 +32,34 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Chat: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | http://127.0.0.1:1234/v1/chat/completions |
+
+### Offline chat model with Jan
+
+1. Download [Jan](https://jan.ai)
+2. Open the Jan app
+3. Download a model, for example: `mistral-ins-7b-q4`
+4. Go to the Local API Server tab, and press Start Server
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Model: OpenAI API Key | No | Something, anything |
+| Chat: Model | No | (online) OpenAI or compatible: custom model |
+| Chat: Timeout (sec) | Yes | 600 |
+| Chat: OpenAI (or compatible) custom model ID | Yes | MODELNAME (e.g. mistral-ins-7b-q4) |
+| Chat: Custom model is a conversation model | Yes | Yes |
+| Chat: Custom model API endpoint | Yes | http://127.0.0.1:1337/v1/chat/completions |
+
+### Offline embedding model with Xinference
+
+1. Install [Xinference](https://github.com/xorbitsai/inference)
+2. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/index.html) and launch it from the Xinference GUI.  
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Model: OpenAI API Key | No | Something, anything |
+| Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
+| Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
+| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/embeddings |
 
 ### Offline chat model with LiteLLM/ollama 
 
@@ -64,18 +93,6 @@ Here is an example of how to set up GPT4All as a local server:
 | Chat: OpenAI (or compatible) custom model ID | Yes | ggml-model-gpt4all-falcon-q4_0 |
 | Chat: Custom model is a conversation model | Yes | No |
 | Chat: Custom model API endpoint | Yes | http://127.0.0.1:4891/v1/completions |
-
-### Offline embedding model with Xinference
-
-1. Install [Xinference](https://github.com/xorbitsai/inference)
-2. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/index.html) and launch it from the Xinference GUI.  
-
-| Setting | Advanced | Value |
-|---------|----------|-------|
-| Model: OpenAI API Key | No | Something, anything |
-| Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
-| Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
-| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/embeddings |
 
 ### OpenRouter
 
