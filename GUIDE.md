@@ -4,6 +4,37 @@
 
 Any model that has an OpenAI-compatible API can (probably) be set up to work with Jarvis.
 
+### Offline chat model with LM Studio
+
+1. Download [LM Studio](https://lmstudio.ai/)
+2. Open the LM Studio app
+3. Download a model
+4. Go to the Local Server tab, and press Start Server
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Model: OpenAI API Key | No | Something, anything |
+| Chat: Model | No | (online) OpenAI or compatible: custom model |
+| Chat: Timeout (sec) | Yes | 600 |
+| Chat: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
+| Chat: Custom model is a conversation model | Yes | Yes |
+| Chat: Custom model API endpoint | Yes | http://127.0.0.1:1234/v1/chat/completions |
+
+### Offline chat model with LiteLLM/ollama 
+
+1. Install [LiteLLM](https://docs.litellm.ai/docs/) and [ollama](https://ollama.ai)
+2. Pick a [LLM model to use from the ollama library](https://ollama.ai/library) and run `ollama run MODELNAME` (e.g., `ollama run orca-mini`) in a terminal
+3. While `ollama` is serving the model run `litellm --model ollama/MODELNAME --drop_params` (e.g, `litellm --model ollama/orca-mini --drop_param`) in a second terminal to create an OpenAI API interface to the model.
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Model: OpenAI API Key | No | Something, anything |
+| Chat: Model | No | (online) OpenAI or compatible: custom model |
+| Chat: Timeout (sec) | Yes | 600 |
+| Chat: OpenAI (or compatible) custom model ID | Yes | ollama/MODELNAME |
+| Chat: Custom model is a conversation model | Yes | Yes |
+| Chat: Custom model API endpoint | Yes | http://127.0.0.1:8000/chat/completions |
+
 ### Offline chat model with GPT4All
 
 Here is an example of how to set up GPT4All as a local server:
@@ -15,25 +46,24 @@ Here is an example of how to set up GPT4All as a local server:
 
 | Setting | Advanced | Value |
 |---------|----------|-------|
+| Model: OpenAI API Key | No | Something, anything |
 | Chat: Model | No | (online) OpenAI or compatible: custom model |
 | Chat: Timeout (sec) | Yes | 600 |
 | Chat: OpenAI (or compatible) custom model ID | Yes | ggml-model-gpt4all-falcon-q4_0 |
 | Chat: Custom model is a conversation model | Yes | No |
-| Chat: Custom model API endpoint | Yes | http://localhost:4891/v1/completions |
+| Chat: Custom model API endpoint | Yes | http://127.0.0.1:4891/v1/completions |
 
-### Offline chat model with LM Studio
+### Offline embedding model with Xinference
 
-1. Download [LM Studio](https://lmstudio.ai/)
-2. Open the LM Studio app
-3. Download a model
-4. Go to the Local Server tab, and press Start Server
+1. Install [Xinference](https://github.com/xorbitsai/inference)
+2. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/index.html) and launch it from the Xinference GUI.  
 
 | Setting | Advanced | Value |
 |---------|----------|-------|
-| Chat: Model | No | (online) OpenAI or compatible: custom model |
-| Chat: Timeout (sec) | Yes | 600 |
-| Chat: Custom model is a conversation model | Yes | Yes |
-| Chat: Custom model API endpoint | Yes | http://localhost:1234/v1/chat/completions |
+| Model: OpenAI API Key | No | Something, anything |
+| Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
+| Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
+| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/embeddings |
 
 ### OpenRouter
 
@@ -46,30 +76,6 @@ Here is an example of how to set up Claude V2 via [OpenRouter](https://openroute
 | Chat: OpenAI (or compatible) custom model ID | Yes | anthropic/claude-2 |
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | https://openrouter.ai/api/v1/chat/completions |
-
-### Offline chat model with LiteLLM/ollama 
-
-1. Install [LiteLLM](https://docs.litellm.ai/docs/) and [ollama](https://ollama.ai)
-2. Pick a [LLM model to use from the ollama library](https://ollama.ai/library) and run `ollama run MODELNAME` (e.g., `ollama run orca-mini`) in a terminal
-3. While `ollama` is serving the model run `litellm --model ollama/MODELNAME --drop_params` (e.g, `litellm --model ollama/orca-mini --drop_param`) in a second terminal to create an OpenAI API interface to the model.
-
-| Setting | Advanced | Value |
-|---------|----------|-------|
-| Chat: Model | No | (online) OpenAI or compatible: custom model |
-| Chat: OpenAI (or compatible) custom model ID | Yes | ollama/MODELNAME |
-| Chat: Custom model is a conversation model | Yes | Yes |
-| Chat: Custom model API endpoint | Yes | http://0.0.0.0:8000/chat/completions |
-
-### Offline embedding model with Xinference
-
-1. Install [Xinference](https://github.com/xorbitsai/inference)
-2. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/index.html) and launch it from the Xinference GUI.  
-
-| Setting | Advanced | Value |
-|---------|----------|-------|
-| Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
-| Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
-| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/embeddings |
 
 ## Annotate note with Jarvis
 
