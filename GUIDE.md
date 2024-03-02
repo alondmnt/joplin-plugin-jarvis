@@ -1,8 +1,20 @@
 # Jarvis Guide
 
+- [Setup a custom model](#setup-a-custom-model)
+- [Annotate note with Jarvis](#annotate-note-with-jarvis)
+- [Chat with your notes](#chat-with-your-notes)
+
 ## Setup a custom model
 
-Any model that has an OpenAI-compatible API can (probably) be set up to work with Jarvis.
+Any model that has an OpenAI-compatible API can (probably) be set up to work with Jarvis. Below are some examples of how to set up a few different models.
+
+| Engine | Offline | Chat | Embedding |
+|--------|---------|------|-----------|
+| [LM Studio](#offline-chat-model-with-lm-studio) | Yes | Yes | Yes | No |
+| [LiteLLM/ollama](#offline-chat-model-with-litellmollama) | Yes | Yes | No |
+| [GPT4All](#offline-chat-model-with-gpt4all) | Yes | Yes | No |
+| [Xinference](#offline-embedding-model-with-xinference) | Yes | No | Yes |
+| [OpenRouter](#openrouter) | No | Yes | No |
 
 ### Offline chat model with LM Studio
 
