@@ -178,14 +178,23 @@ export async function query_embedding(input: string, model: string, api_key: str
 }
 
 export async function query_edit(input: string, instruction: string, settings: JarvisSettings): Promise<string> {
+  const promptEdit = `Rewrite the given the INPUT_TEXT in markdown, edit it according to the PROMPT provided, maintaining its original language. Ensure the output matches the language identified in the input text.  
+  [Prioritize clarity and accurate portrayal of the original information and context in the new style. The output should retain explicit markdown decorations (e.g., [link text](url), **bold**, _italic_) exactly as they appear in the INPUT_TEXT]
+
+  INPUT_TEXT: 
+  ${input}
+  
+  PROMPT: ${instruction}`;
   const responseParams = {
-    input: input,
-    instruction: instruction,
-    model: 'text-davinci-edit-001',
+    model: 'gpt-3.5-turbo-instruct',
+    prompt: promptEdit,
+    max_tokens: 4096 - promptEdit.length,
+    frequency_penalty: 0,
+    presence_penalty: 0,
     temperature: settings.temperature,
     top_p: settings.top_p,
   }
-  const response = await fetch('https://api.openai.com/v1/edits', {
+  const response = await fetch('https://api.openai.com/v1/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
