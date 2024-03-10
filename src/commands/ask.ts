@@ -89,7 +89,7 @@ async function edit_action(dialogHandle: string, input: string, settings: any): 
   ];
   let edit: string;
   let resultValue: string = input;
-
+  let resultLabel: string = 'Selected text';
   // add iteration variable so cycles can be monitored
   let iteration = 0;
   do {
@@ -99,11 +99,11 @@ async function edit_action(dialogHandle: string, input: string, settings: any): 
         <form name="ask">
           <h3>Edit with Jarvis</h3>
           <div id="resultTextbox">
-            <label for="result">Selected text</label><br>
+            <label for="result">${resultLabel}</label><br>
             <textarea id="taresult" name="result">${resultValue}</textarea>
           </div>
           <div id="promptTextbox">
-            <label for="prompt">prompt</label><br>
+            <label for="prompt">Prompt</label><br>
             <textarea id="taprompt" name="prompt" placeholder="How would you like Jarvis to edit?"></textarea>
           </div>
         </form>
@@ -116,24 +116,29 @@ async function edit_action(dialogHandle: string, input: string, settings: any): 
     result = await joplin.views.dialogs.open(dialogHandle);
 
     if (result.id === "submit" || result.id === "resubmit" || result.id === "clear") {
+      // replace the text in result box with original selection
       if (result.id === "clear") {
         resultValue = input;
+        resultLabel = 'Selected text';
       } else {
         resultValue = await query_edit(result.formData.ask.result, result.formData.ask.prompt, settings);
+        resultLabel = 'Edited text';
       };
+      // re-create dialogue
       await joplin.views.dialogs.setHtml(dialogHandle, `
         <form name="ask">
           <h3>Edit with Jarvis</h3>
           <div id="resultTextbox">
-            <label for="result">Result</label><br>
+            <label for="result">${resultLabel}</label><br>
             <textarea id="taresult" name="result">${resultValue}</textarea>
           </div>
           <div id="promptTextbox">
-            <label for="prompt">prompt</label><br>
+            <label for="prompt">Prompt</label><br>
             <textarea id="taprompt" name="prompt" placeholder="How would you like Jarvis to edit?">${result.formData.ask.prompt}</textarea>
             </div>
         </form>
       `);
+      // recreate button set for the dialogue
       buttons = [
         { id: "resubmit", title: "Re-Submit" },
         { id: "clear", title: "Clear" },
