@@ -1,7 +1,9 @@
 * {
   color: var(--joplin-color);
   background-color: var(--joplin-background-color);
+  margin: 0px;
 }
+/* container with rounded corners */
 #joplin-plugin-content {
   width: 560px;
   height: 420px;
@@ -11,15 +13,46 @@ form {
   height: 400px;
 }
 form > div {
-  margin: 0.5em 0;
+  margin: 1.5em 0;
 }
 form > div > label {
   display: block;
-  margin-bottom: 0.5em;
+  margin-bottom: -15px;
+  padding-left: 4px;
 }
 form > div > textarea {
   width: 98%;
   height: 290px;
+}
+#taresult {
+  padding: 5.200000000000003pt;
+  width: -webkit-fill-available;
+  height: -webkit-fill-available;
+  border-radius: 5px;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: medium;
+  line-height: 21px;
+  background-color: rgb(216, 216, 216);
+  color: rgb(63, 63, 63);
+  border-width: 0;
+}
+#taprompt {
+  padding: 5.200000000000003pt;
+  width: -webkit-fill-available;
+  height: -webkit-fill-available;
+  border-radius: 5px;
+  font-family: Arial, Helvetica, sans-serif;
+  background-color: rgb(238, 238, 238);
+  border-width: 0;
+}
+#resultTextbox {
+  width: 100%;
+  height: 250px;
+}
+#promptTextbox {
+  width: 100%;
+  height: 100px;
+  border-radius: 15px;
 }
 #research_prompt {
   height: 220px;
