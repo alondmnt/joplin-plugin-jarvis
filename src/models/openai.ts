@@ -209,7 +209,8 @@ export async function query_edit(input: string, instruction: string, settings: J
     await joplin.views.dialogs.showMessageBox('Error:' + data.error.message);
     return '';
   }
-  return data.choices[0].text;
+  // Remove leading and trailing whitespace or newline characters
+  return data.choices[0].text.trim();
 }
 
 // returns the last messages up to a fraction of the total length
