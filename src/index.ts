@@ -64,6 +64,7 @@ joplin.plugins.register({
     joplin.commands.register({
       name: 'jarvis.edit',
       label: 'Edit selection with Jarvis',
+      iconName: 'far fa-edit',
       execute: async () => {
         edit_with_jarvis(dialogAsk);
       }
@@ -221,10 +222,12 @@ joplin.plugins.register({
     );
 
     joplin.views.toolbarButtons.create('jarvis.toolbar.notes.find', 'jarvis.notes.find', ToolbarButtonLocation.EditorToolbar);
+    joplin.views.toolbarButtons.create('jarvis.toolbar.edit', 'jarvis.edit', ToolbarButtonLocation.EditorToolbar);
     joplin.views.toolbarButtons.create('jarvis.toolbar.chat', 'jarvis.chat', ToolbarButtonLocation.EditorToolbar);
     joplin.views.toolbarButtons.create('jarvis.toolbar.annotate', 'jarvis.annotate.button', ToolbarButtonLocation.EditorToolbar);
 
     joplin.views.menuItems.create('jarvis.context.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
+    joplin.views.menuItems.create('jarvis.context.edit', 'jarvis.edit', MenuItemLocation.EditorContextMenu);
 
     await joplin.workspace.onNoteSelectionChange(async () => {
         if (model_embed.model === null) {
