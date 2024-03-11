@@ -15,7 +15,13 @@ form {
 form > div {
   margin: 1.5em 0;
 }
+
+}
 form > div > label {
+  display: block;
+  margin-bottom: 0.5em;
+}
+#resultTextbox label, #promptTextbox label {
   display: block;
   margin-bottom: -15px;
   padding-left: 4px;
