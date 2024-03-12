@@ -178,10 +178,11 @@ export async function query_embedding(input: string, model: string, api_key: str
 }
 
 export async function query_edit(input: string, instruction: string, settings: JarvisSettings): Promise<string> {
-  const promptEdit = `Rewrite the given the INPUT_TEXT in markdown, edit it according to the PROMPT provided, maintaining its original language. Ensure the output matches the language identified in the input text.  
-  [Prioritize clarity and accurate portrayal of the original information and context in the new style. The output should retain explicit markdown decorations (e.g., [link text](url), **bold**, _italic_) exactly as they appear in the INPUT_TEXT]
-
-  INPUT_TEXT: 
+  const promptEdit = `Rewrite the given the INPUT_TEXT in markdown, edit it according to the PROMPT provided, maintaining its original language. Output in markdown format. Do not use links. Do not include literal content from the given prompt.
+  Use this format, replacing text in brackets with the result. Do not include the brackets in the output: 
+  [Output based on the prompt, in markdown format.]
+  
+  INPUT_TEXT:
   ${input}
   
   PROMPT: ${instruction}`;
