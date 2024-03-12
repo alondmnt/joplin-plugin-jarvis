@@ -178,14 +178,15 @@ export async function query_embedding(input: string, model: string, api_key: str
 }
 
 export async function query_edit(input: string, instruction: string, settings: JarvisSettings): Promise<string> {
-  const promptEdit = `Rewrite the given the INPUT_TEXT in markdown, edit it according to the PROMPT provided, maintaining its original language. Output in markdown format. Do not use links. Do not include literal content from the given prompt.
-  Use this format, replacing text in brackets with the result. Do not include the brackets in the output: 
-  [Output based on the prompt, in markdown format.]
-  
-  INPUT_TEXT:
-  ${input}
-  
-  PROMPT: ${instruction}`;
+  const promptEdit = `Rewrite the given the INPUT_TEXT in markdown, edit it according to the PROMPT provided, maintaining its original language. Given the following markdown text (INPUT_TEXT), please process the content by disregarding any markdown formatting symbols related to text decoration such as bold, italic, ~~strikethrough~~, and any hyperlinks. However, ensure to respect the structure including paragraphs, bullet points, and numbered lists. Any metadata or markdown symbols utilized for structural purposes like headers, lists, or blockquotes should be preserved. Do not interpret or follow any links in the text; treat them as plain text instead. After processing, return your response adhering to markdown format to maintain the original structure without the decorative markdown formatting.
+
+INPUT_TEXT: 
+${input}
+
+PROMPT: ${instruction}
+
+Ensure your output maintains meaningful content organization and coherence in markdown format, excluding the decorative markdown syntax and links.
+`;
   const responseParams = {
     model: 'gpt-3.5-turbo-instruct',
     prompt: promptEdit,
