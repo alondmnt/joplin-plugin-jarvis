@@ -1,7 +1,6 @@
 import joplin from 'api';
 import { DialogResult } from 'api/types';
 import { TextGenerationModel } from '../models/models';
-import { query_edit } from '../models/openai';
 import { JarvisSettings, get_settings } from '../ux/settings';
 
 
@@ -69,25 +68,24 @@ export async function get_completion_params(
   return result;
 }
 
-export async function edit_with_jarvis(dialogHandle: string) {
+export async function edit_with_jarvis(model_gen: TextGenerationModel, dialogHandle: string) {
   let selection = await joplin.commands.execute('selectedText');
   if (!selection) { return; }
 
   const settings = await get_settings();
-  const result = await edit_action(dialogHandle, selection, settings);
+  const result = await edit_action(model_gen, dialogHandle, selection, settings);
 
   if (!result) { return; }
   if (result.id === "cancel") { return; }
 }
 
-async function edit_action(dialogHandle: string, input: string, settings: any): Promise<DialogResult> {
+async function edit_action(model_gen: TextGenerationModel, dialogHandle: string, input: string, settings: any): Promise<DialogResult> {
   let result: DialogResult;
   let buttons = [
     { id: "submit", title: "Submit" },
     { id: "replace", title: "Replace" },
     { id: "cancel", title: "Cancel" }
   ];
-  let edit: string;
   let resultValue: string = input;
   let resultLabel: string = 'Selected text';
   // add iteration variable so cycles can be monitored
@@ -121,7 +119,7 @@ async function edit_action(dialogHandle: string, input: string, settings: any): 
         resultValue = input;
         resultLabel = 'Selected text';
       } else {
-        resultValue = await query_edit(result.formData.ask.result, result.formData.ask.prompt, settings);
+        resultValue = await query_edit(model_gen, result.formData.ask.result, result.formData.ask.prompt);
         resultLabel = 'Edited text';
       };
       // re-create dialogue
@@ -170,4 +168,18 @@ export function build_prompt(promptFields: any): string {
   if (promptFields.prompt) { prompt += `${promptFields.prompt}\n`; }
   if (promptFields.reasoning) { prompt += `${promptFields.reasoning}\n`; }
   return prompt;
+}
+
+export async function query_edit(model_gen: TextGenerationModel, input: string, instruction: string): Promise<string> {
+  const promptEdit = `Rewrite the given the INPUT_TEXT in markdown, edit it according to the PROMPT provided, maintaining its original language. Given the following markdown text (INPUT_TEXT), please process the content by disregarding any markdown formatting symbols related to text decoration such as bold, italic, ~~strikethrough~~, and any hyperlinks. However, ensure to respect the structure including paragraphs, bullet points, and numbered lists. Any metadata or markdown symbols utilized for structural purposes like headers, lists, or blockquotes should be preserved. Do not interpret or follow any links in the text; treat them as plain text instead. After processing, return your response adhering to markdown format to maintain the original structure without the decorative markdown formatting.
+
+    INPUT_TEXT: 
+    ${input}
+
+    PROMPT: ${instruction}
+
+    Ensure your output maintains meaningful content organization and coherence in markdown format, excluding the decorative markdown syntax and links.
+  `;
+
+  return await model_gen.complete(promptEdit);
 }

@@ -66,7 +66,7 @@ joplin.plugins.register({
       label: 'Edit selection with Jarvis',
       iconName: 'far fa-edit',
       execute: async () => {
-        edit_with_jarvis(dialogAsk);
+        edit_with_jarvis(model_gen, dialogAsk);
       }
     });
 
