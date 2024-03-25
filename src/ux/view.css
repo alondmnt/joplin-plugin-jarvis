@@ -1,7 +1,11 @@
 * {
   color: var(--joplin-color);
   background-color: var(--joplin-background-color);
+  margin: 0px;
+  border-radius: 3px;
+  font-family: Avenir, Arial, sans-serif;
 }
+/* container with rounded corners */
 #joplin-plugin-content {
   width: 560px;
   height: 420px;
@@ -11,18 +15,45 @@ form {
   height: 400px;
 }
 form > div {
-  margin: 0.5em 0;
+  margin: 2px 0;
 }
 form > div > label {
   display: block;
-  margin-bottom: 0.5em;
+  margin-bottom: 2px;
+}
+#resultTextbox label, #promptTextbox label {
+  display: block;
+  margin-bottom: -15px;
+  padding-left: 4px;
 }
 form > div > textarea {
   width: 98%;
   height: 290px;
 }
+#taresult {
+  padding: 2px;
+  width: -webkit-fill-available;
+  height: -webkit-fill-available;
+  margin-bottom: 20px;
+}
+#taprompt {
+  padding: 2px;
+  width: -webkit-fill-available;
+  height: -webkit-fill-available;
+}
+#resultTextbox {
+  width: 98%;
+  height: 250px;
+}
+#promptTextbox {
+  width: 98%;
+  height: 100px;
+}
 #research_prompt {
-  height: 220px;
+  height: 240px;
+}
+#instruction, #scope, #role, #reasoning {
+  margin: 5px 0;
 }
 #instruction {
   width: 30%;

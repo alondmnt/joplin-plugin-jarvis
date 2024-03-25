@@ -84,7 +84,7 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gpt-4': 8192,
   'gpt-3.5-turbo-16k': 16384,
   'gpt-3.5-turbo': 4096,
-  'text-davinci-003': 4096,
+  'gpt-3.5-turbo-instruct': 4096,
   'bison-001': 8196,
 };
 
@@ -282,7 +282,7 @@ export async function register_settings() {
         'gpt-4': '(online) OpenAI: gpt-4',
         'gpt-3.5-turbo-16k': '(online) OpenAI: gpt-3.5-turbo-16k',
         'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo',
-        'text-davinci-003': '(online) OpenAI: text-davinci-003',
+        'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct (successor of text-davinci-003 )',
         'openai-custom': '(online) OpenAI or compatible: custom model',
         'bison-001': '(online) Google PaLM',
         'Hugging Face': '(online) Hugging Face',

@@ -20,7 +20,6 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
     model = new HuggingFaceGeneration(settings);
 
   } else if (settings.model.includes('gpt') ||
-             settings.model.includes('davinci') ||
              settings.model.includes('openai')) {
     model = new OpenAIGeneration(settings);
 

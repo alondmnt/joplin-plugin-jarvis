@@ -177,32 +177,6 @@ export async function query_embedding(input: string, model: string, api_key: str
   return vec;
 }
 
-export async function query_edit(input: string, instruction: string, settings: JarvisSettings): Promise<string> {
-  const responseParams = {
-    input: input,
-    instruction: instruction,
-    model: 'text-davinci-edit-001',
-    temperature: settings.temperature,
-    top_p: settings.top_p,
-  }
-  const response = await fetch('https://api.openai.com/v1/edits', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + settings.openai_api_key,
-    },
-    body: JSON.stringify(responseParams),
-  });
-  const data = await response.json();
-
-  // handle errors
-  if (data.choices === undefined) {
-    await joplin.views.dialogs.showMessageBox('Error:' + data.error.message);
-    return '';
-  }
-  return data.choices[0].text;
-}
-
 // returns the last messages up to a fraction of the total length
 function select_messages(
     messages: Array<{ role: string; content: string; }>, fraction: number) {
