@@ -34,6 +34,16 @@ const manifest = readManifest(manifestPath);
 const pluginArchiveFilePath = path.resolve(publishDir, `${manifest.id}.jpl`);
 const pluginInfoFilePath = path.resolve(publishDir, `${manifest.id}.json`);
 
+const { builtinModules } = require('node:module');
+
+// Webpack5 doesn't polyfill by default and displays a warning when attempting to require() built-in
+// node modules. Set these to false to prevent Webpack from warning about not polyfilling these modules.
+// We don't need to polyfill because the plugins run in Electron's Node environment.
+const moduleFallback = {};
+for (const moduleName of builtinModules) {
+	moduleFallback[moduleName] = false;
+}
+
 function validatePackageJson() {
 	const content = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 	if (!content.name || content.name.indexOf('joplin-plugin-') !== 0) {
@@ -210,14 +220,43 @@ const pluginConfig = Object.assign({}, baseConfig, {
 	],
 });
 
-const extraScriptConfig = Object.assign({}, baseConfig, {
+// These libraries can be included with require(...) or
+// joplin.require(...) from content scripts.
+const externalContentScriptLibraries = [
+	'@codemirror/view',
+	'@codemirror/state',
+	'@codemirror/language',
+	'@codemirror/autocomplete',
+	'@codemirror/commands',
+	'@codemirror/highlight',
+	'@codemirror/lint',
+	'@codemirror/lang-html',
+	'@codemirror/lang-markdown',
+	'@codemirror/language-data',
+	'@lezer/common',
+	'@lezer/markdown',
+	'@lezer/highlight',
+];
+
+const extraScriptExternals = {};
+for (const library of externalContentScriptLibraries) {
+	extraScriptExternals[library] = { commonjs: library };
+}
+
+const extraScriptConfig = {
+	...baseConfig,
 	resolve: {
 		alias: {
 			api: path.resolve(__dirname, 'api'),
 		},
+		fallback: moduleFallback,
 		extensions: ['.js', '.tsx', '.ts', '.json'],
 	},
-});
+
+	// We support requiring @codemirror/... libraries through require('@codemirror/...')
+	externalsType: 'commonjs',
+	externals: extraScriptExternals,
+};
 
 const createArchiveConfig = {
 	stats: 'errors-only',
