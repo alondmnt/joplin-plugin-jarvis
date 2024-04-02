@@ -265,14 +265,26 @@ function get_global_commands(text: string): ParsedData {
 }
 
 async function replace_selection(text: string) {
-  await joplin.commands.execute('editor.execCommand', {
-		name: 'replaceSelection',
-		args: [text, 'around'],
-	});
+	// this works with the rich text editor and CodeMirror 5/6
+  await joplin.commands.execute('replaceSelection', text);
 
-	// this works also with the rich text editor
-	const editedText = await joplin.commands.execute('selectedText');
-	if (editedText != text) {
-		await joplin.commands.execute('replaceSelection', text);
-	}
+  // wait for 0.5 sec for the note to update
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  // cleanup note from phrases
+  const phrases = [
+    '\n\nGenerating response...',
+    '\n\nGenerating notes response...'
+  ];
+  if (!phrases.includes(text)) {
+    const note = await joplin.workspace.selectedNote();
+
+    let newBody = note.body
+    for (const phrase of phrases) {
+      newBody = newBody.replace(phrase, '');
+    }
+
+    await joplin.commands.execute('editor.setText', newBody);
+    await joplin.data.put(['notes', note.id], null, { body: newBody });
+  }
 }
