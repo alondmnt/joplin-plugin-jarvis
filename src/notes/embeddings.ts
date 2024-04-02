@@ -235,6 +235,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
   let embd: BlockEmbedding;
   let selected: BlockEmbedding[] = [];
   let note_idx = 0;
+  let last_title = '';
 
   for (let i=0; i<embeddings.length; i++) {
     embd = embeddings[i];
@@ -262,15 +263,26 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
       continue;
     }
 
-    note_idx += 1;
-    let decoration = `\n# note ${note_idx}:\n${embd.title}`;
+    let decoration = '';
+    const is_new_note = (last_title !== embd.title);
+    if (is_new_note) {
+      console.log('New  note:', embd.title, '\nLast note:', last_title);
+      // start a new note section
+      last_title = embd.title;
+      note_idx += 1;
+      decoration = `\n# note ${note_idx}:\n${embd.title}`;
+    }
+
     const block_tokens = model_gen.count_tokens(decoration + '\n' + block_text);
     if (token_sum + block_tokens > max_length) {
       break;
     }
     text += decoration + '\n' + block_text;
     token_sum += block_tokens;
-    selected.push(embd);
+
+    if (is_new_note) {
+      selected.push(embd);
+    }
   };
   return [text, selected];
 }
@@ -472,7 +484,7 @@ export async function get_next_blocks(block: BlockEmbedding, embeddings: BlockEm
   if (next_blocks.length === 0) {
     return [];
   }
-  return await add_note_title(next_blocks.slice(0, n));
+  return next_blocks.slice(0, n);
 }
 
 // given a block, find the previous n blocks in the same note and return them
@@ -482,7 +494,7 @@ export async function get_prev_blocks(block: BlockEmbedding, embeddings: BlockEm
   if (prev_blocks.length === 0) {
     return [];
   }
-  return await add_note_title(prev_blocks.slice(0, n));
+  return prev_blocks.slice(0, n);
 }
 
 // given a block, find the nearest n blocks and return them
@@ -496,7 +508,7 @@ export async function get_nearest_blocks(block: BlockEmbedding, embeddings: Bloc
   }
   ).filter((embd) => (embd.similarity >= settings.notes_min_similarity) && (embd.length >= settings.notes_min_length));
 
-  return await add_note_title(nearest.sort((a, b) => b.similarity - a.similarity).slice(1, n+1));
+  return nearest.sort((a, b) => b.similarity - a.similarity).slice(1, n+1);
 }
 
 // calculate the hash of a string
