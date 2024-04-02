@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
+import { ContentScriptType, MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import * as debounce from 'lodash.debounce';
 import { annotate_title, annotate_summary, annotate_tags, annotate_links } from './commands/annotate';
 import { ask_jarvis, edit_with_jarvis } from './commands/ask';
@@ -35,6 +35,17 @@ joplin.plugins.register({
     let update_note_db_debounce = debounce(update_note_db, delay_db_update * 1000, {leading: true, trailing: false});
 
     let model_gen = await load_generation_model(settings);
+
+    await joplin.contentScripts.register(
+      ContentScriptType.CodeMirrorPlugin,
+      'jarvis.cm5scroller',
+      './content_scripts/cm5scroller.js',
+    );
+    await joplin.contentScripts.register(
+      ContentScriptType.CodeMirrorPlugin,
+      'jarvis.cm6scroller',
+      './content_scripts/cm6scroller.js',
+    );
 
     joplin.commands.register({
       name: 'jarvis.ask',
@@ -246,7 +257,7 @@ joplin.plugins.register({
         if (message.line > 0) {
           await new Promise(res => setTimeout(res, delay_scroll * 1000));
           await joplin.commands.execute('editor.execCommand', {
-            name: 'sidebar_cm_scrollToLine',
+            name: 'scrollToJarvisLine',
             args: [message.line - 1]
           });
         }
