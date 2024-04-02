@@ -11,6 +11,7 @@ import { BlockEmbedding } from '../notes/embeddings';  // maybe move definition 
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from '../notes/db';
 
 tf.setBackend('webgl');
+const test_prompt = 'I am conducting a communitcation test. I need you to reply with a single word and absolutely nothing else: "Ack".';
 
 export async function load_generation_model(settings: JarvisSettings): Promise<TextGenerationModel> {
   let model: TextGenerationModel = null;
@@ -234,7 +235,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     }
 
     try {
-      const vec = await this.embed('Hello world');
+      const vec = await this.embed(test_prompt);
     } catch (e) {
       console.log(`HuggingFaceEmbedding failed to load: ${e}`);
       this.model = null;
@@ -326,7 +327,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     console.log(this.id);
 
     try {
-      const vec = await this.embed('Hello world');
+      const vec = await this.embed(test_prompt);
     } catch (e) {
       console.log(`OpenAIEmbedding failed to load: ${e}`);
       this.model = null;
@@ -373,7 +374,7 @@ class PaLMEmbedding extends TextEmbeddingModel {
     console.log(this.id);
 
     try {
-      const vec = await this.embed('Hello world');
+      const vec = await this.embed(test_prompt);
     } catch (e) {
       console.log(`PaLMEmbedding failed to load: ${e}`);
       this.model = null;
@@ -597,7 +598,7 @@ export class HuggingFaceGeneration extends TextGenerationModel {
     }
 
     try {
-      const response = await this.complete('Hello world');
+      const response = await this.complete(test_prompt);
     } catch (e) {
       console.log(`HuggingFaceGeneration failed to load: ${e}`);
       this.model = null;
@@ -689,7 +690,7 @@ export class OpenAIGeneration extends TextGenerationModel {
     this.model = this.id;  // anything other than null
 
     try {
-      const vec = await this.complete('Hello world');
+      const vec = await this.complete(test_prompt);
     } catch (e) {
       console.log(`OpenAIGeneration failed to load: ${e}`);
       this.model = null;
@@ -750,7 +751,7 @@ export class PaLMGeneration extends TextGenerationModel {
     this.model = this.id;  // anything other than null
 
     try {
-      const vec = await this._complete('Hello world');
+      const vec = await this._complete(test_prompt);
     } catch (e) {
         console.log(`PaLMGeneration failed to load: ${e}`);
         this.model = null;
