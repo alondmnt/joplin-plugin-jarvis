@@ -1,4 +1,5 @@
 import joplin from 'api';
+const fs = require('fs');
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { encodingForModel } from 'js-tiktoken';
@@ -171,7 +172,26 @@ class USEEmbedding extends TextEmbeddingModel {
 
   async _load_model() {
     try {
-      this.model = await use.load();
+      const data_dir = await joplin.plugins.dataDir();
+      try {
+        this.model = await use.load({
+          modelUrl: 'indexeddb://jarvisUSEModel',
+          vocabUrl: data_dir + '/use_vocab.json'
+        });
+        console.log('USEEmbedding loaded from cache');
+
+      } catch (e) {
+        this.model = await use.load();
+        console.log('USEEmbedding loaded from web');
+
+        this.model.model.save('indexeddb://jarvisUSEModel');
+        console.log('USEEmbedding saved to cache');
+
+        const vocabString = JSON.stringify(this.model.tokenizer.vocabulary);
+        fs.writeFileSync(data_dir + '/use_vocab.json', vocabString);
+        console.log('USEEmbedding vocabulary saved to cache');
+      }
+
     } catch (e) {
       console.log(`USEEmbedding failed to load: ${e}`);
       this.model = null;
