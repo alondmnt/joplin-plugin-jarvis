@@ -14,39 +14,28 @@ export async function chat_with_jarvis(model_gen: TextGenerationModel) {
   await replace_selection(await model_gen.chat(prompt));
 }
 
-export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, panel: string) {
+export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, panel: string, preview: boolean=false) {
   if (model_embed.model === null) { return; }
 
   const settings = await get_settings();
-  await replace_selection('\n\nGenerating notes response...');
+  if (!preview) { await replace_selection('\n\nGenerating notes response...'); }
   const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings);
   if (nearest[0].embeddings.length === 0) {
-    await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix);
+    if (~preview) { await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix); }
     return;
   }
 
   const [note_text, selected_embd] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.memory_tokens, prompt.search);
   if (note_text === '') {
-    await replace_selection(settings.chat_prefix + 'Could not include notes due to context limits. Try to increase memory tokens in the settings.' + settings.chat_suffix);
+    if (!preview) { await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix); }
     return;
   }
   const note_links = extract_blocks_links(selected_embd);
   const decorate = "\nRespond to the user's prompt above. The following are the user's own notes. You you may refer to the content of any of the notes, and extend it, but only when it is relevant to the prompt. Always cite the [note number] of each note that you use.\n\n";
 
-  let completion = await model_gen.chat(prompt.prompt + decorate + note_text + settings.chat_prefix);
-  await replace_selection(completion.replace(model_gen.user_prefix, `\n\n${note_links}${model_gen.user_prefix}`));
+  let completion = await model_gen.chat(prompt.prompt + decorate + note_text + settings.chat_prefix, preview);
+  if (!preview) { await replace_selection(completion.replace(model_gen.user_prefix, `\n\n${note_links}${model_gen.user_prefix}`)); }
   nearest[0].embeddings = selected_embd
-  update_panel(panel, nearest, settings);
-}
-
-export async function preview_chat_notes_context(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, panel: string) {
-  if (model_embed.model === null) { return; }
-
-  const settings = await get_settings();
-  const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings);
-  console.log(prompt);
-  const [note_text, selected_embd] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.memory_tokens, prompt.search);
-  nearest[0].embeddings = selected_embd;
   update_panel(panel, nearest, settings);
 }
 

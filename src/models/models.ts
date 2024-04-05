@@ -13,6 +13,7 @@ import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from 
 
 tf.setBackend('webgl');
 const test_prompt = 'I am conducting a communitcation test. I need you to reply with a single word and absolutely nothing else: "Ack".';
+const dialogPreview = joplin.views.dialogs.create('joplin.preview.dialog')
 
 export async function load_generation_model(settings: JarvisSettings): Promise<TextGenerationModel> {
   let model: TextGenerationModel = null;
@@ -461,11 +462,15 @@ export class TextGenerationModel {
     await this._load_model();  // model-specific initialization
   }
 
-  async chat(prompt: string): Promise<string> {
+  async chat(prompt: string, preview: boolean=false): Promise<string> {
     await this.limit_rate();
 
     let response = '';
     prompt = this._sanitize_prompt(prompt);
+    if (preview) {
+      await this._preview_chat(prompt);
+      return;
+    }
     if (this.type === 'chat') {
       const chat_prompt = this._parse_chat(prompt);
       response = await timeout_with_retry(this.timeout, () => this._chat(chat_prompt));
@@ -571,6 +576,51 @@ export class TextGenerationModel {
     }
 
     return chat;
+  }
+
+  async _preview_chat(chat: string) {
+    const chat_entries = this._parse_chat(chat);
+
+    // const chat_entries = [{role: "assistant", content: chat}]
+    await joplin.views.dialogs.setHtml(await dialogPreview, `
+      <style>
+        .chat {
+          color: white;
+          display: flex;
+          flex-direction: column;
+          padding: 10px;
+          border: 1px solid #ccc;
+          border-radius: 5px;
+          margin: 5px;
+          font-family: Avenir, Arial, sans-serif;
+          font-size: --var(joplin-font-size);
+        }
+        .system {
+          background-color: #4e4e4e;
+        }
+        .user {
+          background-color: #4f8a4f;
+        }
+        .assistant {
+          background-color: #4c6e7e;
+        }
+        .context {
+          background-color: #61467b;
+        }
+      </style>
+      <div style="max-height: 100vh; width: 100vw; overflow-y: auto;">
+      ${chat_entries.map((entry) => {
+        return `
+          <div class="chat ${entry.role}">
+            <b>${entry.role}</b>
+            ${entry.content.replace(/\n\n/g, '<br>').replace(/\n/g, '<br>')}
+          </div>
+        `;
+      }).join('')}
+      </div>
+    `);
+    await joplin.views.dialogs.setFitToContent(await dialogPreview, false);
+    await joplin.views.dialogs.open(await dialogPreview);
   }
 
   _sanitize_prompt(prompt: string): string {

@@ -3,7 +3,7 @@ import { ContentScriptType, MenuItemLocation, ToolbarButtonLocation } from 'api/
 import * as debounce from 'lodash.debounce';
 import { annotate_title, annotate_summary, annotate_tags, annotate_links } from './commands/annotate';
 import { ask_jarvis, edit_with_jarvis } from './commands/ask';
-import { chat_with_jarvis, chat_with_notes, preview_chat_notes_context } from './commands/chat';
+import { chat_with_jarvis, chat_with_notes } from './commands/chat';
 import { find_notes, update_note_db, skip_db_init_dialog } from './commands/notes';
 import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
@@ -187,7 +187,7 @@ joplin.plugins.register({
         if (model_embed.model === null) {
           await model_embed.initialize();
         }
-        preview_chat_notes_context(model_embed, model_gen, panel);
+        chat_with_notes(model_embed, model_gen, panel, true);
       }
     });
 
