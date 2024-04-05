@@ -266,7 +266,6 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
     let decoration = '';
     const is_new_note = (last_title !== embd.title);
     if (is_new_note) {
-      console.log('New  note:', embd.title, '\nLast note:', last_title);
       // start a new note section
       last_title = embd.title;
       note_idx += 1;
