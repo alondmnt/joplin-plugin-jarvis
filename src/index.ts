@@ -295,6 +295,8 @@ joplin.plugins.register({
           event.keys.includes('chat_openai_model_type') ||
           event.keys.includes('chat_openai_endpoint') ||
           event.keys.includes('max_tokens') ||
+          event.keys.includes('memory_tokens') ||
+          event.keys.includes('notes_context_tokens') ||
           event.keys.includes('temperature') ||
           event.keys.includes('top_p') ||
           event.keys.includes('frequency_penalty') ||

@@ -25,7 +25,7 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
     return;
   }
 
-  const [note_text, selected_embd] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.memory_tokens, prompt.search);
+  const [note_text, selected_embd] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.context_tokens, prompt.search);
   if (note_text === '') {
     if (!preview) { await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix); }
     return;

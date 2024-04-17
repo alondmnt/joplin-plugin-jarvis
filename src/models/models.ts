@@ -431,6 +431,7 @@ export class TextGenerationModel {
   // chat
   public base_chat: Array<ChatEntry> = [];
   public memory_tokens: number = null;
+  public context_tokens: number = null;
   public user_prefix: string = null;
   public model_prefix: string = null;
 
@@ -441,12 +442,13 @@ export class TextGenerationModel {
   public last_request_time: number = 0;
 
   constructor(id: string, max_tokens: number, type: string, memory_tokens: number,
-              user_prefix: string, model_prefix: string, timeout: number) {
+              context_tokens: number, user_prefix: string, model_prefix: string, timeout: number) {
     this.id = id;
     this.max_tokens = max_tokens;
     this.type = type;
 
     this.memory_tokens = memory_tokens;
+    this.context_tokens = context_tokens;
     this.user_prefix = user_prefix;
     this.model_prefix = model_prefix;
 
@@ -652,6 +654,7 @@ export class HuggingFaceGeneration extends TextGenerationModel {
       settings.max_tokens,
       'completion',
       settings.memory_tokens,
+      settings.notes_context_tokens,
       settings.chat_suffix,
       settings.chat_prefix,
       settings.chat_timeout);
@@ -744,6 +747,7 @@ export class OpenAIGeneration extends TextGenerationModel {
       settings.max_tokens,
       type,
       settings.memory_tokens,
+      settings.notes_context_tokens,
       settings.chat_suffix,
       settings.chat_prefix,
       settings.chat_timeout);
@@ -809,6 +813,7 @@ export class PaLMGeneration extends TextGenerationModel {
       settings.max_tokens,
       type,
       settings.memory_tokens,
+      settings.notes_context_tokens,
       settings.chat_suffix,
       settings.chat_prefix,
       settings.chat_timeout);

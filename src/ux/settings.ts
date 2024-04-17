@@ -36,6 +36,7 @@ export interface JarvisSettings {
   /// model
   notes_model: string;
   notes_max_tokens: number;
+  notes_context_tokens: number;
   notes_openai_model_id: string;
   notes_openai_endpoint: string;
   notes_hf_model_id: string;
@@ -150,10 +151,13 @@ export async function get_settings(): Promise<JarvisSettings> {
   let max_tokens = model_max_tokens[model_id] || await joplin.settings.value('max_tokens');
 
   let memory_tokens = await joplin.settings.value('memory_tokens');
-  if (memory_tokens > 0.45*max_tokens) {
+  let notes_context_tokens = await joplin.settings.value('notes_context_tokens');
+  if (memory_tokens + notes_context_tokens > 0.9*max_tokens) {
+    joplin.views.dialogs.showMessageBox(`Memory tokens (${memory_tokens}) + Context tokens (${notes_context_tokens}) must be < 90% of the maximum number of tokens. The settings have been updated (${Math.floor(0.45*max_tokens)}, ${Math.floor(0.45*max_tokens)}).`);
     memory_tokens = Math.floor(0.45*max_tokens);
+    notes_context_tokens = Math.floor(0.45*max_tokens);
+    await joplin.settings.setValue('notes_context_tokens', notes_context_tokens);
     await joplin.settings.setValue('memory_tokens', memory_tokens);
-    joplin.views.dialogs.showMessageBox(`The maximum number of memory tokens is 45% of the maximum number of tokens (${memory_tokens}). The value has been updated.`);
   }
 
   const annotate_tags_method = await joplin.settings.value('annotate_tags_method');
@@ -187,6 +191,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     /// model
     notes_model: await joplin.settings.value('notes_model'),
     notes_max_tokens: await joplin.settings.value('notes_max_tokens'),
+    notes_context_tokens: notes_context_tokens,
     notes_openai_model_id: await joplin.settings.value('notes_openai_model_id'),
     notes_openai_endpoint: await joplin.settings.value('notes_openai_endpoint'),
     notes_hf_model_id: await joplin.settings.value('notes_hf_model_id'),
@@ -379,9 +384,9 @@ export async function register_settings() {
     'memory_tokens': {
       value: 512,
       type: SettingItemType.Int,
-      minimum: 16,
+      minimum: 128,
       maximum: 16384,
-      step: 16,
+      step: 128,
       section: 'jarvis',
       public: true,
       label: 'Chat: Memory tokens',
@@ -454,6 +459,17 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Max tokens',
       description: 'The maximal context to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
+    },
+    'notes_context_tokens': {
+      value: 512,
+      type: SettingItemType.Int,
+      minimum: 128,
+      maximum: 16384,
+      step: 128,
+      section: 'jarvis',
+      public: true,
+      label: 'Notes: Context tokens',
+      description: 'The number of context tokens to extract from notesin "Chat with your notes". Default: 512',
     },
     'notes_openai_model_id': {
       value: '',
