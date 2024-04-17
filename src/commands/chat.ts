@@ -99,6 +99,12 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
   if (prompt.context && prompt.context.length > 0) {
     // replace current note with user-defined context
     note.body = prompt.context;
+  } else {
+    // use last user prompt as context
+    const chat = model_gen._parse_chat(prompt.prompt);
+    if (chat[chat.length -1].role === 'user') {
+      note.body = chat[chat.length - 1].content;
+    }
   }
   if (prompt.not_context.length > 0) {
     // remove from context
