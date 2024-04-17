@@ -586,7 +586,13 @@ export class TextGenerationModel {
   }
 
   async _preview_chat(chat: string) {
-    const chat_entries = this._parse_chat(chat);
+    let chat_entries = this._parse_chat(chat);
+    // get the last chat entry
+    const last_entry = chat_entries[chat_entries.length - 1].content.split('User notes\n"""');
+    chat_entries[chat_entries.length - 1].content = last_entry[0];
+    if (last_entry.length > 1) {
+      chat_entries.push({role: 'context', content: 'User notes\n"""' + last_entry[1]});
+    }
 
     // const chat_entries = [{role: "assistant", content: chat}]
     await joplin.views.dialogs.setHtml(await dialogPreview, `

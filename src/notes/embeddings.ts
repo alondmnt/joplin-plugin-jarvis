@@ -269,7 +269,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
       // start a new note section
       last_title = embd.title;
       note_idx += 1;
-      decoration = `\n# note ${note_idx}:\n${embd.title}`;
+      decoration = `\n# note ${note_idx}: ${embd.title}`;
     }
 
     const block_tokens = model_gen.count_tokens(decoration + '\n' + block_text);
