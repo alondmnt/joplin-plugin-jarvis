@@ -535,9 +535,16 @@ export class TextGenerationModel {
     let current_message: string = null;
     let first_role = false;
 
+    const fence = '"""';  // multi-line string delimiter
+    let inside_fence = false;  // using this to skip quoted conversations with Jarvis
+
     for (const line of lines) {
       const trimmed_line = line.trim();
-      if (trimmed_line.match(this.user_prefix.trim())) {
+      if (trimmed_line === fence) {
+        inside_fence = !inside_fence;
+      }
+
+      if (!inside_fence && trimmed_line.match(this.user_prefix.trim())) {
         if (current_role && current_message) {
           if (first_role) {
             // apparently, the first role was assistant (now it's the user)
@@ -549,7 +556,7 @@ export class TextGenerationModel {
         current_role = convert_roles_to_names ? this.user_prefix : 'user';
         current_message = trimmed_line.replace(this.user_prefix.trim(), '').trim();
 
-      } else if (trimmed_line.match(this.model_prefix.trim())) {
+      } else if (!inside_fence && trimmed_line.match(this.model_prefix.trim())) {
         if (current_role && current_message) {
           chat.push({ role: current_role, content: current_message });
         }
@@ -558,7 +565,7 @@ export class TextGenerationModel {
 
       } else {
         if (current_role && current_message) {
-          current_message += trimmed_line + '\n';
+          current_message += trimmed_line;
         } else {
           // init the chat with the first message
           first_role = true;
@@ -613,7 +620,7 @@ export class TextGenerationModel {
         return `
           <div class="chat ${entry.role}">
             <b>${entry.role}</b>
-            ${entry.content.replace(/\n\n/g, '<br>').replace(/\n/g, '<br>')}
+            ${entry.content.replace(/\n/g, '<br>')}
           </div>
         `;
       }).join('')}
