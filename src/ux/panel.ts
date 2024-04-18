@@ -35,7 +35,7 @@ export async function update_panel(panel: string, nearest: NoteEmbedding[], sett
       <div class="jarvis-semantic-section" >
       ${n.embeddings.map((embd) => `
         <a class="jarvis-semantic-section" href="#" data-note="${embd.id}" data-line="${embd.line}">
-        L${String(embd.line).padStart(4, '0')}: ${embd.title}
+        (${(100 * embd.similarity).toFixed(0)}) L${String(embd.line).padStart(4, '0')}: ${embd.title}
         </a><br>
       `).join('')}
       </div>
