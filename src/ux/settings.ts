@@ -48,6 +48,7 @@ export interface JarvisSettings {
   notes_min_similarity: number;
   notes_min_length: number;
   notes_max_hits: number;
+  notes_context_history: number;
   notes_search_box: boolean;
   notes_attach_prev: number;
   notes_attach_next: number;
@@ -203,6 +204,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_min_similarity: await joplin.settings.value('notes_min_similarity') / 100,
     notes_min_length: await joplin.settings.value('notes_min_length'),
     notes_max_hits: await joplin.settings.value('notes_max_hits'),
+    notes_context_history: await joplin.settings.value('notes_context_history'),
     notes_search_box: await joplin.settings.value('notes_search_box'),
     notes_attach_prev: await joplin.settings.value('notes_attach_prev'),
     notes_attach_next: await joplin.settings.value('notes_attach_next'),
@@ -470,6 +472,17 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Context tokens',
       description: 'The number of context tokens to extract from notesin "Chat with your notes". Default: 1024',
+    },
+    'notes_context_history': {
+      value: 1,
+      type: SettingItemType.Int,
+      minimum: 1,
+      maximum: 20,
+      step: 1,
+      section: 'jarvis',
+      public: true,
+      label: 'Notes: Context history',
+      description: 'The number of user prompts to use as context for "Chat with your notes". Default: 1',
     },
     'notes_openai_model_id': {
       value: '',

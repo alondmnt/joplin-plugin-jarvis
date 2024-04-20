@@ -100,10 +100,11 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
     // replace current note with user-defined context
     note.body = prompt.context;
   } else {
-    // use last user prompt as context
-    const chat = model_gen._parse_chat(prompt.prompt);
-    if (chat[chat.length -1].role === 'user') {
-      note.body = chat[chat.length - 1].content;
+    // use X last user prompt as context
+    const chat = model_gen._parse_chat(prompt.prompt)
+      .filter((msg) => msg.role === 'user');
+    if (chat.length > 0) {
+      note.body = chat.slice(-settings.notes_context_history).map((msg) => msg.content).join('\n');
     }
   }
   if (prompt.not_context.length > 0) {
