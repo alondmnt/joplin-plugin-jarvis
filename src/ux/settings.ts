@@ -461,7 +461,7 @@ export async function register_settings() {
       description: 'The maximal context to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
     },
     'notes_context_tokens': {
-      value: 512,
+      value: 1024,
       type: SettingItemType.Int,
       minimum: 128,
       maximum: 16384,
@@ -469,7 +469,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Context tokens',
-      description: 'The number of context tokens to extract from notesin "Chat with your notes". Default: 512',
+      description: 'The number of context tokens to extract from notesin "Chat with your notes". Default: 1024',
     },
     'notes_openai_model_id': {
       value: '',
