@@ -35,6 +35,7 @@ export interface JarvisSettings {
   // related notes
   /// model
   notes_model: string;
+  notes_parallel_jobs: number;
   notes_max_tokens: number;
   notes_context_tokens: number;
   notes_openai_model_id: string;
@@ -192,6 +193,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     // related notes
     /// model
     notes_model: await joplin.settings.value('notes_model'),
+    notes_parallel_jobs: await joplin.settings.value('notes_parallel_jobs'),
     notes_max_tokens: await joplin.settings.value('notes_max_tokens'),
     notes_context_tokens: notes_context_tokens,
     notes_openai_model_id: await joplin.settings.value('notes_openai_model_id'),
@@ -453,6 +455,17 @@ export async function register_settings() {
         'gecko-001': '(online) Google PaLM [English]',
       }
     },
+    'notes_parallel_jobs': {
+      value: 10,
+      type: SettingItemType.Int,
+      minimum: 1,
+      maximum: 50,
+      step: 1,
+      section: 'jarvis',
+      public: true,
+      label: 'Notes: Parallel jobs',
+      description: 'The number of parallel jobs to use for calculating text embeddings. Default: 10',
+    },
     'notes_max_tokens': {
       value: 512,
       type: SettingItemType.Int,
@@ -473,7 +486,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Context tokens',
-      description: 'The number of context tokens to extract from notesin "Chat with your notes". Default: 1024',
+      description: 'The number of context tokens to extract from notes in "Chat with your notes". Default: 1024',
     },
     'notes_context_history': {
       value: 1,

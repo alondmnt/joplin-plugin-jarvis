@@ -43,30 +43,34 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
   console.log(`load_embedding_model: ${settings.notes_model}`);
 
   if (settings.notes_model === 'Universal Sentence Encoder') {
-    model = new USEEmbedding(settings.notes_max_tokens);
+    model = new USEEmbedding(settings.notes_max_tokens, settings.notes_parallel_jobs);
 
   } else if (settings.notes_model === 'Hugging Face') {
     model = new HuggingFaceEmbedding(
       settings.notes_hf_model_id,
       settings.notes_max_tokens,
+      settings.notes_parallel_jobs,
       settings.notes_hf_endpoint);
 
   } else if (settings.notes_model === 'OpenAI') {
     model = new OpenAIEmbedding(
       'text-embedding-ada-002',
       settings.notes_max_tokens,
+      settings.notes_parallel_jobs
     );
 
   } else if (settings.notes_model === 'openai-custom') {
     model = new OpenAIEmbedding(
       settings.notes_openai_model_id,
       settings.notes_max_tokens,
+      settings.notes_parallel_jobs,
       settings.notes_openai_endpoint);
 
   } else if (settings.notes_model === 'gecko-001') {
     model = new PaLMEmbedding(
       'embedding-' + settings.notes_model,
-      settings.notes_max_tokens);
+      settings.notes_max_tokens,
+      settings.notes_parallel_jobs);
 
   } else {
     console.log(`Unknown model: ${settings.notes_model}`);
@@ -94,9 +98,9 @@ export class TextEmbeddingModel {
   // we're using the above as a default BPE tokenizer just for counting tokens
 
   // rate limits
-  public page_size: number = 50;  // external: notes
-  public page_cycle: number = 20;  // external: pages
-  public wait_period: number = 10;  // external: sec
+  public page_size: number = 10;  // external: notes
+  public page_cycle: number = 100;  // external: pages
+  public wait_period: number = 1;  // external: sec
   public request_queue = [];  // internal rate limit
   public requests_per_second: number = null;  // internal rate limit
   public last_request_time: number = 0;  // internal rate limit
@@ -163,12 +167,13 @@ export class TextEmbeddingModel {
 
 class USEEmbedding extends TextEmbeddingModel {
 
-  constructor(max_tokens: number) {
+  constructor(max_tokens: number, jobs: number) {
     super();
     this.id = 'Universal Sentence Encoder';
     this.version = '1.3.3';
     this.max_block_size = max_tokens;
     this.online = false;
+    this.page_size = jobs;
   }
 
   async _load_model() {
@@ -216,18 +221,15 @@ class USEEmbedding extends TextEmbeddingModel {
 
 class HuggingFaceEmbedding extends TextEmbeddingModel {
   public endpoint: string = null;
-  // rate limits
-  public page_size = 5;  // external: notes
-  public page_cycle = 100;  // external: pages
-  public wait_period = 5;  // external: sec
 
-  constructor(id: string, max_tokens: number, endpoint: string=null) {
+  constructor(id: string, max_tokens: number, jobs: number, endpoint: string=null) {
     super();
     this.id = id
     this.version = '1';
     this.max_block_size = max_tokens;
     this.endpoint = endpoint;
     this.online = true;
+    this.page_size = jobs;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -318,18 +320,15 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
 class OpenAIEmbedding extends TextEmbeddingModel {
   private api_key: string = null;
   private endpoint: string = null;
-  // rate limits
-  public page_size = 5;  // external: notes
-  public page_cycle = 100;  // external: pages
-  public wait_period = 5;  // external: sec
 
-  constructor(id: string, max_tokens: number, endpoint: string=null) {
+  constructor(id: string, max_tokens: number, jobs: number, endpoint: string=null) {
     super();
     this.id = id
     this.version = '1';
     this.max_block_size = max_tokens;
     this.endpoint = endpoint;
     this.online = true;
+    this.page_size = jobs;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -366,17 +365,14 @@ class OpenAIEmbedding extends TextEmbeddingModel {
 
 class PaLMEmbedding extends TextEmbeddingModel {
   private api_key: string = null;
-  // rate limits
-  public page_size = 5;  // external: notes
-  public page_cycle = 100;  // external: pages
-  public wait_period = 5;  // external: sec
   
-  constructor(id: string, max_tokens: number, endpoint: string=null) {
+  constructor(id: string, max_tokens: number, jobs: number, endpoint: string=null) {
     super();
     this.id = id;
     this.version = '1';
     this.max_block_size = max_tokens;
     this.online = true;
+    this.page_size = jobs;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
