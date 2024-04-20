@@ -50,6 +50,7 @@ export interface JarvisSettings {
   notes_max_hits: number;
   notes_context_history: number;
   notes_search_box: boolean;
+  notes_prompt: string;
   notes_attach_prev: number;
   notes_attach_next: number;
   notes_attach_nearest: number;
@@ -206,6 +207,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_max_hits: await joplin.settings.value('notes_max_hits'),
     notes_context_history: await joplin.settings.value('notes_context_history'),
     notes_search_box: await joplin.settings.value('notes_search_box'),
+    notes_prompt: await joplin.settings.value('notes_prompt'),
     notes_attach_prev: await joplin.settings.value('notes_attach_prev'),
     notes_attach_next: await joplin.settings.value('notes_attach_next'),
     notes_attach_nearest: await joplin.settings.value('notes_attach_nearest'),
@@ -589,6 +591,15 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Show search box',
       description: 'Default: true',
+    },
+    'notes_prompt': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis',
+      public: true,
+      advanced: true,
+      label: 'Notes: Custom prompt',
+      description: 'The prompt (or additional instructions) to use for generating "Chat with your notes" responses. Default: empty',
     },
     'notes_attach_prev': {
       value: 0,
