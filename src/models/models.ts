@@ -5,7 +5,7 @@ import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { encodingForModel } from 'js-tiktoken';
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings } from '../ux/settings';
-import { consume_rate_limit, timeout_with_retry } from '../utils';
+import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last } from '../utils';
 import * as openai from './openai';
 import * as palm from './google_palm';
 import { BlockEmbedding } from '../notes/embeddings';  // maybe move definition to this file
@@ -540,30 +540,40 @@ export class TextGenerationModel {
     const fence = '"""';  // multi-line string delimiter
     let inside_fence = false;  // using this to skip quoted conversations with Jarvis
 
+    const user_regex = new RegExp(escape_regex(this.user_prefix));
+    const model_regex = new RegExp(escape_regex(this.model_prefix));
+
     for (const line of lines) {
       const trimmed_line = line.trim();
       if (trimmed_line === fence) {
         inside_fence = !inside_fence;
       }
 
-      if (!inside_fence && trimmed_line.match(this.user_prefix.trim())) {
+      // skip lines inside fences
+      if (!inside_fence && trimmed_line.match(user_regex)) {
         if (current_role && current_message) {
           if (first_role) {
             // apparently, the first role was assistant (now it's the user)
             current_role = convert_roles_to_names ? this.model_prefix : 'assistant';
             first_role = false;
           }
-          chat.push({ role: current_role, content: current_message });
+          chat.push({
+            role: current_role,
+            content: replace_last(current_message, '---', '').trim()
+          });
         }
         current_role = convert_roles_to_names ? this.user_prefix : 'user';
-        current_message = trimmed_line.replace(this.user_prefix.trim(), '').trim();
+        current_message = trimmed_line.replace(user_regex, '').trim();
 
-      } else if (!inside_fence && trimmed_line.match(this.model_prefix.trim())) {
+      } else if (!inside_fence && trimmed_line.match(model_regex)) {
         if (current_role && current_message) {
-          chat.push({ role: current_role, content: current_message });
+          chat.push({
+            role: current_role,
+            content: replace_last(current_message, '---', '').trim()
+          });
         }
         current_role = convert_roles_to_names ? this.model_prefix : 'assistant';
-        current_message = trimmed_line.replace(this.model_prefix.trim(), '').trim()
+        current_message = trimmed_line.replace(model_regex, '').trim()
 
       } else {
         if (current_role && current_message) {

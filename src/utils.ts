@@ -193,3 +193,19 @@ export async function get_all_tags(): Promise<Array<string>> {
 
   return tags;
 }
+
+export function escape_regex(string: string): string {
+  return string
+    .replace(/---/g, '')  // ignore dividing line
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .trim();
+}
+
+// replace the last occurrence of a pattern in a string
+export function replace_last(str: string, pattern: string, replacement: string): string {
+  const index = str.lastIndexOf(pattern);
+  if (index === -1) return str;  // Pattern not found, return original string
+
+  // Construct the new string
+  return str.substring(0, index) + replacement + str.substring(index + pattern.length);
+}
