@@ -497,7 +497,7 @@ export async function register_settings() {
       section: 'jarvis',
       public: true,
       label: 'Notes: Context history',
-      description: 'The number of user prompts to use as context for "Chat with your notes". Default: 1',
+      description: 'The number of user prompts to base notes context on for "Chat with your notes". Default: 1',
     },
     'notes_openai_model_id': {
       value: '',
