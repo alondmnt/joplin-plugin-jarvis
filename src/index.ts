@@ -191,6 +191,16 @@ joplin.plugins.register({
       }
     });
 
+    joplin.commands.register({
+      name: 'jarvis.utils.count_tokens',
+      label: 'Count tokens in selection',
+      execute: async () => {
+        const text = await joplin.commands.execute('selectedText');
+        const token_count = model_gen.count_tokens(text);
+        await joplin.views.dialogs.showMessageBox(`Token count: ${token_count}`);
+      },
+    });
+
     await joplin.commands.register({
       name: 'jarvis.notes.exclude_folder',
       label: 'Exclude notebook from note DB',
@@ -225,6 +235,7 @@ joplin.plugins.register({
       {commandName: 'jarvis.annotate.tags'},
       {commandName: 'jarvis.notes.find', accelerator: 'CmdOrCtrl+Alt+F'},
       {commandName: 'jarvis.notes.preview'},
+      {commandName: 'jarvis.utils.count_tokens'},
       {commandName: 'jarvis.notes.db.update'},
       {commandName: 'jarvis.notes.toggle_panel'},
       {commandName: 'jarvis.notes.exclude_folder'},
@@ -238,6 +249,7 @@ joplin.plugins.register({
     joplin.views.toolbarButtons.create('jarvis.toolbar.annotate', 'jarvis.annotate.button', ToolbarButtonLocation.EditorToolbar);
 
     joplin.views.menuItems.create('jarvis.context.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
+    joplin.views.menuItems.create('jarvis.context.utils.count_tokens', 'jarvis.utils.count_tokens', MenuItemLocation.EditorContextMenu);
     joplin.views.menuItems.create('jarvis.context.edit', 'jarvis.edit', MenuItemLocation.EditorContextMenu);
 
     await joplin.workspace.onNoteSelectionChange(async () => {
