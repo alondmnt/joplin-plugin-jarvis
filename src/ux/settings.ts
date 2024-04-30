@@ -450,7 +450,9 @@ export async function register_settings() {
       options: {
         'Universal Sentence Encoder': '(offline) Universal Sentence Encoder [English]',
         'Hugging Face': '(online) Hugging Face [Multilingual]',
-        'OpenAI': '(online) OpenAI: text-embedding-ada-002 [Multilingual]',
+        'text-embedding-3-small': '(online) OpenAI: text-embedding-3-small [Multilingual]',
+        'text-embedding-3-large': '(online) OpenAI: text-embedding-3-large [Multilingual]',
+        'text-embedding-ada-002': '(online) OpenAI: text-embedding-ada-002 [Multilingual]',
         'openai-custom': '(online) OpenAI or compatible: custom model',
         'gecko-001': '(online) Google PaLM [English]',
       }

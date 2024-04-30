@@ -13,7 +13,7 @@ import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from 
 
 tf.setBackend('webgl');
 const test_prompt = 'I am conducting a communitcation test. I need you to reply with a single word and absolutely nothing else: "Ack".';
-const dialogPreview = joplin.views.dialogs.create('joplin.preview.dialog')
+const dialogPreview = joplin.views.dialogs.create('joplin.preview.dialog');
 
 export async function load_generation_model(settings: JarvisSettings): Promise<TextGenerationModel> {
   let model: TextGenerationModel = null;
@@ -52,7 +52,21 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_parallel_jobs,
       settings.notes_hf_endpoint);
 
-  } else if (settings.notes_model === 'OpenAI') {
+  } else if (settings.notes_model === 'text-embedding-3-small') {
+    model = new OpenAIEmbedding(
+      'text-embedding-3-small',
+      settings.notes_max_tokens,
+      settings.notes_parallel_jobs
+    );
+
+  } else if (settings.notes_model === 'text-embedding-3-large') {
+    model = new OpenAIEmbedding(
+      'text-embedding-3-large',
+      settings.notes_max_tokens,
+      settings.notes_parallel_jobs
+    );
+
+  } else if (settings.notes_model === 'text-embedding-ada-002') {
     model = new OpenAIEmbedding(
       'text-embedding-ada-002',
       settings.notes_max_tokens,
