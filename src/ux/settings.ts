@@ -84,10 +84,10 @@ export interface JarvisSettings {
 };
 
 export const model_max_tokens: { [model: string] : number; } = {
+  'gpt-4-turbo': 128000,
   'gpt-4-32k': 32768,
   'gpt-4': 8192,
-  'gpt-3.5-turbo-16k': 16384,
-  'gpt-3.5-turbo': 4096,
+  'gpt-3.5-turbo': 16384,
   'gpt-3.5-turbo-instruct': 4096,
   'bison-001': 8196,
 };
@@ -289,12 +289,12 @@ export async function register_settings() {
       label: 'Chat: Model',
       description: 'The model to ask / chat / research with Jarvis. Default: gpt-3.5-turbo',
       options: {
-        'gpt-4-32k': '(online) OpenAI: gpt-4-32k',
+        'gpt-4-turbo': '(online) OpenAI: gpt-4-turbo',
         'gpt-4': '(online) OpenAI: gpt-4',
         'gpt-3.5-turbo-16k': '(online) OpenAI: gpt-3.5-turbo-16k',
         'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo',
-        'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct (successor of text-davinci-003 )',
-        'openai-custom': '(online) OpenAI or compatible: custom model',
+        'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct',
+        'openai-custom': '(online/offline) OpenAI or compatible: custom model',
         'bison-001': '(online) Google PaLM',
         'Hugging Face': '(online) Hugging Face',
       }
