@@ -57,7 +57,7 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
 type ParsedData = { [key: string]: string };
 const cmd_block_pattern: RegExp = /```jarvis[\s\S]*?```/gm;
 
-async function get_chat_prompt(model_gen: TextGenerationModel): Promise<string> {
+export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<string> {
   // get cursor position
   const cursor = await joplin.commands.execute('editor.execCommand', {
     name: 'getCursor',
@@ -275,7 +275,7 @@ function get_global_commands(text: string): ParsedData {
   return parsed_data;
 }
 
-async function replace_selection(text: string) {
+export async function replace_selection(text: string) {
 	// this works with the rich text editor and CodeMirror 5/6
   await joplin.commands.execute('replaceSelection', text);
 
@@ -285,7 +285,8 @@ async function replace_selection(text: string) {
   // cleanup note from phrases
   const phrases = [
     '\n\nGenerating response...',
-    '\n\nGenerating notes response...'
+    '\n\nGenerating notes response...',
+    '\n\nGenerating auto-completion....'
   ];
   if (!phrases.includes(text)) {
     const note = await joplin.workspace.selectedNote();

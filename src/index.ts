@@ -10,6 +10,7 @@ import { load_embedding_model, load_generation_model } from './models/models';
 import { find_nearest_notes } from './notes/embeddings';
 import { register_panel, update_panel } from './ux/panel';
 import { get_settings, register_settings, set_folders } from './ux/settings';
+import { auto_complete } from './commands/complete';
 
 joplin.plugins.register({
 	onStart: async function() {
@@ -80,6 +81,14 @@ joplin.plugins.register({
         edit_with_jarvis(model_gen, dialogAsk);
       }
     });
+
+    joplin.commands.register({
+      name: 'jarvis.complete',
+      label: 'Auto-complete with Jarvis',
+      execute: async () => {
+        auto_complete(model_gen);
+      }
+    })
 
     joplin.commands.register({
       name: 'jarvis.annotate.title',
@@ -229,6 +238,7 @@ joplin.plugins.register({
       {commandName: 'jarvis.ask', accelerator: 'CmdOrCtrl+Shift+J'},
       {commandName: 'jarvis.research', accelerator: 'CmdOrCtrl+Shift+R'},
       {commandName: 'jarvis.edit', accelerator: 'CmdOrCtrl+Shift+E'},
+      {commandName: 'jarvis.complete', accelerator: 'CmdOrCtrl+Shift+A'},
       {commandName: 'jarvis.annotate.title'},
       {commandName: 'jarvis.annotate.summary'},
       {commandName: 'jarvis.annotate.links'},
