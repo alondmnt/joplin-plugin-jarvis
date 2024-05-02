@@ -89,7 +89,8 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gpt-4': 8192,
   'gpt-3.5-turbo': 16384,
   'gpt-3.5-turbo-instruct': 4096,
-  'bison-001': 8196,
+  'gemini-1.0-pro-latest': 30720,
+  'gemini-1.5-pro-latest': 1048576,
 };
 
 export const search_engines: { [engine: string] : string; } = {
@@ -278,7 +279,7 @@ export async function register_settings() {
       secure: true,
       section: 'jarvis',
       public: true,
-      label: 'Model: Google PaLM API Key',
+      label: 'Model: Google AI API Key',
     },
     'model': {
       value: 'gpt-3.5-turbo',
@@ -295,7 +296,8 @@ export async function register_settings() {
         'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo',
         'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct',
         'openai-custom': '(online/offline) OpenAI or compatible: custom model',
-        'bison-001': '(online) Google PaLM',
+        'gemini-1.0-pro-latest': '(online) Google AI: gemini-1.0-pro-latest',
+        'gemini-1.5-pro-latest': '(online) Google AI: gemini-1.5-pro-latest',
         'Hugging Face': '(online) Hugging Face',
       }
     },
@@ -454,7 +456,8 @@ export async function register_settings() {
         'text-embedding-3-large': '(online) OpenAI: text-embedding-3-large [Multilingual]',
         'text-embedding-ada-002': '(online) OpenAI: text-embedding-ada-002 [Multilingual]',
         'openai-custom': '(online) OpenAI or compatible: custom model',
-        'gecko-001': '(online) Google PaLM [English]',
+        'gemini-embedding-001': '(online) Google AI: embedding-001',
+        'gemini-text-embedding-004': '(online) Google AI: text-embedding-004',
       }
     },
     'notes_parallel_jobs': {

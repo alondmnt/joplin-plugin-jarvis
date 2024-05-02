@@ -2,12 +2,13 @@ import joplin from 'api';
 const fs = require('fs');
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { encodingForModel } from 'js-tiktoken';
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings } from '../ux/settings';
 import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last } from '../utils';
 import * as openai from './openai';
-import * as palm from './google_palm';
+import * as google from './google';
 import { BlockEmbedding } from '../notes/embeddings';  // maybe move definition to this file
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from '../notes/db';
 
@@ -26,8 +27,8 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
              settings.model.includes('openai')) {
     model = new OpenAIGeneration(settings);
 
-  } else if (settings.model === 'bison-001') {
-    model = new PaLMGeneration(settings);
+  } else if (settings.model.includes('gemini')) {
+    model = new GeminiGeneration(settings);
 
   } else {
     console.log(`Unknown model: ${settings.model}`);
@@ -80,9 +81,9 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_parallel_jobs,
       settings.notes_openai_endpoint);
 
-  } else if (settings.notes_model === 'gecko-001') {
-    model = new PaLMEmbedding(
-      'embedding-' + settings.notes_model,
+  } else if (settings.notes_model.includes('gemini')) {
+    model = new GeminiEmbedding(
+      settings.notes_model.split('-').slice(1).join('-'),
       settings.notes_max_tokens,
       settings.notes_parallel_jobs);
 
@@ -377,7 +378,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
   }
 }
 
-class PaLMEmbedding extends TextEmbeddingModel {
+class GeminiEmbedding extends TextEmbeddingModel {
   private api_key: string = null;
   
   constructor(id: string, max_tokens: number, jobs: number, endpoint: string=null) {
@@ -397,17 +398,18 @@ class PaLMEmbedding extends TextEmbeddingModel {
   async _load_model() {
     this.api_key = await joplin.settings.value('google_api_key');
     if (!this.api_key) {
-      joplin.views.dialogs.showMessageBox('Please specify a valid Google PaLM API key in the settings');
+      joplin.views.dialogs.showMessageBox('Please specify a valid Google AI API key in the settings');
       this.model = null;
       return;
     }
-    this.model = this.id;  // anything other than null
+    const genAI = new GoogleGenerativeAI(this.api_key);
+    this.model = genAI.getGenerativeModel({ model: this.id });
     console.log(this.id);
 
     try {
       const vec = await this.embed(test_prompt);
     } catch (e) {
-      console.log(`PaLMEmbedding failed to load: ${e}`);
+      console.log(`GeminiEmbedding failed to load: ${e}`);
       this.model = null;
     }
   }
@@ -417,7 +419,7 @@ class PaLMEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    return palm.query_embedding(text, this.id, this.api_key);
+    return google.query_embedding(this.model, text);
   }
 }
 
@@ -821,7 +823,7 @@ export class OpenAIGeneration extends TextGenerationModel {
   }
 }
 
-export class PaLMGeneration extends TextGenerationModel {
+export class GeminiGeneration extends TextGenerationModel {
   // model
   private api_key: string = null;
   public temperature: number = 0.5;
@@ -851,28 +853,30 @@ export class PaLMGeneration extends TextGenerationModel {
   async _load_model() {
     this.api_key = await joplin.settings.value('google_api_key');
     if (!this.api_key) {
-      joplin.views.dialogs.showMessageBox('Please specify a valid Google API key in the settings');
+      joplin.views.dialogs.showMessageBox('Please specify a valid Google AI API key in the settings');
       this.model = null;
       return;
     }
 
-    this.model = this.id;  // anything other than null
+    const genAI = new GoogleGenerativeAI(this.api_key);
+    this.model = genAI.getGenerativeModel({ model: this.id });
+    console.log(this.id);
 
     try {
       const vec = await this._complete(test_prompt);
     } catch (e) {
-        console.log(`PaLMGeneration failed to load: ${e}`);
+        console.log(`GeminiGeneration failed to load: ${e}`);
         this.model = null;
     }
   }
 
   async _chat(prompt: ChatEntry[]): Promise<string> {
-    return palm.query_chat(
-      prompt, this.api_key, 'chat-' + this.id, this.temperature, this.top_p);
+    return google.query_chat(
+      this.model, prompt, this.temperature, this.top_p);
   }
 
   async _complete(prompt: string): Promise<string> {
-    return palm.query_completion(
-      prompt, this.api_key, 'text-' + this.id, this.temperature, this.top_p);
+    return google.query_completion(
+      this.model, prompt, this.temperature, this.top_p);
   }
 }
