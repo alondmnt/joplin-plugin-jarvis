@@ -18,8 +18,8 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
   if (model_embed.model === null) { return; }
 
   const settings = await get_settings();
-  if (!preview) { await replace_selection('\n\nGenerating notes response...'); }
   const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings);
+  if (!preview) { await replace_selection('\n\nGenerating notes response...'); }
   if (nearest[0].embeddings.length === 0) {
     if (~preview) { await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix); }
     return;
