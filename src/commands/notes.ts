@@ -27,7 +27,7 @@ export async function update_note_db(model: TextEmbeddingModel, panel: string): 
   // iterate over all notes
   do {
     page += 1;
-    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id'], page: page, limit: model.page_size });
+    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id', 'deleted_time'], page: page, limit: model.page_size });
     if (notes.items) {
       console.log(`Processing page ${page}: ${notes.items.length} notes`);
       await update_embeddings(notes.items, model, settings);

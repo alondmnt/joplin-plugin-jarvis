@@ -173,7 +173,8 @@ async function update_note(note: any,
     note_tags = ['exclude.from.jarvis'];
   }
   if (note_tags.includes('exclude.from.jarvis') || 
-      settings.notes_exclude_folders.has(note.parent_id)) {
+      settings.notes_exclude_folders.has(note.parent_id) ||
+      note.deleted_time > 0) {
     console.log(`Excluding note ${note.id} from Jarvis`);
     delete_note_and_embeddings(model.db, note.id);
     return [];

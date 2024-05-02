@@ -323,8 +323,10 @@ export async function clear_deleted_notes(embeddings: BlockEmbedding[], db: any)
   let note_ids = [];
   do {
     page += 1;
-    notes = await joplin.data.get(['notes'], { fields: ['id'], page: page });
-    note_ids = note_ids.concat(notes.items.map((note: any) => note.id));
+    notes = await joplin.data.get(['notes'], { fields: ['id', 'deleted_time'], page: page });
+    note_ids = note_ids.concat(notes.items
+      .filter((note: any) => note.deleted_time == 0)
+      .map((note: any) => note.id));
   } while(notes.has_more);
 
   let deleted = [];
