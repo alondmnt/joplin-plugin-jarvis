@@ -21,7 +21,7 @@ Community discussion: https://discourse.joplinapp.org/t/28316
 - **Literature review:**
     - Run the command `Research with Jarvis`, write what you're interested in, and optionally adjust the search parameters. Wait 2-3 minutes for all the output to appear in the note (depending on internet traffic). Jarvis will update the content as it finds new information on the web (using Semantic Scholar, Crossref, Elsevier, Springer & Wikipedia databases). In the end you will get a report with the following sections: title, prompt, research questions, queries, references, review and follow-up questions. For more information see [this post](https://medium.com/@alondmnt/ai-powered-literature-review-6918ee180304).
 - **Autocomplete anything:**
-    - `Auto-complete with Jarvis` will try to extend any content.
+    - `Auto-complete with Jarvis` will try to extend any text at the current cursor position in the editor.
 - **Text generation:**
     - Run the command `Ask Jarvis` and write your query in the pop-up window, or select a prompt text in the editor before running the command. You can also enhance your query with predefined (or customized) prompt templates from the dropdown lists.
 - **Text editing:**
@@ -46,14 +46,14 @@ Community discussion: https://discourse.joplinapp.org/t/28316
 
 The following table shows what is sent to the selected chat / notes models when running each command.
 
-| Command            | User prompt | Current note | Other note excerpts | All notes | Online articles |   Models    |
-|--------------------|:-----------:|:------------:|:-------------------:|:---------:|:---------------:|:-----------:|
-| Ask Jarvis         |      x      |              |                     |           |                 |    chat     |
-| Chat               |      x      |      x       |                     |           |                 |    chat     |
-| Chat w/ notes      |      x      |      x       |          x          |           |                 | chat, notes |
-| Research           |      x      |              |                     |           |        x        |    chat     |
-| Edit               |      x      |              |                     |           |                 |    chat     |
-| Autocomplete       |             |      x       |                     |           |                 |    chat     |
-| Annotate note      |             |      x       |          x          |           |                 | chat, notes |
-| Find related notes |             |      x       |                     |           |                 |    notes    |
-| Update note DB     |             |              |                     |     x     |                 |    notes    |
+| Command            | User prompt | Current note | Other note excerpts | All notes | Web articles |   Models    |
+|--------------------|:-----------:|:------------:|:-------------------:|:---------:|:------------:|:-----------:|
+| Ask Jarvis         |      x      |              |                     |           |              |    chat     |
+| Chat               |      x      |      x       |                     |           |              |    chat     |
+| Chat w/ notes      |      x      |      x       |          x          |           |              | chat, notes |
+| Research           |      x      |              |                     |           |      x       |    chat     |
+| Edit               |      x      |              |                     |           |              |    chat     |
+| Autocomplete       |             |      x       |                     |           |              |    chat     |
+| Annotate note      |             |      x       |          x          |           |              | chat, notes |
+| Find related notes |             |      x       |                     |           |              |    notes    |
+| Update note DB     |             |              |                     |     x     |              |    notes    |
