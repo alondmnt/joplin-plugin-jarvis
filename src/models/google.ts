@@ -5,16 +5,10 @@ import { GenerativeModel } from '@google/generative-ai';
 export async function query_chat(model: GenerativeModel, prompt: Array<{role: string; content: string;}>,
     temperature: number, top_p: number): Promise<string> {
 
-  const context = prompt.filter((entry) => {
-    return entry.role === 'system'
-  })[0].content;
-
-  const messages = prompt.filter((entry) => {
-    return entry.role !== 'system'
-  }).map((entry) => {
+  const messages = prompt.map((entry) => {
     return {
       parts: [{ text: entry.content }],
-      role: entry.role == 'user' ? 'user' : 'model',
+      role: (entry.role == 'user' || entry.role == 'system') ? 'user' : 'model',
     };
   });
 
