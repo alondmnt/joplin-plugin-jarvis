@@ -84,6 +84,7 @@ export interface JarvisSettings {
 };
 
 export const model_max_tokens: { [model: string] : number; } = {
+  'gpt-4o': 128000,
   'gpt-4-turbo': 128000,
   'gpt-4-32k': 32768,
   'gpt-4': 8192,
@@ -290,14 +291,13 @@ export async function register_settings() {
       label: 'Chat: Model',
       description: 'The model to ask / chat / research with Jarvis. Default: gpt-3.5-turbo',
       options: {
-        'gpt-4-turbo': '(online) OpenAI: gpt-4-turbo',
-        'gpt-4': '(online) OpenAI: gpt-4',
-        'gpt-3.5-turbo-16k': '(online) OpenAI: gpt-3.5-turbo-16k',
-        'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo',
-        'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct',
+        'gpt-4o': '(online) OpenAI: gpt-4o (128K, stronger, cheaper)',
+        'gpt-4-turbo': '(online) OpenAI: gpt-4-turbo (128K)',
+        'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo (16K, cheapest)',
+        'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct (4K)',
         'openai-custom': '(online/offline) OpenAI or compatible: custom model',
-        'gemini-1.0-pro-latest': '(online) Google AI: gemini-1.0-pro-latest',
-        'gemini-1.5-pro-latest': '(online) Google AI: gemini-1.5-pro-latest',
+        'gemini-1.0-pro-latest': '(online) Google AI: gemini-1.0-pro-latest (30K)',
+        'gemini-1.5-pro-latest': '(online) Google AI: gemini-1.5-pro-latest (1M)',
         'Hugging Face': '(online) Hugging Face',
       }
     },
