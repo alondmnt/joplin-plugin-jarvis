@@ -2,7 +2,7 @@
 	"manifest_version": 1,
 	"id": "joplin.plugin.alondmnt.jarvis",
 	"app_min_version": "3.0",
-	"version": "0.8.1",
+	"version": "0.8.3",
 	"name": "Jarvis",
 	"description": "Joplin AI assistant running a very intelligent system (OpenAI/GPT, Hugging Face, Gemini, USE), including: related notes (semantic search), chat with LLMs and your notes, prompt templates, auto-tags and more.",
 	"author": "Alon Diament",

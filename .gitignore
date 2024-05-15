@@ -2,3 +2,4 @@ dist/
 node_modules/
 publish/
 .DS_Store
+package-lock.json
