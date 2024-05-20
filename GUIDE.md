@@ -66,16 +66,18 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 ### Offline chat & embedding model with Xinference
 
 1. Install [Xinference](https://github.com/xorbitsai/inference), and run `xinference-local`.
-2. Pick a [LLM model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/llm/) and lunch it from the [Xinference web interface](http://127.0.0.1:9997).
+2. Lunch a language model from the [Xinference web interface](http://127.0.0.1:9997).
 
 | Setting | Advanced | Value |
 |---------|----------|-------|
 | Model: OpenAI API Key | No | Something, anything |
-| Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
+| Chat: Model | No | (online) OpenAI or compatible: custom model |
+| Chat: Timeout (sec) | Yes | 600 |
 | Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
+| Chat: Custom model is a conversation model | Yes | Yes |
 | Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/chat/completions |
 
-3. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/) and launch it from the [Xinference web interface](http://127.0.0.1:9997).
+3. Launch an embedding model from the [Xinference web interface](http://127.0.0.1:9997).
 
 | Setting | Advanced | Value |
 |---------|----------|-------|
