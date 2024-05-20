@@ -13,7 +13,7 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | [LM Studio](#offline-chat-model-with-lm-studio) | Yes | Yes | No | Easy | Yes | No |
 | [Jan](#offline-chat-model-with-jan) | Yes | Yes | Yes | Easy | Yes | No |
 | [Xinference](#offline-embedding-model-with-xinference) | Yes | Yes | Yes | Intermediate | Not covered | Yes |
-| [LiteLLM/ollama](#offline-chat-model-with-litellmollama) | Yes | Yes | Yes | Intermediate| Yes | Not covered |
+| [Ollama](#offline-chat-model-with-ollama) | Yes | Yes | Yes | Intermediate| Yes | Not covered |
 | [GPT4All](#offline-chat-model-with-gpt4all) | Yes | Yes | Yes | Hard | Yes | No |
 | [OpenRouter](#openrouter) | No | No | No | Easy | Yes | No |
 
@@ -61,20 +61,19 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
 | Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/embeddings |
 
-### Offline chat model with LiteLLM/ollama 
+### Offline chat model with Ollama 
 
-1. Install [LiteLLM](https://docs.litellm.ai/docs/) and [ollama](https://ollama.ai)
-2. Pick a [LLM model to use from the ollama library](https://ollama.ai/library) and run `ollama run MODELNAME` (e.g., `ollama run orca-mini`) in a terminal
-3. While `ollama` is serving the model run `litellm --model ollama/MODELNAME --drop_params` (e.g, `litellm --model ollama/orca-mini --drop_param`) in a second terminal to create an OpenAI API interface to the model.
+1. Install [ollama](https://ollama.ai)
+2. Pick a [LLM model to use from the ollama library](https://ollama.ai/library) and run `ollama run MODELNAME` (e.g., `ollama run llama3`) in a terminal
 
 | Setting | Advanced | Value |
 |---------|----------|-------|
 | Model: OpenAI API Key | No | Something, anything |
 | Chat: Model | No | (online) OpenAI or compatible: custom model |
 | Chat: Timeout (sec) | Yes | 600 |
-| Chat: OpenAI (or compatible) custom model ID | Yes | ollama/MODELNAME |
+| Chat: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
 | Chat: Custom model is a conversation model | Yes | Yes |
-| Chat: Custom model API endpoint | Yes | http://127.0.0.1:8000/chat/completions |
+| Chat: Custom model API endpoint | Yes | http://127.0.0.1:11434/chat/completions |
 
 ### Offline chat model with GPT4All
 
