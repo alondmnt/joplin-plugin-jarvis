@@ -66,7 +66,7 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 ### Offline chat & embedding model with Xinference
 
 1. Install [Xinference](https://github.com/xorbitsai/inference), and run `xinference-local`.
-2. Lunch a language model from the [Xinference web interface](http://127.0.0.1:9997).
+2. Launch a language model from the [Xinference web interface](http://127.0.0.1:9997).
 
 | Setting | Advanced | Value |
 |---------|----------|-------|
