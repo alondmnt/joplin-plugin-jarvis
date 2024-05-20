@@ -12,8 +12,8 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 |--------|---------|------|-------------|------------|------|-----------|
 | [LM Studio](#offline-chat-model-with-lm-studio) | Yes | Yes | No | Easy | Yes | No |
 | [Jan](#offline-chat-model-with-jan) | Yes | Yes | Yes | Easy | Yes | No |
-| [Xinference](#offline-embedding-model-with-xinference) | Yes | Yes | Yes | Intermediate | Not covered | Yes |
-| [Ollama](#offline-chat-model-with-ollama) | Yes | Yes | Yes | Intermediate| Yes | Not covered |
+| [Ollama](#offline-chat-model-with-ollama) | Yes | Yes | Yes | Easy| Yes | Not covered |
+| [Xinference](#offline-chat--embedding-model-with-xinference) | Yes | Yes | Yes | Intermediate | Yes | Yes |
 | [GPT4All](#offline-chat-model-with-gpt4all) | Yes | Yes | Yes | Hard | Yes | No |
 | [OpenRouter](#openrouter) | No | No | No | Easy | Yes | No |
 
@@ -49,18 +49,6 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | http://127.0.0.1:1337/v1/chat/completions |
 
-### Offline embedding model with Xinference
-
-1. Install [Xinference](https://github.com/xorbitsai/inference)
-2. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/index.html) and launch it from the Xinference GUI.  
-
-| Setting | Advanced | Value |
-|---------|----------|-------|
-| Model: OpenAI API Key | No | Something, anything |
-| Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
-| Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
-| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/embeddings |
-
 ### Offline chat model with Ollama 
 
 1. Install [ollama](https://ollama.ai)
@@ -74,6 +62,27 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Chat: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | http://127.0.0.1:11434/chat/completions |
+
+### Offline chat & embedding model with Xinference
+
+1. Install [Xinference](https://github.com/xorbitsai/inference), and run `xinference-local`.
+2. Pick a [LLM model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/llm/) and lunch it from the [Xinference web interface](http://127.0.0.1:9997).
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Model: OpenAI API Key | No | Something, anything |
+| Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
+| Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
+| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/completions |
+
+3. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/) and launch it from the [Xinference web interface](http://127.0.0.1:9997).
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Model: OpenAI API Key | No | Something, anything |
+| Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
+| Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
+| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/embeddings |
 
 ### Offline chat model with GPT4All
 
