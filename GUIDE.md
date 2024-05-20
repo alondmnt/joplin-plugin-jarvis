@@ -61,7 +61,7 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Chat: Timeout (sec) | Yes | 600 |
 | Chat: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
 | Chat: Custom model is a conversation model | Yes | Yes |
-| Chat: Custom model API endpoint | Yes | http://127.0.0.1:11434/chat/completions |
+| Chat: Custom model API endpoint | Yes | http://127.0.0.1:11434/v1/chat/completions |
 
 ### Offline chat & embedding model with Xinference
 
@@ -73,7 +73,7 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Model: OpenAI API Key | No | Something, anything |
 | Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
 | Notes: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
-| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/completions |
+| Notes: Notes: OpenAI (or compatible) API endpoint | Yes | http://127.0.0.1:9997/v1/chat/completions |
 
 3. Pick an [embedding model from the Xinference library](https://inference.readthedocs.io/en/latest/models/builtin/embedding/) and launch it from the [Xinference web interface](http://127.0.0.1:9997).
 
