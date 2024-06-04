@@ -271,7 +271,7 @@ export async function register_settings() {
 
   await joplin.settings.registerSettings({
     'openai_api_key': {
-      value: '',
+      value: 'YOUR_OPENAI_API_KEY',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.chat',
@@ -279,7 +279,7 @@ export async function register_settings() {
       label: 'Model: OpenAI API Key',
     },
     'hf_api_key': {
-      value: '',
+      value: 'YOUR_HF_API_KEY',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.chat',
@@ -287,7 +287,7 @@ export async function register_settings() {
       label: 'Model: Hugging Face API Key',
     },
     'google_api_key': {
-      value: '',
+      value: 'YOUR_GOOGLE_API_KEY',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.chat',
@@ -774,7 +774,7 @@ export async function register_settings() {
       description: 'Default: 5',
     },
     'scopus_api_key': {
-      value: '',
+      value: 'YOUR_SCOPUS_API_KEY',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.research',
@@ -783,7 +783,7 @@ export async function register_settings() {
       description: 'Your Elsevier/Scopus API Key (optional for research). Get one at https://dev.elsevier.com/.',
     },
     'springer_api_key': {
-      value: '',
+      value: 'YOUR_SPRINGER_API_KEY',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.research',
@@ -896,6 +896,16 @@ export async function register_settings() {
       description: 'Custom CSS to apply to the notes panel.',
     }
   });
+
+  // set default values
+  // (it seems that default values are ignored for secure settings)
+  const secure_fields = ['openai_api_key', 'hf_api_key', 'google_api_key', 'scopus_api_key', 'springer_api_key']
+  for (const field of secure_fields) {
+    const value = await joplin.settings.value(field);
+    if (value.length == 0) {
+      await joplin.settings.setValue(field, field);
+    }
+  }
 }
 
 export async function set_folders(exclude: boolean, folder_id: string, settings: JarvisSettings) {
