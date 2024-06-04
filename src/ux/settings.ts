@@ -749,7 +749,7 @@ export async function register_settings() {
       description: 'Default: true',
     },
     'annotate_tags_method': {
-      value: 'from_notes',
+      value: 'from_list',
       type: SettingItemType.String,
       isEnum: true,
       section: 'jarvis.annotate',
