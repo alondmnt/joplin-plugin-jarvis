@@ -495,7 +495,7 @@ export async function register_settings() {
       description: 'The maximal context to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
     },
     'notes_context_tokens': {
-      value: 1024,
+      value: 2048,
       type: SettingItemType.Int,
       minimum: 128,
       maximum: 16384,
@@ -503,7 +503,7 @@ export async function register_settings() {
       section: 'jarvis.notes',
       public: true,
       label: 'Notes: Context tokens',
-      description: 'The number of context tokens to extract from notes in "Chat with your notes". Default: 1024',
+      description: 'The number of context tokens to extract from notes in "Chat with your notes". Default: 2048',
     },
     'notes_context_history': {
       value: 1,
@@ -755,7 +755,7 @@ export async function register_settings() {
       section: 'jarvis.annotate',
       public: true,
       label: 'Annotate: Tags method',
-      description: 'The method to use for tagging notes. Default: Suggest based on notes',
+      description: 'The method to use for tagging notes. Default: Suggest based on existing tags',
       options: {
         'from_notes': 'Suggest based on notes',
         'from_list': 'Suggest based on existing tags',
