@@ -23,7 +23,7 @@ export async function annotate_title(model_gen: TextGenerationModel,
   let title = note.title.match(/^[\d-/.]+/);
   if (title) { title = title[0] + ' '; } else { title = ''; }
 
-  const prompt = `Note content\n===\n${text}\n===\n\nInstruction\n===\n${settings.prompts.title}\n===\n\nNote title\n===\n`;
+  const prompt = `Note content\n===\n${text}\n===\n\nInstruction\n===\n${settings.prompts.title.replace('{preferred_language}', settings.annotate_preferred_language)}\n===\n\nNote title\n===\n`;
   title += await model_gen.complete(prompt);
   if (title.slice(-1) === '.') { title = title.slice(0, -1); }
 
@@ -48,7 +48,7 @@ export async function annotate_summary(model_gen: TextGenerationModel,
   const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.summary) - 80;
   const text = split_by_tokens([note.body.replace(find_summary, '')], model_gen, text_tokens, 'first')[0].join(' ');
 
-  const prompt = `Note content\n===\n${text}\n===\n\nInstruction\n===\n${settings.prompts.summary}\n===\n\nNote summary\n===\n`;
+  const prompt = `Note content\n===\n${text}\n===\n\nInstruction\n===\n${settings.prompts.summary.replace('{preferred_language}', settings.annotate_preferred_language)}\n===\n\nNote summary\n===\n`;
 
   const summary = await model_gen.complete(prompt);
 

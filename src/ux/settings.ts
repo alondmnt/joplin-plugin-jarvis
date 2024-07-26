@@ -60,6 +60,7 @@ export interface JarvisSettings {
   notes_panel_title: string;
   notes_panel_user_style: string;
   // annotations
+  annotate_preferred_language: string;
   annotate_title_flag: boolean;
   annotate_summary_flag: boolean;
   annotate_summary_title: string;
@@ -114,8 +115,8 @@ export const search_prompts: { [engine: string] : string; } = {
     keep the search queries short and simple.`,
 };
 
-const title_prompt = `Summarize the following note in a title that contains a single sentence *in the same language as the note* which encapsulates the note's main conclusion or idea.`;
-const summary_prompt = `Summarize the following note in a short paragraph *in the same language as the note* that contains 2-4 sentences which encapsulates the note's main conclusion or idea in a concise way.`;
+const title_prompt = `Summarize the following note in a title that contains a single sentence in {preferred_language} which encapsulates the note's main conclusion or idea.`;
+const summary_prompt = `Summarize the following note in a short paragraph in {preferred_language} that contains 2-4 sentences which encapsulates the note's main conclusion or idea in a concise way.`;
 const tags_prompt = {
   'unsupervised': `Suggest keywords for the following note, based on its content. The keywords should make the note easier to find, and should be short and concise (perferably *single-word* keywords). Also select one keyword that describes the note type (such as: article, diary, review, guide, project, etc.). List all keywords in a single line, separated by commas.`,
   'from_list': `Suggest keywords for the following note, based on its content. The keywords should make the note easier to find, and should be short and concise. THIS IS IMPORTANT: You may only suggest keywords from the bank below.`,
@@ -220,6 +221,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
     // annotations
+    annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
     annotate_summary_flag: await joplin.settings.value('annotate_summary_flag'),
     annotate_summary_title: await joplin.settings.value('annotate_summary_title'),
@@ -680,6 +682,14 @@ export async function register_settings() {
         'avg': 'avg',
       }
     },
+    'annotate_preferred_language': {
+      value: 'English',
+      type: SettingItemType.String,
+      section: 'jarvis.annotate',
+      public: true,
+      label: 'Annotate: Preferred language',
+      description: 'The preferred language to use for generating titles and summaries. Default: English',
+    },
     'annotate_title_flag': {
       value: true,
       type: SettingItemType.Bool,
@@ -831,7 +841,7 @@ export async function register_settings() {
       section: 'jarvis.chat',
       public: true,
       label: 'Chat: User prefix',
-      description: 'Default: "\\n\\n---\n**User:** "',
+      description: 'Default: "\\n\\n---\\n**User:** "',
     },
     'instruction': {
       value: '',
