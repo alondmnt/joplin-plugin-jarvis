@@ -549,7 +549,8 @@ export class TextGenerationModel {
     let current_message: string = null;
     let first_role = false;
 
-    const fence = '"""';  // multi-line string delimiter
+    const fence = '===';  // multi-line string delimiter
+    // the one used in chat_with_notes prompt to separate sections
     let inside_fence = false;  // using this to skip quoted conversations with Jarvis
 
     const user_regex = new RegExp(escape_regex(this.user_prefix));
@@ -612,10 +613,10 @@ export class TextGenerationModel {
   async _preview_chat(chat: string) {
     let chat_entries = this._parse_chat(chat);
     // get the last chat entry
-    const last_entry = chat_entries[chat_entries.length - 1].content.split('User notes\n"""');
+    const last_entry = chat_entries[chat_entries.length - 1].content.split('User Notes\n===');
     chat_entries[chat_entries.length - 1].content = last_entry[0];
     if (last_entry.length > 1) {
-      chat_entries.push({role: 'context', content: 'User notes\n"""' + last_entry[1]});
+      chat_entries.push({role: 'context', content: 'User notes\n===' + last_entry[1]});
     }
 
     // const chat_entries = [{role: "assistant", content: chat}]
