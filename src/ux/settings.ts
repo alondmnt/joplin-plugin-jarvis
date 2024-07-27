@@ -472,6 +472,7 @@ export async function register_settings() {
         'openai-custom': '(online) OpenAI or compatible: custom model',
         'gemini-embedding-001': '(online) Google AI: embedding-001',
         'gemini-text-embedding-004': '(online) Google AI: text-embedding-004',
+        'ollama': '(offline) Ollama',
       }
     },
     'notes_parallel_jobs': {
@@ -524,8 +525,8 @@ export async function register_settings() {
       section: 'jarvis.notes',
       public: true,
       advanced: true,
-      label: 'Notes: OpenAI (or compatible) custom model ID',
-      description: 'The OpenAI model ID to use for calculating text embeddings. Default: empty',
+      label: 'Notes: OpenAI / Ollama (or compatible) custom model ID',
+      description: 'The OpenAI / Ollama model ID to use for calculating text embeddings. Default: empty',
     },
     'notes_openai_endpoint': {
       value: '',
@@ -533,8 +534,8 @@ export async function register_settings() {
       section: 'jarvis.notes',
       public: true,
       advanced: true,
-      label: 'Notes: OpenAI (or compatible) API endpoint',
-      description: "The OpenAI (or compatible) API endpoint to use for calculating text embeddings. Default: empty (OpenAI's default public endpoint)",
+      label: 'Notes: OpenAI / Ollama (or compatible) API endpoint',
+      description: "The OpenAI / Ollama API endpoint to use for calculating text embeddings. Default: empty (OpenAI's default public endpoint)",
     },
     'notes_hf_model_id': {
       value: 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2',

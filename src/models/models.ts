@@ -9,6 +9,7 @@ import { JarvisSettings } from '../ux/settings';
 import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last } from '../utils';
 import * as openai from './openai';
 import * as google from './google';
+import * as ollama from './ollama';
 import { BlockEmbedding } from '../notes/embeddings';  // maybe move definition to this file
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from '../notes/db';
 
@@ -31,7 +32,7 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
     model = new GeminiGeneration(settings);
 
   } else {
-    console.log(`Unknown model: ${settings.model}`);
+    console.error(`Unknown model: ${settings.model}`);
     return model;
   }
 
@@ -87,8 +88,15 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_max_tokens,
       settings.notes_parallel_jobs);
 
+  } else if (settings.notes_model === 'ollama') {
+    model = new OllamaEmbedding(
+      settings.notes_openai_model_id,
+      settings.notes_max_tokens,
+      settings.notes_parallel_jobs,
+      settings.notes_openai_endpoint);
+
   } else {
-    console.log(`Unknown model: ${settings.notes_model}`);
+    console.error(`Unknown model: ${settings.notes_model}`);
     return model;
   }
 
@@ -420,6 +428,45 @@ class GeminiEmbedding extends TextEmbeddingModel {
     }
 
     return google.query_embedding(this.model, text);
+  }
+}
+
+class OllamaEmbedding extends TextEmbeddingModel {
+  private endpoint: string = null;
+
+  constructor(id: string, max_tokens: number, jobs: number, endpoint: string) {
+    super();
+    this.id = id
+    this.version = '1';
+    this.max_block_size = max_tokens;
+    this.endpoint = endpoint;
+    this.online = true;
+    this.page_size = jobs;
+
+    // rate limits
+    this.request_queue = [];  // internal rate limit
+    this.requests_per_second = 50;  // internal rate limit
+    this.last_request_time = 0;  // internal rate limit
+  }
+
+  async _load_model() {
+    this.model = this.id;  // anything other than null
+    console.log(this.id);
+
+    try {
+      const vec = await this.embed(test_prompt);
+    } catch (e) {
+      console.log(`OllamaEmbedding failed to load: ${e}`);
+      this.model = null;
+    }
+  }
+
+  async _calc_embedding(text: string): Promise<Float32Array> {
+    if (!this.model) {
+      throw new Error('Model not initialized');
+    }
+
+    return ollama.query_embedding(text, this.id, this.endpoint);
   }
 }
 
