@@ -31,13 +31,16 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
     return;
   }
   const note_links = extract_blocks_links(selected_embd);
-  let instruct = "Respond to the user prompt. You are given user notes. Use them as if they are your own knowledge, without decorations such as 'according to my notes'. First, determine which notes are relevant to the prompt, without specifying it in the reply. Then, write your reply to the prompt based on these selected notes. In the text of your answer, always cite related notes. For example: Write 'Notes are cool [1]' to cite note 1. Do not compile a reference list at the end of the reply.";
+  let instruct = "Respond to the user prompt that appears at the top. You are given user notes. Use them as if they are your own knowledge, without decorations such as 'according to my notes'. First, determine which notes are relevant to the prompt, without specifying it in the reply. Then, write your reply to the prompt based on these selected notes. In the text of your answer, always cite related notes in the format: Some text [note number]. Do not compile a reference list at the end of the reply. Example: 'This is the answer, as appears in [note 1]'.";
   if (settings.notes_prompt) {
     instruct = settings.notes_prompt;
   }
 
   let completion = await model_gen.chat(`
   ${prompt.prompt}
+  ===
+  End of user prompt
+  ===
 
   User Notes
   ===
