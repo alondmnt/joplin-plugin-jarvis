@@ -90,6 +90,7 @@ export interface JarvisSettings {
 };
 
 export const model_max_tokens: { [model: string] : number; } = {
+  'gpt-4o-mini': 128000,
   'gpt-4o': 128000,
   'gpt-4-turbo': 128000,
   'gpt-4-32k': 32768,
@@ -307,17 +308,17 @@ export async function register_settings() {
       label: 'Model: Google AI API Key',
     },
     'model': {
-      value: 'gpt-3.5-turbo',
+      value: 'gpt-4o-mini',
       type: SettingItemType.String,
       isEnum: true,
       section: 'jarvis.chat',
       public: true,
       label: 'Chat: Model',
-      description: 'The model to ask / chat / research with Jarvis. Default: gpt-3.5-turbo',
+      description: 'The model to ask / chat / research with Jarvis. Default: gpt-4o-mini',
       options: {
+        'gpt-4o-mini':'(online) OpenAI: gpt-4o-mini (128K, cheapest)',
         'gpt-4o': '(online) OpenAI: gpt-4o (128K, stronger, cheaper)',
-        'gpt-4-turbo': '(online) OpenAI: gpt-4-turbo (128K)',
-        'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo (16K, cheapest)',
+        'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo (16K)',
         'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct (4K)',
         'openai-custom': '(online/offline) OpenAI or compatible: custom model',
         'gemini-1.0-pro-latest': '(online) Google AI: gemini-1.0-pro-latest (30K)',
