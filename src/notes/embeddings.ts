@@ -26,7 +26,7 @@ export interface NoteEmbedding {
 
 // calculate the embeddings for a note
 export async function calc_note_embeddings(note: any, note_tags: string[],
-    model: TextEmbeddingModel, include_code: boolean): Promise<BlockEmbedding[]> {
+    model: TextEmbeddingModel, settings: JarvisSettings): Promise<BlockEmbedding[]> {
   const hash = calc_hash(note.body);
   note.body = convert_newlines(note.body);
   let level = 0;
@@ -41,7 +41,7 @@ export async function calc_note_embeddings(note: any, note_tags: string[],
       // parse the heading title and level from the main block
       // use the last known level/title as a default
       const is_code_block = block.startsWith('```');
-      if (is_code_block && !include_code) { return []; }
+      if (is_code_block && !settings.notes_include_code) { return []; }
       if (is_code_block) {
         const parse_heading = block.match(/```(.*)/);
         if (parse_heading) { title = parse_heading[1] + ' '; }
@@ -59,8 +59,18 @@ export async function calc_note_embeddings(note: any, note_tags: string[],
       const sub_blocks = split_block_to_max_size(block, model, model.max_block_size, is_code_block);
 
       const sub_embd = sub_blocks.map(async (sub: string): Promise<BlockEmbedding> => {
-        let decorate = `${path.slice(0, level+1).join('/')}:\n`;
-        if (note_tags.length > 0) { decorate += `tags: ${note_tags.join(', ')}\n`; }
+        // add additional information to block
+        let i = 1;
+        let j = 1;
+        if (settings.notes_embed_title) { i = 0; }
+        if (settings.notes_embed_path && level > 0) { j = level; }
+        let decorate = `${path.slice(i, j).join('/')}`;
+        if (settings.notes_embed_heading) {
+          if (decorate) { decorate += '/'; }
+          decorate += path[level];
+        }
+        if (decorate) { decorate += ':\n'; }
+        if (note_tags.length > 0 && settings.notes_embed_tags) { decorate += `tags: ${note_tags.join(', ')}\n`; }
 
         const [line, body_idx] = calc_line_number(note.body, block, sub);
         return {
@@ -189,7 +199,7 @@ async function update_note(note: any,
   }
 
   // otherwise, calculate the new embeddings
-  const new_embd = await calc_note_embeddings(note, note_tags, model, settings.notes_include_code);
+  const new_embd = await calc_note_embeddings(note, note_tags, model, settings);
 
   // insert new embeddings into DB
   await insert_note_embeddings(model.db, new_embd, model);
@@ -341,7 +351,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       note_tags = [];
     }
     query_embeddings = await calc_note_embeddings(
-      {id: current_id, body: query, title: current_title}, note_tags, model, settings.notes_include_code);
+      {id: current_id, body: query, title: current_title}, note_tags, model, settings);
   }
   if (query_embeddings.length === 0) {
     return [];

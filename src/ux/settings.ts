@@ -42,6 +42,11 @@ export interface JarvisSettings {
   notes_openai_endpoint: string;
   notes_hf_model_id: string;
   notes_hf_endpoint: string;
+  /// chunks
+  notes_embed_title: boolean;
+  notes_embed_path: boolean;
+  notes_embed_heading: boolean;
+  notes_embed_tags: boolean;
   /// other
   notes_db_update_delay: number;
   notes_include_code: boolean;
@@ -203,6 +208,11 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_openai_endpoint: await joplin.settings.value('notes_openai_endpoint'),
     notes_hf_model_id: await joplin.settings.value('notes_hf_model_id'),
     notes_hf_endpoint: await joplin.settings.value('notes_hf_endpoint'),
+    /// chunk
+    notes_embed_title: await joplin.settings.value('notes_embed_title'),
+    notes_embed_path: await joplin.settings.value('notes_embed_path'),
+    notes_embed_heading: await joplin.settings.value('notes_embed_heading'),
+    notes_embed_tags: await joplin.settings.value('notes_embed_tags'),
     /// other
     notes_db_update_delay: await joplin.settings.value('notes_db_update_delay'),
     notes_include_code: await joplin.settings.value('notes_include_code'),
@@ -485,6 +495,38 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Parallel jobs',
       description: 'The number of parallel jobs to use for calculating text embeddings. Default: 10',
+    },
+    'notes_embed_title': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Notes: Embed note title in chunk',
+      description: 'Default: true',
+    },
+    'notes_embed_path': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Notes: Embed leading headings in chunk',
+      description: 'Default: true',
+    },
+    'notes_embed_heading': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Notes: Embed last heading in chunk',
+      description: 'Default: true',
+    },
+    'notes_embed_tags': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Notes: Embed tags in chunk',
+      description: 'Default: true',
     },
     'notes_max_tokens': {
       value: 512,

@@ -334,6 +334,10 @@ joplin.plugins.register({
       if (event.keys.includes('openai_api_key') ||
           event.keys.includes('hf_api_key') ||
           event.keys.includes('notes_model') ||
+          event.keys.includes('notes_embed_title') ||
+          event.keys.includes('notes_embed_path') ||
+          event.keys.includes('notes_embed_heading') ||
+          event.keys.includes('notes_embed_tags') ||
           event.keys.includes('notes_parallel_jobs') ||
           event.keys.includes('notes_max_tokens') ||
           event.keys.includes('notes_openai_model_id') ||

@@ -100,6 +100,11 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
     return model;
   }
 
+  if (!settings.notes_embed_title) { model.version += 'n'; }
+  if (!settings.notes_embed_path) { model.version += 'p'; }
+  if (!settings.notes_embed_heading) { model.version += 'h'; }
+  if (!settings.notes_embed_tags) { model.version += 't'; }
+
   await model.initialize();
   return model
 }
