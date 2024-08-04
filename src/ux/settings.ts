@@ -317,8 +317,8 @@ export async function register_settings() {
       description: 'The model to ask / chat / research with Jarvis. Default: gpt-4o-mini',
       options: {
         'gpt-4o-mini':'(online) OpenAI: gpt-4o-mini (128K, cheapest)',
-        'gpt-4o': '(online) OpenAI: gpt-4o (128K, stronger, cheaper)',
-        'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo (16K)',
+        'gpt-4o': '(online) OpenAI: gpt-4o (128K, stronger)',
+        'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo (16K, legacy)',
         'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct (4K)',
         'openai-custom': '(online/offline) OpenAI or compatible: custom model',
         'gemini-1.0-pro-latest': '(online) Google AI: gemini-1.0-pro-latest (30K)',
