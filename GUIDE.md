@@ -12,7 +12,7 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 |--------|---------|------|-------------|------------|------|-----------|
 | [LM Studio](#offline-chat-model-with-lm-studio) | Yes | Yes | No | Easy | Yes | No |
 | [Jan](#offline-chat-model-with-jan) | Yes | Yes | Yes | Easy | Yes | No |
-| [Ollama](#offline-chat-model-with-ollama) | Yes | Yes | Yes | Easy| Yes | Not covered |
+| [Ollama](#offline-chat-model-with-ollama) | Yes | Yes | Yes | Easy| Yes | Yes |
 | [Xinference](#offline-chat--embedding-model-with-xinference) | Yes | Yes | Yes | Intermediate | Yes | Yes |
 | [GPT4All](#offline-chat-model-with-gpt4all) | Yes | Yes | Yes | Hard | Yes | No |
 | [OpenRouter](#openrouter) | No | No | No | Easy | Yes | No |
@@ -52,7 +52,7 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 ### Offline chat model with Ollama 
 
 1. Install [ollama](https://ollama.ai)
-2. Pick a [LLM model to use from the ollama library](https://ollama.ai/library) and run `ollama run MODELNAME` (e.g., `ollama run llama3`) in a terminal
+2. Pick a [LLM model to use from the ollama library](https://ollama.ai/library) and run `ollama pull MODELNAME` (e.g., `ollama pull llama3`) in a terminal
 
 | Setting | Advanced | Value |
 |---------|----------|-------|
@@ -62,6 +62,17 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Chat: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | http://127.0.0.1:11434/v1/chat/completions |
+
+### Offline embedding model with Olalma
+
+1. Install [ollama](https://ollama.ai)
+2. Pick a [LLM model to use from the ollama library](https://ollama.ai/library) and run `ollama pull MODELNAME` (e.g., `ollama pull llama3`) in a terminal
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Notes: Semantic similarity model | No | (offline) Ollama |
+| Notes: OpenAI / Ollama (or compatible) custom model ID | Yes | MODELNAME |
+| Notes: OpenAI / Ollama (or compatible) API endpoint | Yes | http://127.0.0.1:11434/api/embed |
 
 ### Offline chat & embedding model with Xinference
 
