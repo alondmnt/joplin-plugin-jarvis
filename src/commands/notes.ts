@@ -27,7 +27,7 @@ export async function update_note_db(model: TextEmbeddingModel, panel: string): 
   // iterate over all notes
   do {
     page += 1;
-    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id', 'deleted_time'], page: page, limit: model.page_size });
+    notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id', 'deleted_time', 'markup_language'], page: page, limit: model.page_size });
     if (notes.items) {
       console.log(`Processing page ${page}: ${notes.items.length} notes`);
       await update_embeddings(notes.items, model, settings);
@@ -53,6 +53,9 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
 
   const note = await joplin.workspace.selectedNote();
   if (!note) {
+    return;
+  }
+  if (note.markup_language === 2) {
     return;
   }
   let selected = await joplin.commands.execute('selectedText');
