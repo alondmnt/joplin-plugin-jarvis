@@ -63,7 +63,7 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | http://127.0.0.1:11434/v1/chat/completions |
 
-### Offline embedding model with Olalma
+### Offline embedding model with Ollama
 
 1. Install [ollama](https://ollama.ai)
 2. Pick a [LLM model to use from the ollama library](https://ollama.ai/library) and run `ollama pull MODELNAME` (e.g., `ollama pull llama3`) in a terminal
