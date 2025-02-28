@@ -3,7 +3,7 @@ import { JarvisSettings } from '../ux/settings';
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,
-    api_key: string, model: string, temperature: number, top_p: number,
+    api_key: string, model: string, max_tokens: number, temperature: number, top_p: number,
     frequency_penalty: number, presence_penalty: number, custom_url: string=null): Promise<string> {
 
   let url = '';
@@ -12,13 +12,17 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
   } else {
     url = 'https://api.openai.com/v1/chat/completions';
   }
-  const params = {
+  let params: any = {
     messages: prompt,
     model: model,
+    max_tokens: max_tokens,
     temperature: temperature,
     top_p: top_p,
     frequency_penalty: frequency_penalty,
     presence_penalty: presence_penalty,
+  }
+  if (max_tokens === undefined) {
+    delete params.max_tokens;
   }
 
   const response = await fetch(url, {
@@ -61,7 +65,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
   }
 
   // retry
-  return await query_chat(prompt, api_key, model, temperature, top_p,
+  return await query_chat(prompt, api_key, model, max_tokens, temperature, top_p,
     frequency_penalty, presence_penalty, custom_url);
 }
 

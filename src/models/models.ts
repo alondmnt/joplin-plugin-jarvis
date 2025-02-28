@@ -28,6 +28,9 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
              settings.model.includes('openai')) {
     model = new OpenAIGeneration(settings);
 
+  } else if (settings.model.includes('claude')) {
+    model = new AnthropicGeneration(settings);
+
   } else if (settings.model.includes('gemini')) {
     model = new GeminiGeneration(settings);
 
@@ -794,8 +797,8 @@ export class HuggingFaceGeneration extends TextGenerationModel {
 
 export class OpenAIGeneration extends TextGenerationModel {
   // model
-  private api_key: string = null;
-  private endpoint: string = null;
+  protected api_key: string = null;
+  protected endpoint: string = null;
 
   // model
   public temperature: number = 0.5;
@@ -806,7 +809,7 @@ export class OpenAIGeneration extends TextGenerationModel {
   constructor(settings: JarvisSettings) {
     let type = 'completion';
     let model_id = settings.model;
-    if (model_id.includes('gpt-3.5') || model_id.includes('gpt-4')) {
+    if (model_id.includes('gpt-3.5') || model_id.includes('gpt-4') || model_id.includes('gpt-4o')) {
       type = 'chat';
     }
     if (settings.model === 'openai-custom') {
@@ -861,8 +864,8 @@ export class OpenAIGeneration extends TextGenerationModel {
 
   async _chat(prompt: ChatEntry[]): Promise<string> {
     return openai.query_chat(prompt, this.api_key, this.id,
-      this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty,
-      this.endpoint);
+      undefined, this.temperature, this.top_p, this.frequency_penalty,
+      this.presence_penalty, this.endpoint);
   }
 
   async _complete(prompt: string): Promise<string> {
@@ -873,6 +876,43 @@ export class OpenAIGeneration extends TextGenerationModel {
       this.max_tokens - this.count_tokens(prompt),
       this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty,
       this.endpoint);
+  }
+}
+
+export class AnthropicGeneration extends OpenAIGeneration {
+  constructor(settings: JarvisSettings) {
+    super(settings);
+    this.endpoint = 'https://api.anthropic.com/v1/chat/completions';
+
+    // Anthropic models are always chat models
+    this.type = 'chat';
+
+    // Rate limiting for Anthropic API
+    this.requests_per_second = 10;
+    this.last_request_time = 0;
+  }
+
+  async _load_model() {
+    this.api_key = await joplin.settings.value('anthropic_api_key');
+    if (!this.api_key) {
+      joplin.views.dialogs.showMessageBox('Please specify a valid Anthropic API key in the settings');
+      this.model = null;
+      return;
+    }
+    this.model = this.id;  // anything other than null
+
+    try {
+      const response = await this.complete(test_prompt);
+    } catch (e) {
+      console.log(`AnthropicGeneration failed to load: ${e}`);
+      this.model = null;
+    }
+  }
+
+  async _chat(prompt: ChatEntry[]): Promise<string> {
+    return openai.query_chat(prompt, this.api_key, this.id,
+      this.max_tokens, this.temperature, this.top_p, this.frequency_penalty,
+      this.presence_penalty, this.endpoint);
   }
 }
 

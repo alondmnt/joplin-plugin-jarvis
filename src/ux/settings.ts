@@ -99,6 +99,9 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gpt-3.5-turbo-instruct': 4096,
   'gemini-1.0-pro-latest': 30720,
   'gemini-1.5-pro-latest': 1048576,
+  'claude-3-7-sonnet-latest': 8192,
+  'claude-3-5-sonnet-latest': 8192,
+  'claude-3-5-haiku-latest': 8192,
 };
 
 export const search_engines: { [engine: string] : string; } = {
@@ -291,6 +294,14 @@ export async function register_settings() {
       public: true,
       label: 'Model: OpenAI API Key',
     },
+    'anthropic_api_key': {
+      value: 'YOUR_ANTHROPIC_API_KEY',
+      type: SettingItemType.String,
+      secure: true,
+      section: 'jarvis.chat',
+      public: true,
+      label: 'Model: Anthropic API Key',
+    },
     'hf_api_key': {
       value: 'YOUR_HF_API_KEY',
       type: SettingItemType.String,
@@ -320,7 +331,10 @@ export async function register_settings() {
         'gpt-4o': '(online) OpenAI: gpt-4o (128K, stronger)',
         'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo (16K, legacy)',
         'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct (4K)',
-        'openai-custom': '(online/offline) OpenAI or compatible: custom model',
+        'claude-3-5-haiku-latest': '(online) Anthropic: claude-3-5-haiku (cheapest)',
+        'claude-3-7-sonnet-latest': '(online) Anthropic: claude-3-7-sonnet (strongest)',
+        'claude-3-5-sonnet-latest': '(online) Anthropic: claude-3-5-sonnet',
+        'openai-custom': '(online/offline) OpenAI-compatible: custom model',
         'gemini-1.0-pro-latest': '(online) Google AI: gemini-1.0-pro-latest (30K)',
         'gemini-1.5-pro-latest': '(online) Google AI: gemini-1.5-pro-latest (1M)',
         'Hugging Face': '(online) Hugging Face',

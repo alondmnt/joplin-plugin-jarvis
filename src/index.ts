@@ -293,21 +293,9 @@ joplin.plugins.register({
 
     await joplin.settings.onChange(async (event) => {
       settings = await get_settings();
-      // validate hugging face max tokens  
-      if ((event.keys.includes('chat_hf_model_id') ||
-           event.keys.includes('model') ||
-           event.keys.includes('max_tokens')) &&
-          (settings.model === 'Hugging Face') &&
-          (settings.max_tokens > 2048)) {
-        const choice = await joplin.views.dialogs.showMessageBox(
-          `Hugging Face models typically do not exceed 2048 tokens, yet max tokens is currently set to ${settings.max_tokens}. Would you like to change it to 2048?`);
-        if (choice === 0) {
-          await joplin.settings.setValue('max_tokens', 2048);
-          settings = await get_settings();
-        }
-      }
       // load generation model
       if (event.keys.includes('openai_api_key') ||
+          event.keys.includes('anthropic_api_key') ||
           event.keys.includes('hf_api_key') ||
           event.keys.includes('google_api_key') ||
           event.keys.includes('model') ||
@@ -333,6 +321,7 @@ joplin.plugins.register({
       // load embedding model
       if (event.keys.includes('openai_api_key') ||
           event.keys.includes('hf_api_key') ||
+          event.keys.includes('google_api_key') ||
           event.keys.includes('notes_model') ||
           event.keys.includes('notes_embed_title') ||
           event.keys.includes('notes_embed_path') ||
