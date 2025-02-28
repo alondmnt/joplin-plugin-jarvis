@@ -287,7 +287,7 @@ export async function register_settings() {
 
   await joplin.settings.registerSettings({
     'openai_api_key': {
-      value: 'YOUR_OPENAI_API_KEY',
+      value: '',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.chat',
@@ -295,7 +295,7 @@ export async function register_settings() {
       label: 'Model: OpenAI API Key',
     },
     'anthropic_api_key': {
-      value: 'YOUR_ANTHROPIC_API_KEY',
+      value: '',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.chat',
@@ -303,7 +303,7 @@ export async function register_settings() {
       label: 'Model: Anthropic API Key',
     },
     'hf_api_key': {
-      value: 'YOUR_HF_API_KEY',
+      value: '',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.chat',
@@ -311,7 +311,7 @@ export async function register_settings() {
       label: 'Model: Hugging Face API Key',
     },
     'google_api_key': {
-      value: 'YOUR_GOOGLE_API_KEY',
+      value: '',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.chat',
