@@ -24,12 +24,14 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
   if (settings.model === 'Hugging Face') {
     model = new HuggingFaceGeneration(settings);
 
+  } else if (settings.model.includes('claude') ||
+             (settings.model.includes('openai-custom') &&
+              settings.chat_openai_model_id.includes('claude'))) {
+    model = new AnthropicGeneration(settings);
+
   } else if (settings.model.includes('gpt') ||
              settings.model.includes('openai')) {
     model = new OpenAIGeneration(settings);
-
-  } else if (settings.model.includes('claude')) {
-    model = new AnthropicGeneration(settings);
 
   } else if (settings.model.includes('gemini')) {
     model = new GeminiGeneration(settings);
