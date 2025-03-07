@@ -207,6 +207,11 @@ class USEEmbedding extends TextEmbeddingModel {
     this.max_block_size = max_tokens;
     this.online = false;
     this.page_size = jobs;
+
+    // rate limits
+    this.request_queue = [];  // internal rate limit
+    this.requests_per_second = 100;  // internal rate limit
+    this.last_request_time = 0;  // internal rate limit
   }
 
   async _load_model() {
@@ -237,7 +242,7 @@ class USEEmbedding extends TextEmbeddingModel {
     }
   }
 
-  async embed(text: string): Promise<Float32Array> {
+  async _calc_embedding(text: string): Promise<Float32Array> {
     if (!this.model) {
       throw new Error('Model not initialized');
     }
