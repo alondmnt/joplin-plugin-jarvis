@@ -6,7 +6,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { encodingForModel } from 'js-tiktoken';
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings } from '../ux/settings';
-import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last } from '../utils';
+import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, UserCancellationError } from '../utils';
 import * as openai from './openai';
 import * as google from './google';
 import * as ollama from './ollama';
@@ -148,16 +148,26 @@ export class TextEmbeddingModel {
   }
 
   // parent method with rate limiter
-  async embed(text: string): Promise<Float32Array> {
+  async embed(text: string, abortSignal?: AbortSignal): Promise<Float32Array> {
+    if (abortSignal?.aborted) {
+        throw new UserCancellationError('Embedding operation cancelled');
+    }
     if (!this.model) {
-      throw new Error('Model not initialized');
+        throw new Error('Model not initialized');
     }
 
     await this.limit_rate();
 
-    const vec = await this._calc_embedding(text);
+    // Then set up abort handling for the actual embedding operation
+    return new Promise((resolve, reject) => {
+        abortSignal?.addEventListener('abort', () => {
+            reject(new UserCancellationError('Embedding operation cancelled'));
+        });
 
-    return vec;
+        this._calc_embedding(text)
+            .then(resolve)
+            .catch(reject);
+    });
   }
 
   // estimate the number of tokens in the given text
@@ -322,6 +332,13 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
       } else if (e.message.includes('overload')) {
         console.log('Server overload, waiting and trying again');
         return await this.embed(text);
+      } else {
+        const errorHandler = await joplin.views.dialogs.showMessageBox(
+          `Error: ${e.message}\nPress OK to retry.`);
+        if (errorHandler === 0) {
+          return await this.embed(text);
+        }
+        throw new UserCancellationError(`HuggingFaceEmbedding failed: ${e.message}`);
       }
     }
 
@@ -794,7 +811,7 @@ export class HuggingFaceGeneration extends TextGenerationModel {
         `Error in HuggingFaceGeneration: ${e}\nPress OK to retry.`);
       // cancel button
       if (errorHandler === 1) {
-        return '';
+        throw new UserCancellationError('HuggingFaceGeneration failed');
       }
       // retry
       return this._complete(prompt);

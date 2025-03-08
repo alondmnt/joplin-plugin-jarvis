@@ -53,6 +53,7 @@ export async function update_progress_bar(panel: string, processed: number, tota
     <p class="jarvis-semantic-note">Updating note database...</p>
     <progress class="jarvis-semantic-progress" value="${processed}" max="${total}"></progress>
     <p class="jarvis-semantic-note">Total notes processed: ${processed} / ${total}</p>
+    <button class="jarvis-cancel-button">Cancel</button>
   </div>
   `);
 }

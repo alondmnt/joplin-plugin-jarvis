@@ -209,3 +209,11 @@ export function replace_last(str: string, pattern: string, replacement: string):
   // Construct the new string
   return str.substring(0, index) + replacement + str.substring(index + pattern.length);
 }
+
+// Custom error for user cancellation
+export class UserCancellationError extends Error {
+  constructor(message: string = 'Operation cancelled by user') {
+    super(message);
+    this.name = 'UserCancellationError';
+  }
+}

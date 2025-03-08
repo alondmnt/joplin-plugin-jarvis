@@ -3,7 +3,8 @@ import { createHash } from 'crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
-import { search_keywords } from '../utils';
+import { search_keywords, UserCancellationError } from '../utils';
+import { abort } from 'process';
 
 export interface BlockEmbedding {
   id: string;  // note id
@@ -25,8 +26,13 @@ export interface NoteEmbedding {
 }
 
 // calculate the embeddings for a note
-export async function calc_note_embeddings(note: any, note_tags: string[],
-    model: TextEmbeddingModel, settings: JarvisSettings): Promise<BlockEmbedding[]> {
+export async function calc_note_embeddings(
+    note: any,
+    note_tags: string[],
+    model: TextEmbeddingModel,
+    settings: JarvisSettings,
+    abortSignal: AbortSignal
+): Promise<BlockEmbedding[]> {
   const hash = calc_hash(note.body);
   note.body = convert_newlines(note.body);
   let level = 0;
@@ -81,7 +87,7 @@ export async function calc_note_embeddings(note: any, note_tags: string[],
           length: sub.length,
           level: level,
           title: title,
-          embedding: await model.embed(decorate + sub),
+          embedding: await model.embed(decorate + sub, abortSignal),
           similarity: 0,
         };
       });
@@ -171,7 +177,11 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
 
 // async function to process a single note
 async function update_note(note: any,
-    model: TextEmbeddingModel, settings: JarvisSettings): Promise<BlockEmbedding[]> {
+    model: TextEmbeddingModel, settings: JarvisSettings,
+    abortSignal: AbortSignal): Promise<BlockEmbedding[]> {
+  if (abortSignal.aborted) {
+    throw new UserCancellationError("Operation cancelled");
+  }
   if (note.is_conflict) {
     return [];
   }
@@ -200,7 +210,7 @@ async function update_note(note: any,
   }
 
   // otherwise, calculate the new embeddings
-  const new_embd = await calc_note_embeddings(note, note_tags, model, settings);
+  const new_embd = await calc_note_embeddings(note, note_tags, model, settings, abortSignal);
 
   // insert new embeddings into DB
   await insert_note_embeddings(model.db, new_embd, model);
@@ -210,16 +220,27 @@ async function update_note(note: any,
 
 // in-place function
 export async function update_embeddings(
-    notes: any[], model: TextEmbeddingModel, settings: JarvisSettings): Promise<void> {
-  // map over the notes array and create an array of promises
-  const notes_promises = notes.map(note => update_note(note, model, settings));
+  notes: any[], model: TextEmbeddingModel, settings: JarvisSettings, 
+  abortController: AbortController): Promise<void> {
+  try {
+    const promises = notes.map(note => 
+      update_note(note, model, settings, abortController.signal)
+    );
 
-  // wait for all promises to resolve and store the result in new_embeddings
-  const new_embeddings = await Promise.all(notes_promises);
+    const results = await Promise.all(promises);
 
-  // update original array of embeddings
-  remove_note_embeddings(model.embeddings, notes.map(note => note.id));
-  model.embeddings.push(...[].concat(...new_embeddings));
+    // If we get here, no cancellation occurred - update embeddings
+    remove_note_embeddings(model.embeddings, notes.map(note => note.id));
+    model.embeddings.push(...[].concat(...results));
+  } catch (error) {
+    if (error instanceof UserCancellationError) {
+      // Signal all other ongoing operations to abort
+      abortController.abort();
+      console.log('User cancelled the embedding update process');
+      throw error;
+    }
+    throw error;
+  }
 }
 
 // function to remove all embeddings of the given notes from an array of embeddings in-place
@@ -351,8 +372,19 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     } catch (error) {
       note_tags = [];
     }
-    query_embeddings = await calc_note_embeddings(
-      {id: current_id, body: query, title: current_title}, note_tags, model, settings);
+    const abortController = new AbortController();
+    try {
+      query_embeddings = await calc_note_embeddings(
+        {id: current_id, body: query, title: current_title}, note_tags, model, settings, abortController.signal);
+    } catch (error) {
+      if (error instanceof UserCancellationError) {
+        // Signal all other ongoing operations to abort
+        abortController.abort();
+        console.log('User cancelled the embedding update process');
+        throw error;
+      }
+      throw error;
+    }
   }
   if (query_embeddings.length === 0) {
     return [];

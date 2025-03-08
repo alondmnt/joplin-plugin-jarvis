@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { JarvisSettings } from '../ux/settings';
+import { UserCancellationError } from '../utils';
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,
@@ -49,7 +49,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
 
   // cancel button
   if (errorHandler === 1) {
-    return '';
+    throw new UserCancellationError(`OpenAI chat failed: ${data.error.message}`);
   }
 
   // find all numbers in error message
@@ -117,7 +117,7 @@ export async function query_completion(prompt: string, api_key: string,
 
   // cancel button
   if (errorHandler === 1) {
-    return '';
+    throw new UserCancellationError(`OpenAI completion failed: ${data.error.message}`);
   }
 
   // find all numbers in error message
@@ -166,11 +166,11 @@ export async function query_embedding(input: string, model: string, api_key: str
   if (data.hasOwnProperty('error')) {
     const errorHandler = await joplin.views.dialogs.showMessageBox(
       `Error: ${data.error.message}\nPress OK to retry.`);
-      if (errorHandler === 0) {
+    if (errorHandler === 0) {
       // OK button
       return query_embedding(input, model, api_key, custom_url);
     }
-    return new Float32Array();
+    throw new UserCancellationError(`OpenAI embedding failed: ${data.error.message}`);
   }
   let vec = new Float32Array(data.data[0].embedding);
 

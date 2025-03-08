@@ -5,7 +5,7 @@ import { get_settings } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
 
 
-export async function update_note_db(model: TextEmbeddingModel, panel: string): Promise<void> {
+export async function update_note_db(model: TextEmbeddingModel, panel: string, abortController: AbortController): Promise<void> {
   if (model.model === null) { return; }
 
   const settings = await get_settings();
@@ -30,7 +30,7 @@ export async function update_note_db(model: TextEmbeddingModel, panel: string): 
     notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id', 'deleted_time', 'markup_language'], page: page, limit: model.page_size });
     if (notes.items) {
       console.log(`Processing page ${page}: ${notes.items.length} notes`);
-      await update_embeddings(notes.items, model, settings);
+      await update_embeddings(notes.items, model, settings, abortController);
       processed_notes += notes.items.length;
       update_progress_bar(panel, processed_notes, total_notes, settings);
     }

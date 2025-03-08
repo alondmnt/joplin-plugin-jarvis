@@ -1,4 +1,5 @@
 import joplin from 'api';
+import { UserCancellationError } from '../utils';
 
 export async function query_embedding(input: string, model: string, url: string): Promise<Float32Array> {
     const responseParams = {
@@ -22,7 +23,7 @@ export async function query_embedding(input: string, model: string, url: string)
         // OK button
         return query_embedding(input, model, url);
       }
-      return new Float32Array();
+      throw new UserCancellationError(`Ollama embedding failed: ${data.error.message}`);
     }
     let vec = new Float32Array(data.embeddings[0]);
     

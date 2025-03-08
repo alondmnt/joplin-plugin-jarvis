@@ -8,6 +8,11 @@ document.addEventListener('click', event => {
 			line: element.dataset.line,
 		});
 	}
+	if (element.className === 'jarvis-cancel-button') {
+		webviewApi.postMessage({
+			name: 'abortUpdate'
+		});
+	}
 });
 
 document.addEventListener('search', event => {

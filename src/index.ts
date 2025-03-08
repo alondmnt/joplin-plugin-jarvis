@@ -28,12 +28,36 @@ joplin.plugins.register({
     let model_embed = await load_embedding_model(settings);
     if (await skip_db_init_dialog(model_embed)) { delay_db_update = 0; }  // cancel auto update
 
+    // Add shared abortController
+    let updateAbortController: AbortController | null = null;
+
+    // Helper function to check if update is in progress
+    function isUpdateInProgress(): boolean {
+      return updateAbortController !== null;
+    }
+
+    // Helper function to safely start an update
+    async function startUpdate(model_embed: any, panel: string) {
+      if (isUpdateInProgress()) {
+        console.log('Update already in progress');
+        return;
+      }
+      updateAbortController = new AbortController();
+      try {
+        await update_note_db(model_embed, panel, updateAbortController);
+      } finally {
+        updateAbortController = null;
+      }
+    }
+
     const panel = await joplin.views.panels.create('jarvis.relatedNotes');
     register_panel(panel, settings, model_embed);
 
     const find_notes_debounce = debounce(find_notes, delay_panel * 1000);
     if (model_embed.model) { find_notes_debounce(model_embed, panel) };
-    let update_note_db_debounce = debounce(update_note_db, delay_db_update * 1000, {leading: true, trailing: false});
+    let update_note_db_debounce = debounce(async (model_embed: any, panel: string) => {
+      await startUpdate(model_embed, panel);
+    }, delay_db_update * 1000, {leading: true, trailing: false});
 
     let model_gen = await load_generation_model(settings);
 
@@ -63,7 +87,7 @@ joplin.plugins.register({
       execute: async () => {
         chat_with_jarvis(model_gen);
       }
-    })
+    });
 
     joplin.commands.register({
       name: 'jarvis.research',
@@ -88,7 +112,7 @@ joplin.plugins.register({
       execute: async () => {
         auto_complete(model_gen);
       }
-    })
+    });
 
     joplin.commands.register({
       name: 'jarvis.annotate.title',
@@ -145,7 +169,7 @@ joplin.plugins.register({
         if (model_embed.model === null) {
           await model_embed.initialize();
         }
-        await update_note_db(model_embed, panel);
+        await startUpdate(model_embed, panel);
       }
     });
 
@@ -289,6 +313,12 @@ joplin.plugins.register({
           model_embed.embeddings, '1234', '', message.query, model_embed, settings);
         await update_panel(panel, nearest, settings);
       }
+      if (message.name === 'abortUpdate') {
+        if (updateAbortController) {
+          updateAbortController.abort();
+          updateAbortController = null;
+        }
+      }
     });
 
     await joplin.settings.onChange(async (event) => {
@@ -336,18 +366,19 @@ joplin.plugins.register({
 
         model_embed = await load_embedding_model(settings);
         if (model_embed.model) {
-          await update_note_db(model_embed, panel);
+          await startUpdate(model_embed, panel);
         }
       }
       // update panel
       if (model_embed.model) {
-        find_notes_debounce(model_embed, panel)
+        find_notes_debounce(model_embed, panel);
       };
       // update db refresh interval
       if (event.keys.includes('notes_db_update_delay')) {
         delay_db_update = 60 * settings.notes_db_update_delay;
-        update_note_db_debounce = debounce(update_note_db,
-          delay_db_update * 1000, {leading: true, trailing: false});
+        update_note_db_debounce = debounce(async (model_embed: any, panel: string) => {
+          await startUpdate(model_embed, panel);
+        }, delay_db_update * 1000, {leading: true, trailing: false});
       }
     });
 	},
