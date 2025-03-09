@@ -160,20 +160,13 @@ export async function get_settings(): Promise<JarvisSettings> {
   let model_id = await joplin.settings.value('model');
   if (model_id == 'openai-custom') {
     model_id = await joplin.settings.value('chat_openai_model_id');
-    model_id = model_id.replace(/-\d{4}$/, '');  // remove the date suffix
+    model_id = model_id.replace(/-\d{4}.*$/, '');  // remove the date suffix
+    model_id = model_id.replace(/-preview$/, '');  // remove the preview suffix
   }
   // if model is in model_max_tokens, use its value, otherwise use the settings value
   let max_tokens = model_max_tokens[model_id] || await joplin.settings.value('max_tokens');
-
   let memory_tokens = await joplin.settings.value('memory_tokens');
   let notes_context_tokens = await joplin.settings.value('notes_context_tokens');
-  if (memory_tokens + notes_context_tokens > 0.9*max_tokens) {
-    joplin.views.dialogs.showMessageBox(`Memory tokens (${memory_tokens}) + Context tokens (${notes_context_tokens}) must be < 90% of the maximum number of tokens. The settings have been updated (${Math.floor(0.45*max_tokens)}, ${Math.floor(0.45*max_tokens)}).`);
-    memory_tokens = Math.floor(0.45*max_tokens);
-    notes_context_tokens = Math.floor(0.45*max_tokens);
-    await joplin.settings.setValue('notes_context_tokens', notes_context_tokens);
-    await joplin.settings.setValue('memory_tokens', memory_tokens);
-  }
 
   const annotate_tags_method = await joplin.settings.value('annotate_tags_method');
 
@@ -196,7 +189,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     chat_hf_endpoint: await joplin.settings.value('chat_hf_endpoint'),
     temperature: (await joplin.settings.value('temp')) / 10,
     max_tokens: max_tokens,
-    memory_tokens: await joplin.settings.value('memory_tokens'),
+    memory_tokens: memory_tokens,
     top_p: (await joplin.settings.value('top_p')) / 100,
     frequency_penalty: (await joplin.settings.value('frequency_penalty')) / 10,
     presence_penalty: (await joplin.settings.value('presence_penalty')) / 10,
