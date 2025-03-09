@@ -8,6 +8,23 @@ html {
   margin: 5px;
 }
 
+.jarvis-cancel-button {
+  min-height: 23px;
+  background-color: var(--joplin-background-color);
+  color: var(--joplin-color);
+  font-size: calc(var(--joplin-font-size) * 1.1);
+  border-color: rgb(118, 118, 118);
+  border-width: 1px;
+  border-radius: 3px;
+  border-spacing: 5px;
+  border-style: solid;
+  margin: 5px;
+}
+
+.jarvis-cancel-button:hover {
+  background-color: var(--joplin-background-color-hover3);
+}
+
 .jarvis-semantic-title {
   color: var(--joplin-color);
   font-size: calc(var(--joplin-font-size) * 1.1);
@@ -17,8 +34,13 @@ html {
 }
 
 .jarvis-semantic-query {
+  min-height: 23px;
   color: var(--joplin-color);
   background-color: var(--joplin-background-color);
+  border-width: 1px;
+  border-radius: 3px;
+  border-spacing: 5px;
+  border-style: solid;
   font-size: calc(var(--joplin-font-size) * 1.1);
   width: 97%;
   margin: 0px;
