@@ -90,9 +90,9 @@ export interface JarvisSettings {
 };
 
 export const model_max_tokens: { [model: string] : number; } = {
-  'gpt-4o-mini': 128000,
-  'gpt-4o': 128000,
-  'gpt-4-turbo': 128000,
+  'gpt-4o-mini': 16384,
+  'gpt-4o': 16384,
+  'gpt-4-turbo': 16384,
   'gpt-4-32k': 32768,
   'gpt-4': 8192,
   'gpt-3.5-turbo': 16384,
@@ -320,16 +320,16 @@ export async function register_settings() {
       label: 'Chat: Model',
       description: 'The model to ask / chat / research with Jarvis. Default: gpt-4o-mini',
       options: {
-        'gpt-4o-mini':'(online) OpenAI: gpt-4o-mini (128K, cheapest)',
-        'gpt-4o': '(online) OpenAI: gpt-4o (128K, stronger)',
-        'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo (16K, legacy)',
-        'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct (4K)',
-        'claude-3-5-haiku-latest': '(online) Anthropic: claude-3-5-haiku (cheapest)',
-        'claude-3-7-sonnet-latest': '(online) Anthropic: claude-3-7-sonnet (strongest)',
-        'claude-3-5-sonnet-latest': '(online) Anthropic: claude-3-5-sonnet',
+        'gpt-4o-mini':'(online) OpenAI: gpt-4o-mini (in:128K, out:16K, cheapest)',
+        'gpt-4o': '(online) OpenAI: gpt-4o (in:128K, out:16K, stronger)',
+        'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo (in:16K, out:4K, legacy)',
+        'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct (in:4K, out:4K)',
+        'claude-3-5-haiku-latest': '(online) Anthropic: claude-3-5-haiku (in:128K, out:16K, cheapest)',
+        'claude-3-7-sonnet-latest': '(online) Anthropic: claude-3-7-sonnet (in:128K, out:16K, strongest)',
+        'claude-3-5-sonnet-latest': '(online) Anthropic: claude-3-5-sonnet (in:128K, out:16K)',
         'openai-custom': '(online/offline) OpenAI-compatible: custom model',
-        'gemini-1.0-pro-latest': '(online) Google AI: gemini-1.0-pro-latest (30K)',
-        'gemini-1.5-pro-latest': '(online) Google AI: gemini-1.5-pro-latest (1M)',
+        'gemini-1.0-pro-latest': '(online) Google AI: gemini-1.0-pro-latest (in:30K, out:30K)',
+        'gemini-1.5-pro-latest': '(online) Google AI: gemini-1.5-pro-latest (in:1M, out:1M)',
         'Hugging Face': '(online) Hugging Face',
       }
     },
