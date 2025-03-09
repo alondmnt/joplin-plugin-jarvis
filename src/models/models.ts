@@ -555,7 +555,10 @@ export class TextGenerationModel {
     await this._load_model();  // model-specific initialization
   }
 
-  async chat(prompt: string, preview: boolean=false): Promise<string> {
+  async chat(prompt: string, preview: boolean=false, abortSignal?: AbortSignal): Promise<string> {
+    if (abortSignal?.aborted) {
+      throw new UserCancellationError('Generation operation cancelled');
+    }
     await this.limit_rate();
 
     let response = '';
@@ -564,24 +567,49 @@ export class TextGenerationModel {
       await this._preview_chat(prompt);
       return;
     }
-    if (this.type === 'chat') {
-      const chat_prompt = this._parse_chat(prompt);
-      response = await timeout_with_retry(this.timeout, () => this._chat(chat_prompt));
 
-    } else {
-      prompt = this._parse_chat(prompt, true).map((message: ChatEntry) => {
-        return `${message.role}${message.content}`;
-      }).join('') + this.model_prefix;
-      response = await this.complete(prompt);
-    }
-    return this.model_prefix + response.replace(this.model_prefix.trim(), '').trim() + this.user_prefix;
+    // Set up abort handling for the actual generation operation
+    return new Promise((resolve, reject) => {
+      abortSignal?.addEventListener('abort', () => {
+        reject(new UserCancellationError('Generation operation cancelled'));
+      });
+
+      if (this.type === 'chat') {
+        const chat_prompt = this._parse_chat(prompt);
+        timeout_with_retry(this.timeout, () => this._chat(chat_prompt, abortSignal))
+          .then(resolve)
+          .catch(reject);
+      } else {
+        prompt = this._parse_chat(prompt, true).map((message: ChatEntry) => {
+          return `${message.role}${message.content}`;
+        }).join('') + this.model_prefix;
+        this.complete(prompt, abortSignal)
+          .then(resolve)
+          .catch(reject);
+      }
+    }).then((response: string) => {
+      return this.model_prefix + response.replace(this.model_prefix.trim(), '').trim() + this.user_prefix;
+    });
   }
 
-  async complete(prompt: string): Promise<string> {
+  async complete(prompt: string, abortSignal?: AbortSignal): Promise<string> {
+    if (abortSignal?.aborted) {
+      throw new UserCancellationError('Generation operation cancelled');
+    }
     await this.limit_rate();
 
     prompt = this._sanitize_prompt(prompt);
-    return await timeout_with_retry(this.timeout, () => this._complete(prompt));
+
+    // Set up abort handling for the actual generation operation
+    return new Promise((resolve, reject) => {
+      abortSignal?.addEventListener('abort', () => {
+        reject(new UserCancellationError('Generation operation cancelled'));
+      });
+
+      timeout_with_retry(this.timeout, () => this._complete(prompt, abortSignal))
+        .then(resolve)
+        .catch(reject);
+    });
   }
 
   // estimate the number of tokens in the given text
@@ -603,12 +631,12 @@ export class TextGenerationModel {
   }
 
   // placeholder method, to be overridden by subclasses
-  async _chat(prompt: ChatEntry[]): Promise<string> {
+  async _chat(prompt: ChatEntry[], abortSignal?: AbortSignal): Promise<string> {
     throw new Error('Not implemented');
   }
 
   // placeholder method, to be overridden by subclasses
-  async _complete(prompt: string): Promise<string> {
+  async _complete(prompt: string, abortSignal?: AbortSignal): Promise<string> {
     throw new Error('Not implemented');
   }
 

@@ -236,7 +236,6 @@ export async function update_embeddings(
     if (error instanceof UserCancellationError) {
       // Signal all other ongoing operations to abort
       abortController.abort();
-      console.log('User cancelled the embedding update process');
       throw error;
     }
     throw error;
@@ -380,7 +379,6 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       if (error instanceof UserCancellationError) {
         // Signal all other ongoing operations to abort
         abortController.abort();
-        console.log('User cancelled the embedding update process');
         throw error;
       }
       throw error;

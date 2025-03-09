@@ -1,7 +1,7 @@
 import joplin from "api";
 import { JarvisSettings, search_prompts } from '../ux/settings';
 import { TextGenerationModel } from "../models/models";
-import { split_by_tokens, with_timeout } from "../utils";
+import { split_by_tokens, with_timeout, UserCancellationError } from "../utils";
 
 export interface PaperInfo {
   title: string;
@@ -24,15 +24,22 @@ export interface SearchParams {
 
 export async function search_papers(model_gen: TextGenerationModel,
     prompt: string, n: number, settings: JarvisSettings,
-    min_results: number = 10, retries: number = 2): Promise<[PaperInfo[], SearchParams]> {
+    abortSignal?: AbortSignal, min_results: number = 10, retries: number = 2): Promise<[PaperInfo[], SearchParams]> {
 
-  const search = await get_search_queries(model_gen, prompt, settings);
+  if (abortSignal?.aborted) {
+    throw new UserCancellationError('Paper search operation cancelled');
+  }
+
+  const search = await get_search_queries(model_gen, prompt, settings, abortSignal);
 
   // run multiple queries in parallel and remove duplicates
   let results: PaperInfo[] = [];
   let dois: Set<string> = new Set();
   (await Promise.all(
     search.queries.map((query) => {
+      if (abortSignal?.aborted) {
+        throw new UserCancellationError('Paper search operation cancelled');
+      }
       if ( settings.paper_search_engine == 'Scopus' ) {
         return run_scopus_query(query, n, settings);
       } else if ( settings.paper_search_engine == 'Semantic Scholar' ) {
@@ -51,7 +58,7 @@ export async function search_papers(model_gen: TextGenerationModel,
 
   if ( (results.length < min_results) && (retries > 0) ) {
     console.log(`search ${retries - 1}`);
-    return search_papers(model_gen, prompt, n, settings, min_results, retries - 1);
+    return search_papers(model_gen, prompt, n, settings, abortSignal, min_results, retries - 1);
   }
   return [results, search];
 }
@@ -185,7 +192,8 @@ async function run_scopus_query(query: string, papers: number, settings: JarvisS
   return results.slice(0, papers);
 }
 
-async function get_search_queries(model_gen: TextGenerationModel, prompt: string, settings: JarvisSettings): Promise<SearchParams> {
+async function get_search_queries(model_gen: TextGenerationModel, prompt: string,
+    settings: JarvisSettings, abortSignal?: AbortSignal): Promise<SearchParams> {
   const response = await model_gen.complete(
     `you are writing an academic text.
     first, list a few research questions that arise from the prompt below.
@@ -205,7 +213,7 @@ async function get_search_queries(model_gen: TextGenerationModel, prompt: string
     1. [search query]
     2. [search query]
     3. [search query]
-    `);
+    `, abortSignal);
 
   const query = response.split(/# Research questions|# Queries/gi);
 
@@ -219,72 +227,120 @@ async function get_search_queries(model_gen: TextGenerationModel, prompt: string
 
 export async function sample_and_summarize_papers(model_gen: TextGenerationModel,
     papers: PaperInfo[], max_tokens: number,
-    search: SearchParams, settings: JarvisSettings): Promise<PaperInfo[]> {
+    search: SearchParams, settings: JarvisSettings, controller?: AbortController): Promise<PaperInfo[]> {
   let results: PaperInfo[] = [];
   let tokens = 0;
 
-  // randomize the order of the papers
-  papers.sort(() => Math.random() - 0.5);
-  const promises: Promise<PaperInfo>[] = [];
-  for (let i = 0; i < papers.length; i++) {
-
-    if ( promises.length <= i ) {
-      // try to get a summary for the next 5 papers asynchonously
-      for (let j = 0; j < 5; j++) {
-        if (i + j < papers.length) {
-          promises.push(get_paper_summary(model_gen, papers[i + j], search.questions, settings));
-        }
-      }
-    }
-    // wait for the next summary to be ready
-    papers[i] = await promises[i];
-    if ( papers[i]['summary'].length == 0 ) { continue; }
-
-    // we only summarize papers up to a total length of max_tokens
-    const this_tokens = model_gen.count_tokens(papers[i]['summary']);
-    if (tokens + this_tokens > max_tokens) { 
-      break;
-    }
-    results.push(papers[i]);
-    tokens += this_tokens;
+  if (controller?.signal.aborted) {
+    throw new UserCancellationError('Paper summarization operation cancelled');
   }
 
-  console.log(`sampled ${results.length} papers. retrieved ${promises.length} papers.`);
+  // randomize the order of the papers
+  papers.sort(() => Math.random() - 0.5);
+  let activePromises: Promise<PaperInfo>[] = [];
+
+  try {
+    for (let i = 0; i < papers.length; i++) {
+      if (controller?.signal.aborted) {
+        throw new UserCancellationError('Paper summarization operation cancelled');
+      }
+
+      // Start new batch of promises if needed
+      if (activePromises.length < 5 && i + activePromises.length < papers.length) {
+        const remainingSlots = Math.min(5 - activePromises.length, papers.length - (i + activePromises.length));
+        for (let j = 0; j < remainingSlots; j++) {
+          const paperIndex = i + activePromises.length;
+          activePromises.push(get_paper_summary(model_gen, papers[paperIndex], search.questions, settings, controller?.signal));
+        }
+      }
+
+      // Wait for the next result
+      try {
+        const paper = await activePromises[0];
+        activePromises = activePromises.slice(1); // Remove completed promise
+
+        if (paper['summary'].length == 0) { continue; }
+
+        // we only summarize papers up to a total length of max_tokens
+        const this_tokens = model_gen.count_tokens(paper['summary']);
+        if (tokens + this_tokens > max_tokens) { 
+          break;
+        }
+        results.push(paper);
+        tokens += this_tokens;
+      } catch (error) {
+        if (error instanceof UserCancellationError) {
+          // Trigger abort on the controller
+          controller.abort();
+          // Clear remaining promises
+          activePromises = [];
+          throw error;
+        }
+        console.log(`Error processing paper ${i}:`, error);
+        // Remove failed promise and continue
+        activePromises = activePromises.slice(1);
+      }
+    }
+  } catch (error) {
+    if (error instanceof UserCancellationError) {
+      // Ensure abort is triggered
+      controller.abort();
+      throw error;
+    }
+    console.log(`Error during paper summarization: ${error.message}`);
+  }
+
+  console.log(`sampled ${results.length} papers. retrieved ${papers.length} papers.`);
   return results;
 }
 
 async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInfo,
-    questions: string, settings: JarvisSettings): Promise<PaperInfo> {
-  paper = await get_paper_text(paper, model_gen, settings);
-  if ( !paper['text'] ) { return paper; }
-
+    questions: string, settings: JarvisSettings, abortSignal?: AbortSignal): Promise<PaperInfo> {
   const user_temp = model_gen.temperature;
-  model_gen.temperature = 0.3;
-  const prompt = `you are a helpful assistant doing a literature review.
+  try {
+    paper = await get_paper_text(paper, model_gen, settings);
+    if (!paper['text']) { return paper; }
+
+    model_gen.temperature = 0.3;
+    const prompt = `you are a helpful assistant doing a literature review.
     if the study below contains any information that pertains to topics discussed in the research questions below,
-    return a summary in a single paragraph of the relevant parts of the study.
-    only if the study is completely unrelated, even broadly, to these questions,
-    return: 'NOT RELEVANT.' and explain why it is not helpful.
-    QUESTIONS:\n${questions}
-    STUDY:\n${paper['text']}`;
-  const response = await model_gen.complete(prompt);
-  //  consider the study's aim, hypotheses, methods / procedures, results / outcomes, limitations and implications.
-  model_gen.temperature = user_temp;
+      return a summary in a single paragraph of the relevant parts of the study.
+      only if the study is completely unrelated, even broadly, to these questions,
+      return: 'NOT RELEVANT.' and explain why it is not helpful.
+      QUESTIONS:\n${questions}
+      STUDY:\n${paper['text']}`;
 
-  if (response.includes('NOT RELEVANT') || (response.trim().length == 0)) {
-    paper['summary'] = '';
+    const response = await model_gen.complete(prompt, abortSignal);
+    model_gen.temperature = user_temp;
+
+    if (response.includes('NOT RELEVANT') || (response.trim().length == 0)) {
+      paper['summary'] = '';
+      return paper;
+    }
+
+    paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.replace(/\n+/g, ' ')}`;
+    paper['compression'] = paper['summary'].length / paper['text'].length;
+
+    let cite = `- ${paper['author']} et al., [${paper['title']}](https://doi.org/${paper['doi']}), ${paper['journal']}, ${paper['year']}, cited: ${paper['citation_count']}.\n`;
+    if (settings.include_paper_summary) {
+      cite += `\t- ${paper['summary']}\n`;
+    }
+    await joplin.commands.execute('replaceSelection', cite);
     return paper;
-  }
 
-  paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.replace(/\n+/g, ' ')}`;
-  paper['compression'] = paper['summary'].length / paper['text'].length;
-
-  let cite = `- ${paper['author']} et al., [${paper['title']}](https://doi.org/${paper['doi']}), ${paper['journal']}, ${paper['year']}, cited: ${paper['citation_count']}.\n`;
-  if (settings.include_paper_summary) {
-    cite += `\t- ${paper['summary']}\n`;
+  } catch (error) {
+    model_gen.temperature = user_temp;  // Restore temperature even if there's an error
+    if (error instanceof UserCancellationError) {
+      throw error;  // Propagate cancellation
+    }
+    // For other errors, show dialog and potentially retry
+    const errorHandler = await joplin.views.dialogs.showMessageBox(
+      `Error: ${error}\nPress OK to retry, Cancel to abort.`);
+    if (errorHandler === 1) {  // Cancel button pressed
+      throw new UserCancellationError('Paper summarization cancelled by user');
+    }
+    return get_paper_summary(model_gen, paper, questions, settings, abortSignal);
   }
-  await joplin.commands.execute('replaceSelection', cite);
-  return paper;
 }
 
 async function get_paper_text(paper: PaperInfo, model_gen: TextGenerationModel, settings: JarvisSettings): Promise<PaperInfo> {

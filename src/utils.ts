@@ -14,13 +14,18 @@ export async function timeout_with_retry(msecs: number,
   try {
     return await with_timeout(msecs, promise_func());
   } catch (error) {
-    const choice = await joplin.views.dialogs.showMessageBox(`Error: Request timeout (${msecs / 1000} sec).\nPress OK to retry.`);
-    if (choice === 0) {
-      // OK button
-      return await timeout_with_retry(msecs, promise_func);
+    console.log(error);
+    if (error.message.toLowerCase().includes('timeout')) {
+      const choice = await joplin.views.dialogs.showMessageBox(`Error: Request timeout (${msecs / 1000} sec).\nPress OK to retry.`);
+      if (choice === 0) {
+        // OK button
+        return await timeout_with_retry(msecs, promise_func);
+      }
+      // Cancel button
+      throw new UserCancellationError('Operation cancelled by user');
     }
-    // Cancel button
-    return default_value;
+    // For all other errors, propagate them unchanged
+    throw error;
   }
 }
 

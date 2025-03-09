@@ -4,6 +4,7 @@ import { TextGenerationModel } from '../models/models';
 import { PaperInfo, SearchParams, search_papers, sample_and_summarize_papers } from '../research/papers';
 import { WikiInfo, search_wikipedia } from '../research/wikipedia';
 import { JarvisSettings, get_settings, parse_dropdown_json, search_engines } from '../ux/settings';
+import { UserCancellationError } from '../utils';
 
 
 export async function research_with_jarvis(model_gen: TextGenerationModel, dialogHandle: string) {
@@ -32,7 +33,15 @@ export async function research_with_jarvis(model_gen: TextGenerationModel, dialo
     settings.include_paper_summary = true;
   }
 
-  await do_research(model_gen, prompt, n_papers, paper_tokens, use_wikipedia, only_search, settings);
+  try {
+    await do_research(model_gen, prompt, n_papers, paper_tokens, use_wikipedia, only_search, settings);
+  } catch (error) {
+    if (error instanceof UserCancellationError) {
+      await joplin.commands.execute('replaceSelection', '\n\nResearch process was cancelled by user.\n');
+      return;
+    }
+    throw error;
+  }
 }
 
 async function get_research_params(
@@ -89,26 +98,37 @@ return result;
 export async function do_research(model_gen: TextGenerationModel, prompt: string, n_papers: number,
     paper_tokens: number, use_wikipedia: boolean, only_search: boolean, settings: JarvisSettings) {
 
-  let [papers, search] = await search_papers(model_gen, prompt, n_papers, settings);
+  const abortController = new AbortController();
+  try {
+    let [papers, search] = await search_papers(model_gen, prompt, n_papers, settings, abortController.signal);
 
-  await joplin.commands.execute('replaceSelection', search.response);
-  let wiki_search: Promise<WikiInfo> = Promise.resolve({ summary: '' });
-  if ( use_wikipedia && (papers.length > 0) ) {
-    // start search in parallel to paper summary
-    wiki_search = search_wikipedia(model_gen, prompt, search, settings);
+    await joplin.commands.execute('replaceSelection', search.response);
+    let wiki_search: Promise<WikiInfo> = Promise.resolve({ summary: '' });
+    if ( use_wikipedia && (papers.length > 0) ) {
+      // start search in parallel to paper summary
+      wiki_search = search_wikipedia(model_gen, prompt, search, settings, abortController.signal);
+    }
+    papers = await sample_and_summarize_papers(model_gen, papers, paper_tokens, search, settings, abortController);
+
+    if (papers.length == 0) {
+      await joplin.commands.execute('replaceSelection',
+        'No relevant papers found. Consider expanding your paper space, resending your prompt, or adjusting it.\n')
+      return;
+    }
+    if (only_search) { return; }
+
+    const full_prompt = build_prompt(papers, await wiki_search, search);
+    const research = await model_gen.complete(full_prompt, abortController.signal);
+    await joplin.commands.execute('replaceSelection', '\n## Review\n\n' + research.trim());
+
+  } catch (error) {
+    if (error instanceof UserCancellationError) {
+      // Signal all other ongoing operations to abort
+      abortController.abort();
+      throw error;  // Let research_with_jarvis handle the user message
+    }
+    throw error;
   }
-  papers = await sample_and_summarize_papers(model_gen, papers, paper_tokens, search, settings);
-
-  if (papers.length == 0) {
-    await joplin.commands.execute('replaceSelection',
-      'No relevant papers found. Consider expanding your paper space, resending your prompt, or adjusting it.\n')
-    return;
-  }
-  if (only_search) { return; }
-
-  const full_prompt = build_prompt(papers, await wiki_search, search);
-  const research = await model_gen.complete(full_prompt);
-  await joplin.commands.execute('replaceSelection', '\n## Review\n\n' + research.trim());
 }
 
 function build_prompt(papers: PaperInfo[], wiki: WikiInfo, search: SearchParams): string {

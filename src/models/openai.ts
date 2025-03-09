@@ -49,6 +49,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
 
   // cancel button
   if (errorHandler === 1) {
+    console.log('User cancelled the chat operation');
     throw new UserCancellationError(`OpenAI chat failed: ${data.error.message}`);
   }
 
@@ -213,6 +214,5 @@ function select_messages(
     result.push({ role: last_msg.role, content: last_msg.content });
   }
 
-  console.log(result);
   return result;
 }

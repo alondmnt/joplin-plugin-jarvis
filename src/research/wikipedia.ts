@@ -2,7 +2,7 @@ import joplin from 'api';
 import { JarvisSettings } from '../ux/settings';
 import { SearchParams } from './papers';
 import { TextGenerationModel } from '../models/models';
-import { split_by_tokens } from '../utils';
+import { split_by_tokens, UserCancellationError } from '../utils';
 
 export interface WikiInfo {
   [key: string]: any;
@@ -16,8 +16,14 @@ export interface WikiInfo {
 
 // return a summary of the top relevant wikipedia page
 export async function search_wikipedia(model_gen: TextGenerationModel,
-    prompt: string, search: SearchParams, settings: JarvisSettings): Promise<WikiInfo> {
-  const search_term = await get_wikipedia_search_query(model_gen, prompt);
+    prompt: string, search: SearchParams, settings: JarvisSettings,
+    abortSignal?: AbortSignal): Promise<WikiInfo> {
+
+  if (abortSignal?.aborted) {
+    throw new UserCancellationError('Wikipedia search operation cancelled');
+  }
+
+  const search_term = await get_wikipedia_search_query(model_gen, prompt, abortSignal);
   if ( !search_term ) { return { summary: '' }; }
 
   const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&origin=*&format=json&srlimit=20&srsearch=${search_term}`;
@@ -33,6 +39,9 @@ export async function search_wikipedia(model_gen: TextGenerationModel,
   const jsonResponse: any = await response.json();
   const results = jsonResponse['query']['search'];
   for (let i = 0; i < results.length; i++) {
+    if (abortSignal?.aborted) {
+      throw new UserCancellationError('Wikipedia search operation cancelled');
+    }
     if (!results[i]['pageid']) { continue; }
     let page: WikiInfo = {
       title: results[i]['title'],
@@ -45,25 +54,20 @@ export async function search_wikipedia(model_gen: TextGenerationModel,
     pages.push(get_wikipedia_page(page, 'excerpt', 'exintro'));
   }
 
-  let best_page = await get_best_page(model_gen, pages, results.length, search);
+  let best_page = await get_best_page(model_gen, pages, results.length, search, abortSignal);
   best_page = await get_wikipedia_page(best_page, 'text', 'explaintext');
-  best_page = await get_page_summary(model_gen, best_page, search.questions, settings);
+  best_page = await get_page_summary(model_gen, best_page, search.questions, settings, abortSignal);
   return best_page;
 }
 
-async function get_wikipedia_search_query(model_gen: TextGenerationModel, prompt: string): Promise<string> {
+async function get_wikipedia_search_query(model_gen: TextGenerationModel,
+    prompt: string, abortSignal?: AbortSignal): Promise<string> {
   const response = await model_gen.complete(
-    `define the main topic of the prompt.
-    PROMPT:\n${prompt}
-    use the following format.
-    TOPIC: [main topic]`);
-
-  try {
-    return response.split(/TOPIC:/gi)[1].replace(/"/g, '').trim();
-  } catch {
-    console.log(`bad wikipedia search query:\n${response}`);
-    return '';
-  }
+    `you are a helpful assistant doing a literature review.
+    generate a single search query for Wikipedia that will help find relevant articles to introduce the topics in the prompt below.
+    return only the search query, without any explanation.
+    PROMPT:\n${prompt}`, abortSignal);
+  return response.trim();
 }
 
 // get the full text (or other extract) of a wikipedia page
@@ -86,7 +90,12 @@ async function get_wikipedia_page(page: WikiInfo, field:string = 'text', section
 }
 
 async function get_best_page(model_gen: TextGenerationModel,
-    pages: Promise<WikiInfo>[], n: number, search: SearchParams): Promise<WikiInfo> {
+    pages: Promise<WikiInfo>[], n: number, search: SearchParams,
+    abortSignal?: AbortSignal): Promise<WikiInfo> {
+  if (abortSignal?.aborted) {
+    throw new UserCancellationError('Wikipedia page selection operation cancelled');
+  }
+
   // TODO: we could do this by comparing 2 pages each time and keeping the max, at the cost of more queries
   let prompt = `you are a helpful assistant doing a literature review.
     we are searching for the single most relevant Wikipedia page to introduce the topics discussed in the research questions below.
@@ -94,30 +103,60 @@ async function get_best_page(model_gen: TextGenerationModel,
     QUESTIONS:\n${search.questions}\n
     PAGES:\n`;
   let token_sum = model_gen.count_tokens(prompt); 
-  for (let i = 0; i < n; i++) {
-    const page = await pages[i];
-    if ( ! page['excerpt'] ) { continue; }
+  let activePages: Promise<WikiInfo>[] = [...pages]; // Create a copy we can modify
 
-    const this_tokens = model_gen.count_tokens(page['excerpt']);
-    if ( token_sum + this_tokens > 0.9*model_gen.max_tokens ) {
-      console.log(`stopping at ${i+1} pages due to max_tokens`);
-      break;
+  try {
+    for (let i = 0; i < n; i++) {
+      if (abortSignal?.aborted) {
+        throw new UserCancellationError('Wikipedia page selection operation cancelled');
+      }
+
+      try {
+        const page = await activePages[i];
+        if (!page['excerpt']) { continue; }
+
+        const this_tokens = model_gen.count_tokens(page['excerpt']);
+        if (token_sum + this_tokens > 0.9 * model_gen.max_tokens) {
+          console.log(`stopping at ${i + 1} pages due to max_tokens`);
+          break;
+        }
+        token_sum += this_tokens;
+        prompt += `${i}. ${page['title']}: ${page['excerpt']}\n\n`;
+      } catch (error) {
+        if (error instanceof UserCancellationError) {
+          // Clear remaining pages and propagate cancellation
+          activePages = [];
+          throw error;
+        }
+        console.log(`Error processing Wikipedia page ${i}:`, error);
+        continue;
+      }
     }
-    token_sum += this_tokens;
-    prompt += `${i}. ${page['title']}: ${page['excerpt']}\n\n`;
-  }
-  const response = await model_gen.complete(prompt);
-  const index = response.match(/\d+/);
-  if (index) {
-    return await pages[parseInt(index[0])];
-  } else {
+
+    const response = await model_gen.complete(prompt, abortSignal);
+    const index = response.match(/\d+/);
+    if (index) {
+      return await pages[parseInt(index[0])];
+    }
+    return { summary: '' };
+
+  } catch (error) {
+    if (error instanceof UserCancellationError) {
+      throw error;
+    }
+    console.log('Error during Wikipedia page selection:', error);
     return { summary: '' };
   }
 }
 
 async function get_page_summary(model_gen: TextGenerationModel,
-    page: WikiInfo, questions: string, settings: JarvisSettings): Promise<WikiInfo> {
+    page: WikiInfo, questions: string, settings: JarvisSettings,
+    abortSignal?: AbortSignal): Promise<WikiInfo> {
   if ( (!page['text']) || (page['text'].length == 0) ) { return page; }
+
+  if (abortSignal?.aborted) {
+    throw new UserCancellationError('Wikipedia page summarization operation cancelled');
+  }
 
   const user_p = model_gen.top_p;
   model_gen.top_p = 0.2;  // make the model more focused
@@ -134,19 +173,22 @@ async function get_page_summary(model_gen: TextGenerationModel,
   const summary_steps = split_by_tokens(
     page['text'].split('\n'), model_gen, 0.75*model_gen.max_tokens);
   for (let i=0; i<summary_steps.length; i++) {
+    if (abortSignal?.aborted) {
+      throw new UserCancellationError('Wikipedia page summarization operation cancelled');
+    }
     const text = summary_steps[i].join('\n');
     summary = await model_gen.complete(
       `${prompt}
        SECTION: ${text}
        QUESTIONS: ${questions}
        SUMMARY: ${summary}
-       RESPONSE:`);
+       RESPONSE:`, abortSignal);
   }
   const decision = await model_gen.complete(
     `decide if the following summary is relevant to any of the research questions below.
     only if it is not relevant to any of them, return "NOT RELEVANT", and explain why.
     SUMMARY:\n${summary}
-    QUESTIONS:\n${questions}`);
+    QUESTIONS:\n${questions}`, abortSignal);
 
   model_gen.top_p = user_p;
 
