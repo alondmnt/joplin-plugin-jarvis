@@ -330,7 +330,7 @@ export async function register_settings() {
         'gpt-4o': '(online) OpenAI: gpt-4o (in:128K, out:16K, stronger)',
         'o3-mini': '(online) OpenAI: o3-mini (in:200K, out:100K, reasoning)',
         'gpt-4.5-preview': '(online) OpenAI: gpt-4.5-preview (in:128K, out:16K, strongest)',
-        'openai-custom': '(online/offline) OpenAI-compatible: custom model (e.g., Ollama)',
+        'openai-custom': '(online/offline) OpenAI-compatible: custom model (e.g., Ollama, Claude)',
         'claude-3-5-haiku-latest': '(online) Anthropic: claude-3-5-haiku (in:128K, out:16K, cheapest)',
         'claude-3-7-sonnet-latest': '(online) Anthropic: claude-3-7-sonnet (in:128K, out:16K, strongest)',
         'claude-3-5-sonnet-latest': '(online) Anthropic: claude-3-5-sonnet (in:128K, out:16K)',
