@@ -97,11 +97,12 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gpt-4': 8192,
   'gpt-3.5-turbo': 16384,
   'gpt-3.5-turbo-instruct': 4096,
-  'gemini-1.0-pro-latest': 30720,
-  'gemini-1.5-pro-latest': 1048576,
-  'claude-3-7-sonnet-latest': 8192,
-  'claude-3-5-sonnet-latest': 8192,
-  'claude-3-5-haiku-latest': 8192,
+  'gemini-2.0-flash-lite': 8192,
+  'gemini-2.0-flash': 8192,
+  'gemini-2.0-pro-exp': 8192,
+  'claude-3-7-sonnet': 8192,
+  'claude-3-5-sonnet': 8192,
+  'claude-3-5-haiku': 8192,
 };
 
 export const search_engines: { [engine: string] : string; } = {
@@ -161,6 +162,7 @@ export async function get_settings(): Promise<JarvisSettings> {
   if (model_id == 'openai-custom') {
     model_id = await joplin.settings.value('chat_openai_model_id');
     model_id = model_id.replace(/-\d{4}.*$/, '');  // remove the date suffix
+    model_id = model_id.replace(/-latest$/, '');  // remove the latest suffix
     model_id = model_id.replace(/-preview$/, '');  // remove the preview suffix
   }
   // if model is in model_max_tokens, use its value, otherwise use the settings value
@@ -328,8 +330,9 @@ export async function register_settings() {
         'claude-3-7-sonnet-latest': '(online) Anthropic: claude-3-7-sonnet (in:128K, out:16K, strongest)',
         'claude-3-5-sonnet-latest': '(online) Anthropic: claude-3-5-sonnet (in:128K, out:16K)',
         'openai-custom': '(online/offline) OpenAI-compatible: custom model',
-        'gemini-1.0-pro-latest': '(online) Google AI: gemini-1.0-pro-latest (in:30K, out:30K)',
-        'gemini-1.5-pro-latest': '(online) Google AI: gemini-1.5-pro-latest (in:1M, out:1M)',
+        'gemini-2.0-flash-lite': '(online) Google AI: gemini-2.0-flash-lite (in:1M, out:8K, cheapest)',
+        'gemini-2.0-flash': '(online) Google AI: gemini-2.0-flash (in:1M, out:8K)',
+        'gemini-2.0-pro-exp': '(online) Google AI: gemini-2.0-pro-exp (in:1M, out:8K)',
         'Hugging Face': '(online) Hugging Face',
       }
     },

@@ -6,19 +6,15 @@ import { UserCancellationError } from '../utils';
 export async function query_chat(model: GenerativeModel, prompt: Array<{role: string; content: string;}>,
     temperature: number, top_p: number): Promise<string> {
 
-  const messages = prompt.map((entry) => {
-    return {
-      parts: [{ text: entry.content }],
-      role: (entry.role == 'user' || entry.role == 'system') ? 'user' : 'model',
-    };
+  // Remove system messages from the prompt and reformat
+  const messages = prompt
+    .filter((entry) => entry.role !== 'system')
+    .map((entry) => {
+      return {
+        parts: [{ text: entry.content }],
+        role: (entry.role == 'user') ? 'user' : 'model',
+      };
   });
-
-  /* TODO: add system instruction (the following doesn't work / isn't supported yet)
-  systemInstruction: {
-      parts: [{ text: context }],
-      role: 'system',
-    },
-  */
 
   const chat = model.startChat({
     history: messages.slice(0, -1),
@@ -33,9 +29,9 @@ export async function query_chat(model: GenerativeModel, prompt: Array<{role: st
     const response = await result.response;
     return response.text();
 
-  } catch {
+  } catch (e) {
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error\nPress OK to retry.`
+      `Gemini Error: ${e}\nPress OK to retry.`
       );
 
     // cancel button
@@ -49,16 +45,16 @@ export async function query_chat(model: GenerativeModel, prompt: Array<{role: st
 }
 
 // get the next response for a completion for *arbitrary string prompt* from a any model
-export async function query_completion(model: GenerativeModel, prompt: string,temperature: number, top_p: number): Promise<string> {
+export async function query_completion(model: GenerativeModel, prompt: string, temperature: number, top_p: number): Promise<string> {
 
   try {
     const result = await model.generateContent(prompt);
     const response = await result.response;
     return response.text();
 
-  } catch {
+  } catch (e) {
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error\nPress OK to retry.`
+      `Gemini Error: ${e}\nPress OK to retry.`
       );
 
     // cancel button
@@ -82,10 +78,10 @@ export async function query_embedding(model: GenerativeModel, text: string): Pro
 
     return vec;
 
-  } catch {
+  } catch (e) {
 
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error\nPress OK to retry.`
+      `Gemini Error: ${e}\nPress OK to retry.`
       );
 
     // cancel button

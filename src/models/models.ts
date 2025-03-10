@@ -934,7 +934,9 @@ export class OpenAIGeneration extends TextGenerationModel {
 export class AnthropicGeneration extends OpenAIGeneration {
   constructor(settings: JarvisSettings) {
     super(settings);
-    this.endpoint = 'https://api.anthropic.com/v1/chat/completions';
+    if (this.endpoint == null) {
+      this.endpoint = 'https://api.anthropic.com/v1/chat/completions';
+    }
 
     // Anthropic models are always chat models
     this.type = 'chat';
@@ -1004,7 +1006,10 @@ export class GeminiGeneration extends TextGenerationModel {
     }
 
     const genAI = new GoogleGenerativeAI(this.api_key);
-    this.model = genAI.getGenerativeModel({ model: this.id });
+    this.model = genAI.getGenerativeModel({
+      model: this.id,
+      systemInstruction: this.base_chat[0].content,
+    });
     console.log(this.id);
 
     try {
