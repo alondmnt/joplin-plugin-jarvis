@@ -24,16 +24,17 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
   if (settings.model === 'Hugging Face') {
     model = new HuggingFaceGeneration(settings);
 
-  } else if (settings.model.includes('claude') ||
-             (settings.model.includes('openai-custom') &&
-              settings.chat_openai_model_id.includes('claude'))) {
+  } else if (settings.model.startsWith('claude') ||
+             (settings.model === 'openai-custom' &&
+              settings.chat_openai_model_id.startsWith('claude'))) {
     model = new AnthropicGeneration(settings);
 
-  } else if (settings.model.includes('gpt') ||
-             settings.model.includes('openai')) {
+  } else if (settings.model.startsWith('gpt') ||
+             settings.model.startsWith('o3') ||
+             settings.model.startsWith('openai')) {
     model = new OpenAIGeneration(settings);
 
-  } else if (settings.model.includes('gemini')) {
+  } else if (settings.model.startsWith('gemini')) {
     model = new GeminiGeneration(settings);
 
   } else {
@@ -87,7 +88,7 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_parallel_jobs,
       settings.notes_openai_endpoint);
 
-  } else if (settings.notes_model.includes('gemini')) {
+  } else if (settings.notes_model.startsWith('gemini')) {
     model = new GeminiEmbedding(
       settings.notes_model.split('-').slice(1).join('-'),
       settings.notes_max_tokens,

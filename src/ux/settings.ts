@@ -90,6 +90,10 @@ export interface JarvisSettings {
 };
 
 export const model_max_tokens: { [model: string] : number; } = {
+  'o3-mini': 100000,
+  'o1-mini': 100000,
+  'o1': 100000,
+  'gpt-4.5': 16384,
   'gpt-4o-mini': 16384,
   'gpt-4o': 16384,
   'gpt-4-turbo': 16384,
@@ -324,12 +328,12 @@ export async function register_settings() {
       options: {
         'gpt-4o-mini':'(online) OpenAI: gpt-4o-mini (in:128K, out:16K, cheapest)',
         'gpt-4o': '(online) OpenAI: gpt-4o (in:128K, out:16K, stronger)',
-        'gpt-3.5-turbo': '(online) OpenAI: gpt-3.5-turbo (in:16K, out:4K, legacy)',
-        'gpt-3.5-turbo-instruct': '(online) OpenAI: gpt-3.5-turbo-instruct (in:4K, out:4K)',
+        'o3-mini': '(online) OpenAI: o3-mini (in:200K, out:100K, reasoning)',
+        'gpt-4.5-preview': '(online) OpenAI: gpt-4.5-preview (in:128K, out:16K, strongest)',
+        'openai-custom': '(online/offline) OpenAI-compatible: custom model (e.g., Ollama)',
         'claude-3-5-haiku-latest': '(online) Anthropic: claude-3-5-haiku (in:128K, out:16K, cheapest)',
         'claude-3-7-sonnet-latest': '(online) Anthropic: claude-3-7-sonnet (in:128K, out:16K, strongest)',
         'claude-3-5-sonnet-latest': '(online) Anthropic: claude-3-5-sonnet (in:128K, out:16K)',
-        'openai-custom': '(online/offline) OpenAI-compatible: custom model',
         'gemini-2.0-flash-lite': '(online) Google AI: gemini-2.0-flash-lite (in:1M, out:8K, cheapest)',
         'gemini-2.0-flash': '(online) Google AI: gemini-2.0-flash (in:1M, out:8K)',
         'gemini-2.0-pro-exp': '(online) Google AI: gemini-2.0-pro-exp (in:1M, out:8K)',
