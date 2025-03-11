@@ -103,7 +103,7 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gpt-3.5-turbo-instruct': 4096,
   'gemini-2.0-flash-lite': 8192,
   'gemini-2.0-flash': 8192,
-  'gemini-2.0-pro-exp': 8192,
+  'gemini-2.0-pro': 8192,
   'claude-3-7-sonnet': 8192,
   'claude-3-5-sonnet': 8192,
   'claude-3-5-haiku': 8192,
@@ -168,6 +168,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     model_id = model_id.replace(/-\d{4}.*$/, '');  // remove the date suffix
     model_id = model_id.replace(/-latest$/, '');  // remove the latest suffix
     model_id = model_id.replace(/-preview$/, '');  // remove the preview suffix
+    model_id = model_id.replace(/-exp$/, '');  // remove the exp suffix
   }
   // if model is in model_max_tokens, use its value, otherwise use the settings value
   let max_tokens = model_max_tokens[model_id] || await joplin.settings.value('max_tokens');
@@ -495,8 +496,9 @@ export async function register_settings() {
         'text-embedding-3-small': '(online) OpenAI: text-embedding-3-small [Multilingual]',
         'text-embedding-3-large': '(online) OpenAI: text-embedding-3-large [Multilingual]',
         'text-embedding-ada-002': '(online) OpenAI: text-embedding-ada-002 [Multilingual]',
-        'gemini-embedding-001': '(online) Google AI: embedding-001',
-        'gemini-text-embedding-004': '(online) Google AI: text-embedding-004',
+        'gemini-gemini-embedding-exp-03-07': '(online) Google AI: gemini-embedding-exp-03-07 [Multilingual]',
+        'gemini-text-embedding-004': '(online) Google AI: text-embedding-004 [Multilingual]',
+        'gemini-embedding-001': '(online) Google AI: embedding-001 [Multilingual]',
         'Hugging Face': '(online) Hugging Face [Multilingual]',
       }
     },
