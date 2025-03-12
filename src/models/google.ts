@@ -31,12 +31,12 @@ export async function query_chat(model: GenerativeModel, prompt: Array<{role: st
 
   } catch (e) {
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error: ${e}\nPress OK to retry.`
+      `Gemini Error: ${e.message}\nPress OK to retry.`
       );
 
     // cancel button
     if (errorHandler === 1) {
-      throw new UserCancellationError('Gemini chat failed');
+      throw new UserCancellationError(`Gemini chat failed: ${e.message}`);
     }
 
     // retry
@@ -54,12 +54,12 @@ export async function query_completion(model: GenerativeModel, prompt: string, t
 
   } catch (e) {
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error: ${e}\nPress OK to retry.`
+      `Gemini Error: ${e.message}\nPress OK to retry.`
       );
 
     // cancel button
     if (errorHandler === 1) {
-      throw new UserCancellationError('Gemini completion failed');
+      throw new UserCancellationError(`Gemini completion failed: ${e.message}`);
     }
 
     // retry
@@ -67,7 +67,7 @@ export async function query_completion(model: GenerativeModel, prompt: string, t
   }
 }
 
-export async function query_embedding(model: GenerativeModel, text: string): Promise<Float32Array> {
+export async function query_embedding(text: string, model: GenerativeModel, abort_on_error: boolean): Promise<Float32Array> {
   try {
     const result = await model.embedContent(text);
     let vec = new Float32Array(result.embedding.values);
@@ -79,17 +79,19 @@ export async function query_embedding(model: GenerativeModel, text: string): Pro
     return vec;
 
   } catch (e) {
-
+    if (abort_on_error) {
+      throw new UserCancellationError(`Gemini embedding failed: ${e.message}`);
+    }
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error: ${e}\nPress OK to retry.`
+      `Gemini Error: ${e.message}\nPress OK to retry.`
       );
 
     // cancel button
     if (errorHandler === 1) {
-      throw new UserCancellationError('Gemini embedding failed');
+      throw new UserCancellationError(`Gemini embedding failed: ${e.message}`);
     }
 
     // retry
-    return await query_embedding(model, text);
+    return await query_embedding(text, model, abort_on_error);
   }
 }

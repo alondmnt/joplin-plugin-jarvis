@@ -64,6 +64,7 @@ export interface JarvisSettings {
   notes_exclude_folders: Set<string>;
   notes_panel_title: string;
   notes_panel_user_style: string;
+  notes_abort_on_error: boolean;
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -234,6 +235,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
+    notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
@@ -512,6 +514,14 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Parallel jobs',
       description: 'The number of parallel jobs to use for calculating text embeddings. Default: 10',
+    },
+    'notes_abort_on_error': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Notes: Abort on error',
+      description: 'If disabled, you may select to retry the operation following an error. Default: true',
     },
     'notes_embed_title': {
       value: true,

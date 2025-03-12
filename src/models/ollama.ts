@@ -1,7 +1,7 @@
 import joplin from 'api';
 import { UserCancellationError } from '../utils';
 
-export async function query_embedding(input: string, model: string, url: string): Promise<Float32Array> {
+export async function query_embedding(input: string, model: string, abort_on_error: boolean, url: string): Promise<Float32Array> {
     const responseParams = {
       input: input,
       model: model,
@@ -17,11 +17,14 @@ export async function query_embedding(input: string, model: string, url: string)
   
     // handle errors
     if (data.hasOwnProperty('error')) {
+      if (abort_on_error) {
+        throw new UserCancellationError(`Ollama embedding failed: ${data.error.message}`);
+      }
       const errorHandler = await joplin.views.dialogs.showMessageBox(
         `Error: ${data.error.message}\nPress OK to retry.`);
         if (errorHandler === 0) {
         // OK button
-        return query_embedding(input, model, url);
+        return query_embedding(input, model, abort_on_error, url);
       }
       throw new UserCancellationError(`Ollama embedding failed: ${data.error.message}`);
     }

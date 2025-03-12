@@ -236,7 +236,9 @@ export async function update_embeddings(
     if (error instanceof UserCancellationError) {
       // Signal all other ongoing operations to abort
       abortController.abort();
-      throw error;
+      joplin.views.dialogs.showMessageBox(
+        `Error: ${error.message}`
+      );
     }
     throw error;
   }

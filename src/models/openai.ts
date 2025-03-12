@@ -140,7 +140,7 @@ export async function query_completion(prompt: string, api_key: string,
     temperature, top_p, frequency_penalty, presence_penalty, custom_url);
 }
 
-export async function query_embedding(input: string, model: string, api_key: string, custom_url: string=null): Promise<Float32Array> {
+export async function query_embedding(input: string, model: string, api_key: string, abort_on_error: boolean, custom_url: string=null): Promise<Float32Array> {
   const responseParams = {
     input: input,
     model: model,
@@ -165,11 +165,14 @@ export async function query_embedding(input: string, model: string, api_key: str
 
   // handle errors
   if (data.hasOwnProperty('error')) {
+    if (abort_on_error) {
+      throw new UserCancellationError(`OpenAI embedding failed: ${data.error.message}`);
+    }
     const errorHandler = await joplin.views.dialogs.showMessageBox(
       `Error: ${data.error.message}\nPress OK to retry.`);
     if (errorHandler === 0) {
       // OK button
-      return query_embedding(input, model, api_key, custom_url);
+      return query_embedding(input, model, api_key, abort_on_error, custom_url);
     }
     throw new UserCancellationError(`OpenAI embedding failed: ${data.error.message}`);
   }

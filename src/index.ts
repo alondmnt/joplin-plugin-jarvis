@@ -362,7 +362,8 @@ joplin.plugins.register({
           event.keys.includes('notes_openai_model_id') ||
           event.keys.includes('notes_openai_endpoint') ||
           event.keys.includes('notes_hf_model_id') ||
-          event.keys.includes('notes_hf_endpoint')) {
+          event.keys.includes('notes_hf_endpoint') ||
+          event.keys.includes('notes_abort_on_error')) {
 
         model_embed = await load_embedding_model(settings);
         if (model_embed.model) {

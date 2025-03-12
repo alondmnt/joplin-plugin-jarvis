@@ -51,54 +51,61 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
   console.log(`load_embedding_model: ${settings.notes_model}`);
 
   if (settings.notes_model === 'Universal Sentence Encoder') {
-    model = new USEEmbedding(settings.notes_max_tokens, settings.notes_parallel_jobs);
+    model = new USEEmbedding(
+      settings.notes_max_tokens,
+      settings.notes_parallel_jobs,
+      settings.notes_abort_on_error);
 
   } else if (settings.notes_model === 'Hugging Face') {
     model = new HuggingFaceEmbedding(
       settings.notes_hf_model_id,
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
+      settings.notes_abort_on_error,
       settings.notes_hf_endpoint);
 
   } else if (settings.notes_model === 'text-embedding-3-small') {
     model = new OpenAIEmbedding(
       'text-embedding-3-small',
       settings.notes_max_tokens,
-      settings.notes_parallel_jobs
-    );
+      settings.notes_parallel_jobs,
+      settings.notes_abort_on_error);
 
   } else if (settings.notes_model === 'text-embedding-3-large') {
     model = new OpenAIEmbedding(
       'text-embedding-3-large',
       settings.notes_max_tokens,
-      settings.notes_parallel_jobs
-    );
+      settings.notes_parallel_jobs,
+      settings.notes_abort_on_error);
 
   } else if (settings.notes_model === 'text-embedding-ada-002') {
     model = new OpenAIEmbedding(
       'text-embedding-ada-002',
       settings.notes_max_tokens,
-      settings.notes_parallel_jobs
-    );
+      settings.notes_parallel_jobs,
+      settings.notes_abort_on_error);
 
   } else if (settings.notes_model === 'openai-custom') {
     model = new OpenAIEmbedding(
       settings.notes_openai_model_id,
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
+      settings.notes_abort_on_error,
       settings.notes_openai_endpoint);
 
   } else if (settings.notes_model.startsWith('gemini')) {
     model = new GeminiEmbedding(
       settings.notes_model.split('-').slice(1).join('-'),
       settings.notes_max_tokens,
-      settings.notes_parallel_jobs);
+      settings.notes_parallel_jobs,
+      settings.notes_abort_on_error);
 
   } else if (settings.notes_model === 'ollama') {
     model = new OllamaEmbedding(
       settings.notes_openai_model_id,
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
+      settings.notes_abort_on_error,
       settings.notes_openai_endpoint);
 
   } else {
@@ -130,6 +137,9 @@ export class TextEmbeddingModel {
   public model: any = null;
   public tokenizer: any = encodingForModel('text-embedding-ada-002');
   // we're using the above as a default BPE tokenizer just for counting tokens
+
+  // error handling
+  public abort_on_error: boolean = true;
 
   // rate limits
   public page_size: number = 10;  // external: notes
@@ -211,13 +221,14 @@ export class TextEmbeddingModel {
 
 class USEEmbedding extends TextEmbeddingModel {
 
-  constructor(max_tokens: number, jobs: number) {
+  constructor(max_tokens: number, jobs: number, abort_on_error: boolean) {
     super();
     this.id = 'Universal Sentence Encoder';
     this.version = '1.3.3';
     this.max_block_size = max_tokens;
     this.online = false;
     this.page_size = jobs;
+    this.abort_on_error = abort_on_error;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -258,20 +269,32 @@ class USEEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    const embeddings = await this.model.embed([text]);
-    let vec = (await embeddings.data()) as Float32Array;
-    // normalize the vector
-    const norm = Math.sqrt(vec.map(x => x*x).reduce((a, b) => a + b, 0));
-    vec = vec.map(x => x / norm);
+    try {
+      const embeddings = await this.model.embed([text]);
+      let vec = (await embeddings.data()) as Float32Array;
+      // normalize the vector
+      const norm = Math.sqrt(vec.map(x => x*x).reduce((a, b) => a + b, 0));
+      vec = vec.map(x => x / norm);
 
-    return vec;
+      return vec;
+    } catch (e) {
+      if (this.abort_on_error) {
+        throw new UserCancellationError(`USEEmbedding failed: ${e.message}`);
+      }
+      const errorHandler = await joplin.views.dialogs.showMessageBox(
+        `Error: ${e.message}\nPress OK to retry.`);
+      if (errorHandler === 0) {
+        return await this.embed(text);
+      }
+      throw new UserCancellationError(`USEEmbedding failed: ${e.message}`);
+    }
   }
 }
 
 class HuggingFaceEmbedding extends TextEmbeddingModel {
   public endpoint: string = null;
 
-  constructor(id: string, max_tokens: number, jobs: number, endpoint: string=null) {
+  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, endpoint: string=null) {
     super();
     this.id = id
     this.version = '1';
@@ -279,6 +302,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     this.endpoint = endpoint;
     this.online = true;
     this.page_size = jobs;
+    this.abort_on_error = abort_on_error;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -324,6 +348,9 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
       vec = await this.query(text);
     } catch (e) {
       console.log(e.message);
+      if (this.abort_on_error) {
+        throw new UserCancellationError(`HuggingFaceEmbedding failed: ${e.message}`);
+      }
       if (e.message.includes('too long')) {
         // TODO: more testing needed
         const text_trunc = text.substring(0, Math.floor(this.parse_error(e) * text.length));
@@ -377,7 +404,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
   private api_key: string = null;
   private endpoint: string = null;
 
-  constructor(id: string, max_tokens: number, jobs: number, endpoint: string=null) {
+  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, endpoint: string=null) {
     super();
     this.id = id
     this.version = '1';
@@ -385,6 +412,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     this.endpoint = endpoint;
     this.online = true;
     this.page_size = jobs;
+    this.abort_on_error = abort_on_error;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -415,20 +443,21 @@ class OpenAIEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    return openai.query_embedding(text, this.id, this.api_key, this.endpoint);
+    return openai.query_embedding(text, this.id, this.api_key, this.abort_on_error, this.endpoint);
   }
 }
 
 class GeminiEmbedding extends TextEmbeddingModel {
   private api_key: string = null;
   
-  constructor(id: string, max_tokens: number, jobs: number, endpoint: string=null) {
+  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, endpoint: string=null) {
     super();
     this.id = id;
     this.version = '1';
     this.max_block_size = max_tokens;
     this.online = true;
     this.page_size = jobs;
+    this.abort_on_error = abort_on_error;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -460,14 +489,14 @@ class GeminiEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    return google.query_embedding(this.model, text);
+    return google.query_embedding(text, this.model,this.abort_on_error);
   }
 }
 
 class OllamaEmbedding extends TextEmbeddingModel {
   private endpoint: string = null;
 
-  constructor(id: string, max_tokens: number, jobs: number, endpoint: string) {
+  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, endpoint: string) {
     super();
     this.id = id
     this.version = '1';
@@ -475,6 +504,7 @@ class OllamaEmbedding extends TextEmbeddingModel {
     this.endpoint = endpoint;
     this.online = true;
     this.page_size = jobs;
+    this.abort_on_error = abort_on_error;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -499,7 +529,7 @@ class OllamaEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    return ollama.query_embedding(text, this.id, this.endpoint);
+    return ollama.query_embedding(text, this.id, this.abort_on_error, this.endpoint);
   }
 }
 
