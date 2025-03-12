@@ -31,6 +31,7 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
 
   } else if (settings.model.startsWith('gpt') ||
              settings.model.startsWith('o3') ||
+             settings.model.startsWith('o1') ||
              settings.model.startsWith('openai')) {
     model = new OpenAIGeneration(settings);
 
@@ -892,9 +893,7 @@ export class OpenAIGeneration extends TextGenerationModel {
   constructor(settings: JarvisSettings) {
     let type = 'completion';
     let model_id = settings.model;
-    if (model_id.includes('gpt-3.5') || model_id.includes('gpt-4') || model_id.includes('gpt-4o')) {
-      type = 'chat';
-    }
+    type = 'chat';
     if (settings.model === 'openai-custom') {
       model_id = settings.chat_openai_model_id;
       // always override model type for custom models
@@ -912,7 +911,9 @@ export class OpenAIGeneration extends TextGenerationModel {
       settings.chat_suffix,
       settings.chat_prefix,
       settings.chat_timeout);
-    this.base_chat = [{role: 'system', content: settings.chat_system_message}];
+    if (!settings.model.startsWith('o1') && !settings.model.startsWith('o3')) {
+      this.base_chat = [{role: 'system', content: settings.chat_system_message}];
+    }
     if ((settings.model === 'openai-custom') && (settings.chat_openai_endpoint.length > 0)) {
       this.endpoint = settings.chat_openai_endpoint;
     }
