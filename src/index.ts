@@ -22,6 +22,7 @@ joplin.plugins.register({
     const delay_startup = 5;  // seconds
     const delay_panel = 1;
     const delay_scroll = 1;
+    const abort_timeout = 10;  // minutes
     let delay_db_update = 60 * settings.notes_db_update_delay;
 
     await new Promise(res => setTimeout(res, delay_startup * 1000));
@@ -30,23 +31,35 @@ joplin.plugins.register({
 
     // Add shared abortController
     let updateAbortController: AbortController | null = null;
+    let updateStartTime: number | null = null;
 
     // Helper function to check if update is in progress
     function isUpdateInProgress(): boolean {
-      return updateAbortController !== null;
+      console.log('isUpdateInProgress', updateAbortController, updateStartTime);
+      return updateAbortController !== null &&
+        (updateStartTime !== null && (Date.now() - updateStartTime) < abort_timeout * 60 * 1000);
     }
 
     // Helper function to safely start an update
-    async function startUpdate(model_embed: any, panel: string) {
-      if (isUpdateInProgress()) {
-        console.log('Update already in progress');
+    async function startUpdate(model_embed: any, panel: string, force: boolean = false) {
+      console.log('startUpdate', isUpdateInProgress(), force);
+      if (isUpdateInProgress() && !force) {
+        await joplin.views.dialogs.showMessageBox('Update already in progress');
         return;
       }
+
+      if (updateAbortController !== null) {
+        // abort the previous update after timeout
+        updateAbortController.abort();
+      }
       updateAbortController = new AbortController();
+      updateStartTime = Date.now();
+
       try {
         await update_note_db(model_embed, panel, updateAbortController);
       } finally {
         updateAbortController = null;
+        updateStartTime = null;
       }
     }
 
@@ -316,7 +329,6 @@ joplin.plugins.register({
       if (message.name === 'abortUpdate') {
         if (updateAbortController) {
           updateAbortController.abort();
-          updateAbortController = null;
         }
       }
     });
@@ -367,7 +379,7 @@ joplin.plugins.register({
 
         model_embed = await load_embedding_model(settings);
         if (model_embed.model) {
-          await startUpdate(model_embed, panel);
+          await startUpdate(model_embed, panel, true);
         }
       }
       // update panel
