@@ -1,7 +1,7 @@
 import joplin from "api";
 import { JarvisSettings, search_prompts } from '../ux/settings';
 import { TextGenerationModel } from "../models/models";
-import { split_by_tokens, with_timeout, UserCancellationError } from "../utils";
+import { split_by_tokens, with_timeout, ModelError } from "../utils";
 
 export interface PaperInfo {
   title: string;
@@ -27,7 +27,7 @@ export async function search_papers(model_gen: TextGenerationModel,
     abortSignal?: AbortSignal, min_results: number = 10, retries: number = 2): Promise<[PaperInfo[], SearchParams]> {
 
   if (abortSignal?.aborted) {
-    throw new UserCancellationError('Paper search operation cancelled');
+    throw new Error('Paper search operation cancelled');
   }
 
   const search = await get_search_queries(model_gen, prompt, settings, abortSignal);
@@ -38,7 +38,7 @@ export async function search_papers(model_gen: TextGenerationModel,
   (await Promise.all(
     search.queries.map((query) => {
       if (abortSignal?.aborted) {
-        throw new UserCancellationError('Paper search operation cancelled');
+        throw new Error('Paper search operation cancelled');
       }
       if ( settings.paper_search_engine == 'Scopus' ) {
         return run_scopus_query(query, n, settings);
@@ -232,7 +232,7 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
   let tokens = 0;
 
   if (controller?.signal.aborted) {
-    throw new UserCancellationError('Paper summarization operation cancelled');
+    throw new Error('Paper summarization operation cancelled');
   }
 
   // randomize the order of the papers
@@ -242,7 +242,7 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
   try {
     for (let i = 0; i < papers.length; i++) {
       if (controller?.signal.aborted) {
-        throw new UserCancellationError('Paper summarization operation cancelled');
+        throw new Error('Paper summarization operation cancelled');
       }
 
       // Start new batch of promises if needed
@@ -269,7 +269,7 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
         results.push(paper);
         tokens += this_tokens;
       } catch (error) {
-        if (error instanceof UserCancellationError) {
+        if (error instanceof ModelError) {
           // Trigger abort on the controller
           controller.abort();
           // Clear remaining promises
@@ -282,7 +282,7 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
       }
     }
   } catch (error) {
-    if (error instanceof UserCancellationError) {
+    if (error instanceof ModelError) {
       // Ensure abort is triggered
       controller.abort();
       throw error;
@@ -330,14 +330,14 @@ async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInf
 
   } catch (error) {
     model_gen.temperature = user_temp;  // Restore temperature even if there's an error
-    if (error instanceof UserCancellationError) {
+    if (error instanceof ModelError) {
       throw error;  // Propagate cancellation
     }
     // For other errors, show dialog and potentially retry
     const errorHandler = await joplin.views.dialogs.showMessageBox(
       `Error: ${error}\nPress OK to retry, Cancel to abort.`);
     if (errorHandler === 1) {  // Cancel button pressed
-      throw new UserCancellationError('Paper summarization cancelled by user');
+      throw new ModelError('Paper summarization cancelled by user');
     }
     return get_paper_summary(model_gen, paper, questions, settings, abortSignal);
   }

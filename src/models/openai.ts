@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { UserCancellationError } from '../utils';
+import { ModelError } from '../utils';
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,
@@ -50,7 +50,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
   // cancel button
   if (errorHandler === 1) {
     console.log('User cancelled the chat operation');
-    throw new UserCancellationError(`OpenAI chat failed: ${data.error.message}`);
+    throw new ModelError(`OpenAI chat failed: ${data.error.message}`);
   }
 
   // find all numbers in error message
@@ -118,7 +118,7 @@ export async function query_completion(prompt: string, api_key: string,
 
   // cancel button
   if (errorHandler === 1) {
-    throw new UserCancellationError(`OpenAI completion failed: ${data.error.message}`);
+    throw new ModelError(`OpenAI completion failed: ${data.error.message}`);
   }
 
   // find all numbers in error message
@@ -166,7 +166,7 @@ export async function query_embedding(input: string, model: string, api_key: str
   // handle errors
   if (data.hasOwnProperty('error')) {
     if (abort_on_error) {
-      throw new UserCancellationError(`OpenAI embedding failed: ${data.error.message}`);
+      throw new ModelError(`OpenAI embedding failed: ${data.error.message}`);
     }
     const errorHandler = await joplin.views.dialogs.showMessageBox(
       `Error: ${data.error.message}\nPress OK to retry.`);
@@ -174,7 +174,7 @@ export async function query_embedding(input: string, model: string, api_key: str
       // OK button
       return query_embedding(input, model, api_key, abort_on_error, custom_url);
     }
-    throw new UserCancellationError(`OpenAI embedding failed: ${data.error.message}`);
+    throw new ModelError(`OpenAI embedding failed: ${data.error.message}`);
   }
   let vec = new Float32Array(data.data[0].embedding);
 

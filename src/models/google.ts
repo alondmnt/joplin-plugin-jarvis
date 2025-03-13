@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { GenerativeModel } from '@google/generative-ai';
-import { UserCancellationError } from '../utils';
+import { ModelError } from '../utils';
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(model: GenerativeModel, prompt: Array<{role: string; content: string;}>,
@@ -36,7 +36,7 @@ export async function query_chat(model: GenerativeModel, prompt: Array<{role: st
 
     // cancel button
     if (errorHandler === 1) {
-      throw new UserCancellationError(`Gemini chat failed: ${e.message}`);
+      throw new ModelError(`Gemini chat failed: ${e.message}`);
     }
 
     // retry
@@ -59,7 +59,7 @@ export async function query_completion(model: GenerativeModel, prompt: string, t
 
     // cancel button
     if (errorHandler === 1) {
-      throw new UserCancellationError(`Gemini completion failed: ${e.message}`);
+      throw new ModelError(`Gemini completion failed: ${e.message}`);
     }
 
     // retry
@@ -80,7 +80,7 @@ export async function query_embedding(text: string, model: GenerativeModel, abor
 
   } catch (e) {
     if (abort_on_error) {
-      throw new UserCancellationError(`Gemini embedding failed: ${e.message}`);
+      throw new ModelError(`Gemini embedding failed: ${e.message}`);
     }
     const errorHandler = await joplin.views.dialogs.showMessageBox(
       `Gemini Error: ${e.message}\nPress OK to retry.`
@@ -88,7 +88,7 @@ export async function query_embedding(text: string, model: GenerativeModel, abor
 
     // cancel button
     if (errorHandler === 1) {
-      throw new UserCancellationError(`Gemini embedding failed: ${e.message}`);
+      throw new ModelError(`Gemini embedding failed: ${e.message}`);
     }
 
     // retry

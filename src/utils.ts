@@ -22,7 +22,7 @@ export async function timeout_with_retry(msecs: number,
         return await timeout_with_retry(msecs, promise_func);
       }
       // Cancel button
-      throw new UserCancellationError('Operation cancelled by user');
+      throw new ModelError('Operation cancelled by user');
     }
     // For all other errors, propagate them unchanged
     throw error;
@@ -216,9 +216,9 @@ export function replace_last(str: string, pattern: string, replacement: string):
 }
 
 // Custom error for user cancellation
-export class UserCancellationError extends Error {
-  constructor(message: string = 'Operation cancelled by user') {
+export class ModelError extends Error {
+  constructor(message: string = 'Model error') {
     super(message);
-    this.name = 'UserCancellationError';
+    this.name = 'ModelError';
   }
 }

@@ -2,7 +2,7 @@ import joplin from 'api';
 import { JarvisSettings } from '../ux/settings';
 import { SearchParams } from './papers';
 import { TextGenerationModel } from '../models/models';
-import { split_by_tokens, UserCancellationError } from '../utils';
+import { split_by_tokens, ModelError } from '../utils';
 
 export interface WikiInfo {
   [key: string]: any;
@@ -20,7 +20,7 @@ export async function search_wikipedia(model_gen: TextGenerationModel,
     abortSignal?: AbortSignal): Promise<WikiInfo> {
 
   if (abortSignal?.aborted) {
-    throw new UserCancellationError('Wikipedia search operation cancelled');
+    throw new Error('Wikipedia search operation cancelled');
   }
 
   const search_term = await get_wikipedia_search_query(model_gen, prompt, abortSignal);
@@ -40,7 +40,7 @@ export async function search_wikipedia(model_gen: TextGenerationModel,
   const results = jsonResponse['query']['search'];
   for (let i = 0; i < results.length; i++) {
     if (abortSignal?.aborted) {
-      throw new UserCancellationError('Wikipedia search operation cancelled');
+      throw new Error('Wikipedia search operation cancelled');
     }
     if (!results[i]['pageid']) { continue; }
     let page: WikiInfo = {
@@ -93,7 +93,7 @@ async function get_best_page(model_gen: TextGenerationModel,
     pages: Promise<WikiInfo>[], n: number, search: SearchParams,
     abortSignal?: AbortSignal): Promise<WikiInfo> {
   if (abortSignal?.aborted) {
-    throw new UserCancellationError('Wikipedia page selection operation cancelled');
+    throw new Error('Wikipedia page selection operation cancelled');
   }
 
   // TODO: we could do this by comparing 2 pages each time and keeping the max, at the cost of more queries
@@ -108,7 +108,7 @@ async function get_best_page(model_gen: TextGenerationModel,
   try {
     for (let i = 0; i < n; i++) {
       if (abortSignal?.aborted) {
-        throw new UserCancellationError('Wikipedia page selection operation cancelled');
+        throw new Error('Wikipedia page selection operation cancelled');
       }
 
       try {
@@ -123,7 +123,7 @@ async function get_best_page(model_gen: TextGenerationModel,
         token_sum += this_tokens;
         prompt += `${i}. ${page['title']}: ${page['excerpt']}\n\n`;
       } catch (error) {
-        if (error instanceof UserCancellationError) {
+        if (error instanceof ModelError) {
           // Clear remaining pages and propagate cancellation
           activePages = [];
           throw error;
@@ -141,7 +141,7 @@ async function get_best_page(model_gen: TextGenerationModel,
     return { summary: '' };
 
   } catch (error) {
-    if (error instanceof UserCancellationError) {
+    if (error instanceof ModelError) {
       throw error;
     }
     console.log('Error during Wikipedia page selection:', error);
@@ -155,7 +155,7 @@ async function get_page_summary(model_gen: TextGenerationModel,
   if ( (!page['text']) || (page['text'].length == 0) ) { return page; }
 
   if (abortSignal?.aborted) {
-    throw new UserCancellationError('Wikipedia page summarization operation cancelled');
+    throw new Error('Wikipedia page summarization operation cancelled');
   }
 
   const user_p = model_gen.top_p;
@@ -174,7 +174,7 @@ async function get_page_summary(model_gen: TextGenerationModel,
     page['text'].split('\n'), model_gen, 0.75*model_gen.max_tokens);
   for (let i=0; i<summary_steps.length; i++) {
     if (abortSignal?.aborted) {
-      throw new UserCancellationError('Wikipedia page summarization operation cancelled');
+      throw new Error('Wikipedia page summarization operation cancelled');
     }
     const text = summary_steps[i].join('\n');
     summary = await model_gen.complete(

@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { UserCancellationError } from '../utils';
+import { ModelError } from '../utils';
 
 export async function query_embedding(input: string, model: string, abort_on_error: boolean, url: string): Promise<Float32Array> {
     const responseParams = {
@@ -18,7 +18,7 @@ export async function query_embedding(input: string, model: string, abort_on_err
     // handle errors
     if (data.hasOwnProperty('error')) {
       if (abort_on_error) {
-        throw new UserCancellationError(`Ollama embedding failed: ${data.error.message}`);
+        throw new ModelError(`Ollama embedding failed: ${data.error.message}`);
       }
       const errorHandler = await joplin.views.dialogs.showMessageBox(
         `Error: ${data.error.message}\nPress OK to retry.`);
@@ -26,7 +26,7 @@ export async function query_embedding(input: string, model: string, abort_on_err
         // OK button
         return query_embedding(input, model, abort_on_error, url);
       }
-      throw new UserCancellationError(`Ollama embedding failed: ${data.error.message}`);
+      throw new ModelError(`Ollama embedding failed: ${data.error.message}`);
     }
     let vec = new Float32Array(data.embeddings[0]);
     

@@ -4,7 +4,7 @@ import { TextGenerationModel } from '../models/models';
 import { PaperInfo, SearchParams, search_papers, sample_and_summarize_papers } from '../research/papers';
 import { WikiInfo, search_wikipedia } from '../research/wikipedia';
 import { JarvisSettings, get_settings, parse_dropdown_json, search_engines } from '../ux/settings';
-import { UserCancellationError } from '../utils';
+import { ModelError } from '../utils';
 
 
 export async function research_with_jarvis(model_gen: TextGenerationModel, dialogHandle: string) {
@@ -36,7 +36,7 @@ export async function research_with_jarvis(model_gen: TextGenerationModel, dialo
   try {
     await do_research(model_gen, prompt, n_papers, paper_tokens, use_wikipedia, only_search, settings);
   } catch (error) {
-    if (error instanceof UserCancellationError) {
+    if (error instanceof ModelError) {
       await joplin.commands.execute('replaceSelection', '\n\nResearch process was cancelled by user.\n');
       return;
     }
@@ -122,7 +122,7 @@ export async function do_research(model_gen: TextGenerationModel, prompt: string
     await joplin.commands.execute('replaceSelection', '\n## Review\n\n' + research.trim());
 
   } catch (error) {
-    if (error instanceof UserCancellationError) {
+    if (error instanceof ModelError) {
       // Signal all other ongoing operations to abort
       abortController.abort();
       throw error;  // Let research_with_jarvis handle the user message

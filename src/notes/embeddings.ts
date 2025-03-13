@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
-import { search_keywords, UserCancellationError } from '../utils';
+import { search_keywords, ModelError } from '../utils';
 import { abort } from 'process';
 
 export interface BlockEmbedding {
@@ -180,7 +180,7 @@ async function update_note(note: any,
     model: TextEmbeddingModel, settings: JarvisSettings,
     abortSignal: AbortSignal): Promise<BlockEmbedding[]> {
   if (abortSignal.aborted) {
-    throw new UserCancellationError("Operation cancelled");
+    throw new ModelError("Operation cancelled");
   }
   if (note.is_conflict) {
     return [];
@@ -233,7 +233,7 @@ export async function update_embeddings(
     remove_note_embeddings(model.embeddings, notes.map(note => note.id));
     model.embeddings.push(...[].concat(...results));
   } catch (error) {
-    if (error instanceof UserCancellationError) {
+    if (error instanceof ModelError) {
       // Signal all other ongoing operations to abort
       abortController.abort();
       joplin.views.dialogs.showMessageBox(
@@ -378,7 +378,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       query_embeddings = await calc_note_embeddings(
         {id: current_id, body: query, title: current_title}, note_tags, model, settings, abortController.signal);
     } catch (error) {
-      if (error instanceof UserCancellationError) {
+      if (error instanceof ModelError) {
         // Signal all other ongoing operations to abort
         abortController.abort();
         throw error;

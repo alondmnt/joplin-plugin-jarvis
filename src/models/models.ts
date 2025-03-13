@@ -6,7 +6,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { encodingForModel } from 'js-tiktoken';
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings } from '../ux/settings';
-import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, UserCancellationError } from '../utils';
+import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, ModelError } from '../utils';
 import * as openai from './openai';
 import * as google from './google';
 import * as ollama from './ollama';
@@ -162,7 +162,7 @@ export class TextEmbeddingModel {
   // parent method with rate limiter
   async embed(text: string, abortSignal?: AbortSignal): Promise<Float32Array> {
     if (abortSignal?.aborted) {
-        throw new UserCancellationError('Embedding operation cancelled');
+        throw new Error('Model embedding operation cancelled');
     }
     if (!this.model) {
         throw new Error('Model not initialized');
@@ -173,7 +173,7 @@ export class TextEmbeddingModel {
     // Then set up abort handling for the actual embedding operation
     return new Promise((resolve, reject) => {
         abortSignal?.addEventListener('abort', () => {
-            reject(new UserCancellationError('Embedding operation cancelled'));
+            reject(new Error('Model embedding operation cancelled'));
         });
 
         this._calc_embedding(text)
@@ -280,14 +280,14 @@ class USEEmbedding extends TextEmbeddingModel {
       return vec;
     } catch (e) {
       if (this.abort_on_error) {
-        throw new UserCancellationError(`USEEmbedding failed: ${e.message}`);
+        throw new ModelError(`USEEmbedding failed: ${e.message}`);
       }
       const errorHandler = await joplin.views.dialogs.showMessageBox(
         `Error: ${e.message}\nPress OK to retry.`);
       if (errorHandler === 0) {
         return await this.embed(text);
       }
-      throw new UserCancellationError(`USEEmbedding failed: ${e.message}`);
+      throw new ModelError(`USEEmbedding failed: ${e.message}`);
     }
   }
 }
@@ -350,7 +350,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     } catch (e) {
       console.log(e.message);
       if (this.abort_on_error) {
-        throw new UserCancellationError(`HuggingFaceEmbedding failed: ${e.message}`);
+        throw new ModelError(`HuggingFaceEmbedding failed: ${e.message}`);
       }
       if (e.message.includes('too long')) {
         // TODO: more testing needed
@@ -367,7 +367,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
         if (errorHandler === 0) {
           return await this.embed(text);
         }
-        throw new UserCancellationError(`HuggingFaceEmbedding failed: ${e.message}`);
+        throw new ModelError(`HuggingFaceEmbedding failed: ${e.message}`);
       }
     }
 
@@ -589,7 +589,7 @@ export class TextGenerationModel {
 
   async chat(prompt: string, preview: boolean=false, abortSignal?: AbortSignal): Promise<string> {
     if (abortSignal?.aborted) {
-      throw new UserCancellationError('Generation operation cancelled');
+      throw new Error('Model chat operation cancelled');
     }
     await this.limit_rate();
 
@@ -603,7 +603,7 @@ export class TextGenerationModel {
     // Set up abort handling for the actual generation operation
     return new Promise((resolve, reject) => {
       abortSignal?.addEventListener('abort', () => {
-        reject(new UserCancellationError('Generation operation cancelled'));
+        reject(new Error('Model chat operation cancelled'));
       });
 
       if (this.type === 'chat') {
@@ -626,7 +626,7 @@ export class TextGenerationModel {
 
   async complete(prompt: string, abortSignal?: AbortSignal): Promise<string> {
     if (abortSignal?.aborted) {
-      throw new UserCancellationError('Generation operation cancelled');
+      throw new Error('Model completion operation cancelled');
     }
     await this.limit_rate();
 
@@ -635,7 +635,7 @@ export class TextGenerationModel {
     // Set up abort handling for the actual generation operation
     return new Promise((resolve, reject) => {
       abortSignal?.addEventListener('abort', () => {
-        reject(new UserCancellationError('Generation operation cancelled'));
+        reject(new Error('Model completion operation cancelled'));
       });
 
       timeout_with_retry(this.timeout, () => this._complete(prompt, abortSignal))
@@ -871,7 +871,7 @@ export class HuggingFaceGeneration extends TextGenerationModel {
         `Error in HuggingFaceGeneration: ${e}\nPress OK to retry.`);
       // cancel button
       if (errorHandler === 1) {
-        throw new UserCancellationError('HuggingFaceGeneration failed');
+        throw new ModelError(`HuggingFaceGeneration failed: ${e.message}`);
       }
       // retry
       return this._complete(prompt);
