@@ -911,7 +911,7 @@ export class OpenAIGeneration extends TextGenerationModel {
       settings.chat_suffix,
       settings.chat_prefix,
       settings.chat_timeout);
-    if (!settings.model.startsWith('o1') && !settings.model.startsWith('o3')) {
+    if (!this.id.startsWith('o')) {
       this.base_chat = [{role: 'system', content: settings.chat_system_message}];
     }
     if ((settings.model === 'openai-custom') && (settings.chat_openai_endpoint.length > 0)) {
