@@ -853,7 +853,7 @@ export async function register_settings() {
       description: 'Default: 5',
     },
     'scopus_api_key': {
-      value: 'YOUR_SCOPUS_API_KEY',
+      value: '',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.research',
@@ -862,7 +862,7 @@ export async function register_settings() {
       description: 'Your Elsevier/Scopus API Key (optional for research). Get one at https://dev.elsevier.com/.',
     },
     'springer_api_key': {
-      value: 'YOUR_SPRINGER_API_KEY',
+      value: '',
       type: SettingItemType.String,
       secure: true,
       section: 'jarvis.research',
