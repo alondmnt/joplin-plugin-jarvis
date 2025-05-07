@@ -634,6 +634,17 @@ export async function register_settings() {
       label: 'Notes: Database update period (min)',
       description: 'The period between database updates in minutes. Set to 0 to disable automatic updates. Default: 10',
     },
+    'notes_scroll_delay': {
+      value: 2000,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 20000,
+      step: 100,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Notes: Scroll delay (ms)',
+      description: 'The delay in milliseconds between the note being opened and the scroll to the selected line. Default: 2000',
+    },
     'notes_include_code': {
       value: false,
       type: SettingItemType.Bool,

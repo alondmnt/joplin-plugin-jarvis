@@ -21,7 +21,7 @@ joplin.plugins.register({
 
     const delay_startup = 5;  // seconds
     const delay_panel = 1;
-    const delay_scroll = 1;
+    let delay_scroll = await joplin.settings.value('notes_scroll_delay');
     const abort_timeout = 10;  // minutes
     let delay_db_update = 60 * settings.notes_db_update_delay;
 
@@ -314,7 +314,7 @@ joplin.plugins.register({
         await joplin.commands.execute('openNote', message.note);
         // Navigate to the line
         if (message.line > 0) {
-          await new Promise(res => setTimeout(res, delay_scroll * 1000));
+          await new Promise(res => setTimeout(res, delay_scroll));
           await joplin.commands.execute('editor.execCommand', {
             name: 'scrollToJarvisLine',
             args: [message.line - 1]
@@ -381,6 +381,9 @@ joplin.plugins.register({
         if (model_embed.model) {
           await startUpdate(model_embed, panel, true);
         }
+      }
+      if (event.keys.includes('notes_scroll_delay')) {
+        delay_scroll = await joplin.settings.value('notes_scroll_delay');
       }
       // update panel
       if (model_embed.model) {
