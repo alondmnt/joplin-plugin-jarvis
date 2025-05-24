@@ -16,15 +16,15 @@ export async function query_chat(model: GenerativeModel, prompt: Array<{role: st
       };
   });
 
-  const chat = model.startChat({
-    history: messages.slice(0, -1),
-    generationConfig: {
-      temperature: temperature,
-      topP: top_p,
-    },
-  });
-
   try {
+    const chat = model.startChat({
+      history: messages.slice(0, -1),
+      generationConfig: {
+        temperature: temperature,
+        topP: top_p,
+      },
+    });
+
     const result = await chat.sendMessage(prompt.slice(-1)[0].content);
     const response = await result.response;
     return response.text();
