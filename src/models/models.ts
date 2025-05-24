@@ -497,6 +497,7 @@ class GeminiEmbedding extends TextEmbeddingModel {
 
 class OllamaEmbedding extends TextEmbeddingModel {
   private endpoint: string = null;
+  private api_key: string = null;
 
   constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, endpoint: string) {
     super();
@@ -515,6 +516,7 @@ class OllamaEmbedding extends TextEmbeddingModel {
   }
 
   async _load_model() {
+    this.api_key = await joplin.settings.value('openai_api_key');
     this.model = this.id;  // anything other than null
     console.log(this.id);
 
@@ -531,7 +533,7 @@ class OllamaEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    return ollama.query_embedding(text, this.id, this.abort_on_error, this.endpoint);
+    return ollama.query_embedding(text, this.api_key, this.id, this.abort_on_error, this.endpoint);
   }
 }
 
