@@ -30,6 +30,7 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
     model = new AnthropicGeneration(settings);
 
   } else if (settings.model.startsWith('gpt') ||
+             settings.model.startsWith('o4') ||
              settings.model.startsWith('o3') ||
              settings.model.startsWith('o1') ||
              settings.model.startsWith('openai')) {
