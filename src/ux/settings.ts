@@ -102,6 +102,9 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gpt-4': 8192,
   'gpt-3.5-turbo': 16384,
   'gpt-3.5-turbo-instruct': 4096,
+  'gemini-2.5-flash-lite': 65536,
+  'gemini-2.5-flash': 65536,
+  'gemini-2.5-pro': 65536,
   'gemini-2.0-flash-lite': 8192,
   'gemini-2.0-flash': 8192,
   'gemini-2.0-pro': 8192,
@@ -167,6 +170,7 @@ export async function get_settings(): Promise<JarvisSettings> {
   if (model_id == 'openai-custom') {
     model_id = await joplin.settings.value('chat_openai_model_id');
     model_id = model_id.replace(/-\d{4}.*$/, '');  // remove the date suffix
+    model_id = model_id.replace(/-\d{2}-\d{2}.*$/, '');  // remove the date suffix
     model_id = model_id.replace(/-latest$/, '');  // remove the latest suffix
     model_id = model_id.replace(/-preview$/, '');  // remove the preview suffix
     model_id = model_id.replace(/-exp$/, '');  // remove the exp suffix
@@ -338,8 +342,8 @@ export async function register_settings() {
         'claude-3-5-sonnet-latest': 'Anthropic: claude-3-5-sonnet (in:128K, out:16K)',
         'claude-3-7-sonnet-latest': 'Anthropic: claude-3-7-sonnet (in:128K, out:16K, strongest)',
         'gemini-2.0-flash-lite': 'Google AI: gemini-2.0-flash-lite (in:1M, out:8K, cheapest)',
-        'gemini-2.0-flash': 'Google AI: gemini-2.0-flash (in:1M, out:8K)',
-        'gemini-2.0-pro-exp': 'Google AI: gemini-2.0-pro-exp (in:1M, out:8K)',
+        'gemini-2.5-flash-preview-05-20': 'Google AI: gemini-2.5-flash (in:1M, out:64K)',
+        'gemini-2.5-pro-preview-05-06': 'Google AI: gemini-2.5-pro-exp (in:1M, out:64K)',
         'Hugging Face': 'Hugging Face',
       }
     },
