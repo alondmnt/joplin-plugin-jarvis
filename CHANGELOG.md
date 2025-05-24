@@ -1,3 +1,10 @@
+# [v0.10.2](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.10.2)
+*Released on 2025-05-24T10:10:18Z*
+
+- new: setting: annotate_tags_existing (closes #42)
+
+---
+
 # [v0.10.1](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.10.1)
 *Released on 2025-05-24T09:50:34Z*
 
