@@ -155,5 +155,12 @@ export async function annotate_tags(model_gen: TextGenerationModel, model_embed:
   }
   tags = tags.slice(0, settings.annotate_tags_max);
 
+  // add existing tags
+  if (settings.annotate_tags_existing) {
+    const existing_tags = (await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] }))
+      .items.map(t => t.title);
+    tags = tags.concat(existing_tags.filter(t => !tags.includes(t)));
+  }
+
   await joplin.data.put(['notes', note.id], null, { tags: tags.join(', ') });
 }

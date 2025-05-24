@@ -75,6 +75,7 @@ export interface JarvisSettings {
   annotate_tags_flag: boolean;
   annotate_tags_method: string;
   annotate_tags_max: number;
+  annotate_tags_existing: boolean;
   // research
   paper_search_engine: string;
   use_wikipedia: boolean;
@@ -258,6 +259,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     annotate_title_flag: await joplin.settings.value('annotate_title_flag'),
     annotate_tags_method: annotate_tags_method,
     annotate_tags_max: await joplin.settings.value('annotate_tags_max'),
+    annotate_tags_existing: await joplin.settings.value('annotate_tags_existing'),
 
     // research
     paper_search_engine: await joplin.settings.value('paper_search_engine'),
@@ -875,6 +877,14 @@ export async function register_settings() {
       public: true,
       label: 'Annotate: Maximal number of tags to suggest',
       description: 'Default: 5',
+    },
+    'annotate_tags_existing': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis.annotate',
+      public: true,
+      label: 'Annotate: Keep existing tags',
+      description: 'Default: false',
     },
     'scopus_api_key': {
       value: '',
