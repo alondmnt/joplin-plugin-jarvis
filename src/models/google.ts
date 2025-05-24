@@ -8,11 +8,10 @@ export async function query_chat(model: GenerativeModel, prompt: Array<{role: st
 
   // Remove system messages from the prompt and reformat
   const messages = prompt
-    .filter((entry) => entry.role !== 'system')
     .map((entry) => {
       return {
         parts: [{ text: entry.content }],
-        role: (entry.role == 'user') ? 'user' : 'model',
+        role: (['user', 'system'].includes(entry.role)) ? 'user' : 'model',
       };
   });
 
