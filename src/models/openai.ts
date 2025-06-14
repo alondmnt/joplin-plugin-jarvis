@@ -25,25 +25,33 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
     delete params.max_tokens;
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + api_key,
-      'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
-      'X-Title': 'Joplin/Jarvis'
-    },
-    body: JSON.stringify(params),
-  });
-  const data = await response.json();
+  let data = null;
+  let error_message = null;
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + api_key,
+        'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
+        'X-Title': 'Joplin/Jarvis'
+      },
+      body: JSON.stringify(params),
+    });
+    data = await response.json();
 
-  // output response
-  if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
-    return data.choices[0].message.content;
+    // output response
+    if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
+      return data.choices[0].message.content;
+    }
+
+    error_message = data.error.message ? data.error.message : data.error;
+
+  } catch (error) {
+    error_message = error;
   }
 
   // display error message
-  const error_message = data.error.message ? data.error.message : data.error;
   const errorHandler = await joplin.views.dialogs.showMessageBox(
     `Error: ${error_message}\nPress OK to retry.`
     );
@@ -96,6 +104,9 @@ export async function query_completion(prompt: string, api_key: string,
     presence_penalty: presence_penalty,
   }
 
+  let data = null;
+  let error_message = null;
+  try {
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -104,20 +115,25 @@ export async function query_completion(prompt: string, api_key: string,
       'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
       'X-Title': 'Joplin/Jarvis'
     },
-    body: JSON.stringify(params),
-  });
-  const data = await response.json();
+      body: JSON.stringify(params),
+    });
+    data = await response.json();
 
-  // output completion
-  if (data.hasOwnProperty('choices') && (data.choices[0].text)) {
-    return data.choices[0].text;
-  }
-  if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
-    return data.choices[0].message.content;
+    // output completion
+    if (data.hasOwnProperty('choices') && (data.choices[0].text)) {
+      return data.choices[0].text;
+    }
+    if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
+      return data.choices[0].message.content;
+    }
+
+    // display error message
+    error_message = data.error.message ? data.error.message : data.error;
+
+  } catch (error) {
+    error_message = error;
   }
 
-  // display error message
-  const error_message = data.error.message ? data.error.message : data.error;
   const errorHandler = await joplin.views.dialogs.showMessageBox(
     `Error: ${error_message}\nPress OK to retry.`
     );
