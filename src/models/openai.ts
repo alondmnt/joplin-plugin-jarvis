@@ -43,22 +43,27 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
   }
 
   // display error message
+  const error_message = data.error.message ? data.error.message : data.error;
   const errorHandler = await joplin.views.dialogs.showMessageBox(
-    `Error: ${data.error.message}\nPress OK to retry.`
+    `Error: ${error_message}\nPress OK to retry.`
     );
 
   // cancel button
   if (errorHandler === 1) {
     console.log('User cancelled the chat operation');
-    throw new ModelError(`OpenAI chat failed: ${data.error.message}`);
+    throw new ModelError(`OpenAI chat failed: ${error_message}`);
   }
 
   // find all numbers in error message
-  const token_limits = [...data.error.message.matchAll(/([0-9]+)/g)];
+  let token_limits = null;
+  if (error_message && error_message.includes('reduce')) {
+    token_limits = [...error_message.matchAll(/([0-9]+)/g)];
+  } else {
+    token_limits = null;
+  }
 
   // truncate prompt
-  if ((token_limits !== null) &&
-      (data.error.message.includes('reduce'))) {
+  if (token_limits !== null) {
 
     // truncate, and leave some room for a response
     const token_ratio = 0.8 * parseInt(token_limits[0][0]) / parseInt(token_limits[1][0]);
@@ -112,21 +117,26 @@ export async function query_completion(prompt: string, api_key: string,
   }
 
   // display error message
+  const error_message = data.error.message ? data.error.message : data.error;
   const errorHandler = await joplin.views.dialogs.showMessageBox(
-    `Error: ${data.error.message}\nPress OK to retry.`
+    `Error: ${error_message}\nPress OK to retry.`
     );
 
   // cancel button
   if (errorHandler === 1) {
-    throw new ModelError(`OpenAI completion failed: ${data.error.message}`);
+    throw new ModelError(`OpenAI completion failed: ${error_message}`);
   }
 
   // find all numbers in error message
-  const token_limits = [...data.error.message.matchAll(/([0-9]+)/g)];
+  let token_limits = null;
+  if (error_message && error_message.includes('reduce')) {
+    token_limits = [...error_message.matchAll(/([0-9]+)/g)];
+  } else {
+    token_limits = null;
+  }
 
   // truncate text
-  if ((token_limits !== null) &&
-      (data.error.message.includes('reduce'))) {
+  if (token_limits !== null) {
 
     // truncate, and leave some room for a response
     const token_ratio = 0.8 * parseInt(token_limits[0][0]) / parseInt(token_limits[1][0]);
