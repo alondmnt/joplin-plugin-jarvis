@@ -252,12 +252,16 @@ class USEEmbedding extends TextEmbeddingModel {
         this.model = await use.load();
         console.log('USEEmbedding loaded from web');
 
-        this.model.model.save('indexeddb://jarvisUSEModel');
-        console.log('USEEmbedding saved to cache');
+        try {
+          this.model.model.save('indexeddb://jarvisUSEModel');
+          console.log('USEEmbedding saved to cache');
+          const vocabString = JSON.stringify(this.model.tokenizer.vocabulary);
+          fs.writeFileSync(data_dir + '/use_vocab.json', vocabString);
+          console.log('USEEmbedding vocabulary saved to cache');
 
-        const vocabString = JSON.stringify(this.model.tokenizer.vocabulary);
-        fs.writeFileSync(data_dir + '/use_vocab.json', vocabString);
-        console.log('USEEmbedding vocabulary saved to cache');
+        } catch (e) {
+          console.log(`USEEmbedding failed to save to cache: ${e}`);
+        }
       }
 
     } catch (e) {
