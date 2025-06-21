@@ -1,7 +1,14 @@
+# [v0.10.3](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.10.3)
+*Released on 2025-06-21T01:06:20Z*
+
+- fixed: regression: the default chat model setting displayed OpenAI-custom endpoint but was gpt-4o-mini behind the scenes (#47 #48)
+
+---
+
 # [v0.10.2](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.10.2)
 *Released on 2025-05-24T10:10:18Z*
 
-- new: setting: annotate_tags_existing (closes #42)
+- new: setting: `Annotate: Keep existing tags`
 
 ---
 
