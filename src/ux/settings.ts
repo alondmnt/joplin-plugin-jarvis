@@ -335,7 +335,7 @@ export async function register_settings() {
       label: 'Model: Google AI API Key',
     },
     'model': {
-      value: 'gpt-4o-mini',
+      value: 'gpt-4.1-nano',
       type: SettingItemType.String,
       isEnum: true,
       section: 'jarvis.chat',
