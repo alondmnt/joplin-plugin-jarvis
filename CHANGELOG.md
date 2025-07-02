@@ -1,3 +1,11 @@
+# [v0.10.4](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.10.4)
+*Released on 2025-07-02T02:33:07Z*
+
+- improved: RTE support for chat / autocomplete (#50)
+    - some issues remain with output formatting
+
+---
+
 # [v0.10.3](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.10.3)
 *Released on 2025-06-21T01:06:20Z*
 
