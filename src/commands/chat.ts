@@ -71,6 +71,11 @@ export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<s
     name: 'getRange',
     args: [{line: 0, ch: 0}, cursor],
   });
+  if (typeof prompt !== 'string') {
+    // rich text editor
+    prompt = (await joplin.workspace.selectedNote()).body;
+  }
+
   // remove chat commands
   prompt = prompt.replace(cmd_block_pattern, '');
   // get last tokens
