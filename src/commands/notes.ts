@@ -55,14 +55,11 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
   if (!note) {
     return;
   }
-  if (note.markup_language === 2) {
-    return;
-  }
   let selected = await joplin.commands.execute('selectedText');
   if (!selected || (selected.length === 0)) {
     selected = note.body;
   }
-  const nearest = await find_nearest_notes(model.embeddings, note.id, note.title, selected, model, settings);
+  const nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings);
 
   // write results to panel
   await update_panel(panel, nearest, settings);

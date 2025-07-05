@@ -323,7 +323,7 @@ joplin.plugins.register({
       }
       if (message.name == 'searchRelatedNote') {
         const nearest = await find_nearest_notes(
-          model_embed.embeddings, '1234', '', message.query, model_embed, settings);
+          model_embed.embeddings, '1234', 1, '', message.query, model_embed, settings);
         await update_panel(panel, nearest, settings);
       }
       if (message.name === 'abortUpdate') {

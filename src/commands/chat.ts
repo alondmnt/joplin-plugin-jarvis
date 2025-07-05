@@ -124,7 +124,7 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
       note.body = note.body.replace(new RegExp(nc, 'g'), '');
     }
   }
-  const nearest = await find_nearest_notes(sub_embeds, note.id, note.title, note.body, model_embed, settings, false);
+  const nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
   if (nearest.length === 0) {
     nearest.push({id: note.id, title: 'Chat context', embeddings: [], similarity: null});
   }

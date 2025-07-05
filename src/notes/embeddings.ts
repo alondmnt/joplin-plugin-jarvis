@@ -5,6 +5,9 @@ import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { search_keywords, ModelError } from '../utils';
 import { abort } from 'process';
+import TurndownService from 'turndown';
+
+const td = new TurndownService();
 
 export interface BlockEmbedding {
   id: string;  // note id
@@ -33,6 +36,17 @@ export async function calc_note_embeddings(
     settings: JarvisSettings,
     abortSignal: AbortSignal
 ): Promise<BlockEmbedding[]> {
+  // convert HTML to Markdown if needed (safety check for direct calls)
+  if (note.markup_language === 2 && note.body.includes('<')) {
+    try {
+      note.body = td.turndown(note.body);
+      console.debug(`calc_note_embeddings: Converted HTML to Markdown for note ${note.id}`);
+    } catch (error) {
+      console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
+      // Continue with original HTML content
+    }
+  }
+
   const hash = calc_hash(note.body);
   note.body = convert_newlines(note.body);
   let level = 0;
@@ -194,11 +208,21 @@ async function update_note(note: any,
   }
   if (note_tags.includes('exclude.from.jarvis') || 
       settings.notes_exclude_folders.has(note.parent_id) ||
-      (note.deleted_time > 0) ||
-      (note.markup_language === 2)) {
+      (note.deleted_time > 0)) {
     console.log(`Excluding note ${note.id} from Jarvis`);
     delete_note_and_embeddings(model.db, note.id);
     return [];
+  }
+
+  // convert HTML to Markdown if needed (must happen before hash calculation)
+  if (note.markup_language === 2) {
+    try {
+      note.body = td.turndown(note.body);
+      console.debug(`update_note: Converted HTML to Markdown for note ${note.id}`);
+    } catch (error) {
+      console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
+      // Continue with original HTML content
+    }
   }
 
   const hash = calc_hash(note.body);
@@ -281,7 +305,15 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
 
     let note: any;
     try {
-      note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body'] });
+      note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body', 'markup_language'] });
+      if (note.markup_language === 2) {
+        try {
+          note.body = td.turndown(note.body);
+          console.debug(`extract_blocks_text: Converted HTML to Markdown for note ${note.id}`);
+        } catch (error) {
+          console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
+        }
+      }
     } catch (error) {
       console.log(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
       continue;
@@ -358,10 +390,18 @@ export async function add_note_title(embeddings: BlockEmbedding[]): Promise<Bloc
 }
 
 // given a list of embeddings, find the nearest ones to the query
-export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, current_title: string, query: string,
+export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, markup_language: number, current_title: string, query: string,
     model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true):
     Promise<NoteEmbedding[]> {
 
+  // convert HTML to Markdown if needed (must happen before hash calculation)
+  if (markup_language === 2) {
+    try {
+      query = td.turndown(query);
+    } catch (error) {
+      console.warn(`Failed to convert HTML to Markdown for query:`, error);
+    }
+  }
   // check if to re-calculate embedding of the query
   let query_embeddings = embeddings.filter(embd => embd.id === current_id);
   if ((query_embeddings.length == 0) || (query_embeddings[0].hash !== calc_hash(query))) {
@@ -376,7 +416,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     const abortController = new AbortController();
     try {
       query_embeddings = await calc_note_embeddings(
-        {id: current_id, body: query, title: current_title}, note_tags, model, settings, abortController.signal);
+        {id: current_id, body: query, title: current_title, markup_language: markup_language}, note_tags, model, settings, abortController.signal);
     } catch (error) {
       if (error instanceof ModelError) {
         // Signal all other ongoing operations to abort

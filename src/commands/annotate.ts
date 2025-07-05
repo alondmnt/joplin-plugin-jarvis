@@ -75,7 +75,7 @@ export async function annotate_links(model_embed: TextEmbeddingModel, settings: 
   }
 
   // semantic search
-  const nearest = await find_nearest_notes(model_embed.embeddings, note.id, note.title, note.body, model_embed, settings);
+  const nearest = await find_nearest_notes(model_embed.embeddings, note.id, note.markup_language, note.title, note.body, model_embed, settings);
 
   // generate links
   const links = nearest.map(n => `[${n.title}](:/${n.id})`).join('\n');
@@ -124,7 +124,7 @@ export async function annotate_tags(model_gen: TextGenerationModel, model_embed:
     }
 
     // semantic search
-    const nearest = await find_nearest_notes(model_embed.embeddings, note.id, note.title, note.body, model_embed, settings);
+    const nearest = await find_nearest_notes(model_embed.embeddings, note.id, note.markup_language, note.title, note.body, model_embed, settings);
     // generate examples
     let notes: string[] = [];
     for (const n of nearest) {
