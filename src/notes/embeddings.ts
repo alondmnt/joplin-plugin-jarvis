@@ -40,7 +40,6 @@ export async function calc_note_embeddings(
   if (note.markup_language === 2 && note.body.includes('<')) {
     try {
       note.body = td.turndown(note.body);
-      console.debug(`calc_note_embeddings: Converted HTML to Markdown for note ${note.id}`);
     } catch (error) {
       console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
       // Continue with original HTML content
@@ -218,7 +217,6 @@ async function update_note(note: any,
   if (note.markup_language === 2) {
     try {
       note.body = td.turndown(note.body);
-      console.debug(`update_note: Converted HTML to Markdown for note ${note.id}`);
     } catch (error) {
       console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
       // Continue with original HTML content
@@ -309,7 +307,6 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
       if (note.markup_language === 2) {
         try {
           note.body = td.turndown(note.body);
-          console.debug(`extract_blocks_text: Converted HTML to Markdown for note ${note.id}`);
         } catch (error) {
           console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
         }
