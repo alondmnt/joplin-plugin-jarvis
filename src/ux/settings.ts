@@ -343,6 +343,7 @@ export async function register_settings() {
       label: 'Chat: Model',
       description: 'The model to ask / chat / research with Jarvis. All predefined models are ONLINE, but custom OFFLINE models are supported. Default: gpt-4o-mini',
       options: {
+        'none': 'None (disable generation features)',
         'openai-custom': 'OpenAI-compatible custom model (e.g., Ollama, Claude)',
         'gpt-4.1-nano':'OpenAI: gpt-4.1-nano (in:128K, out:32K, cheapest)',
         'gpt-4.1-mini':'OpenAI: gpt-4.1-mini (in:1M, out:32K)',

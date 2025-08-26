@@ -21,7 +21,10 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
   let model: TextGenerationModel = null;
   console.log(`load_generation_model: ${settings.model}`);
 
-  if (settings.model === 'Hugging Face') {
+  if (settings.model === 'none') {
+    model = new NoOpGeneration(settings);
+
+  } else if (settings.model === 'Hugging Face') {
     model = new HuggingFaceGeneration(settings);
 
   } else if (settings.model.startsWith('claude') ||
@@ -1067,5 +1070,38 @@ export class GeminiGeneration extends TextGenerationModel {
   async _complete(prompt: string): Promise<string> {
     return google.query_completion(
       this.model, prompt, this.temperature, this.top_p);
+  }
+}
+
+export class NoOpGeneration extends TextGenerationModel {
+  constructor(settings: JarvisSettings) {
+    super('None',
+      settings.max_tokens || 4096,
+      'chat',
+      settings.memory_tokens || 2048,
+      settings.notes_context_tokens || 2048,
+      settings.chat_suffix || '\n\nUser: ',
+      settings.chat_prefix || '\n\nJarvis: ',
+      settings.chat_timeout || 60);
+    this.base_chat = [{role: 'system', content: settings.chat_system_message || ''}];
+    this.online = false;
+    
+    // rate limiting - set to high values since we're not making real requests
+    this.requests_per_second = 1000;
+    this.last_request_time = 0;
+  }
+
+  async _load_model() {
+    // Keep model as null to indicate no real model is loaded
+    this.model = null;
+    console.log('NoOpGeneration: Model disabled');
+  }
+
+  async _chat(prompt: ChatEntry[]): Promise<string> {
+    return 'Generation disabled. Select a chat model in Jarvis settings to get responses.';
+  }
+
+  async _complete(prompt: string): Promise<string> {
+    return 'Generation disabled. Select a chat model in Jarvis settings to get responses.';
   }
 }

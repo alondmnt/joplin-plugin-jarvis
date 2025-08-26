@@ -21,6 +21,7 @@ export async function ask_jarvis(model_gen: TextGenerationModel, dialogHandle: s
 
   await joplin.commands.execute('replaceSelection', completion);
 }
+
 export async function get_completion_params(
   dialogHandle: string, settings: JarvisSettings): Promise<DialogResult> {
   let defaultPrompt = await joplin.commands.execute('selectedText');
