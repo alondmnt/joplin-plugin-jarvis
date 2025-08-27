@@ -38,7 +38,15 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
       },
       body: JSON.stringify(params),
     });
-    data = await response.json();
+    
+    const responseText = await response.text();
+
+    try {
+      data = JSON.parse(responseText);
+    } catch (jsonError) {
+      console.error('JSON parsing failed. Raw response:', responseText);
+      throw new Error(`Invalid JSON response: ${jsonError.message}`);
+    }
 
     // output response
     if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
@@ -117,7 +125,15 @@ export async function query_completion(prompt: string, api_key: string,
     },
       body: JSON.stringify(params),
     });
-    data = await response.json();
+
+    const responseText = await response.text();
+
+    try {
+      data = JSON.parse(responseText);
+    } catch (jsonError) {
+      console.error('JSON parsing failed. Raw response:', responseText);
+      throw new Error(`Invalid JSON response: ${jsonError.message}`);
+    }
 
     // output completion
     if (data.hasOwnProperty('choices') && (data.choices[0].text)) {
@@ -187,7 +203,16 @@ export async function query_embedding(input: string, model: string, api_key: str
     },
     body: JSON.stringify(responseParams),
   });
-  const data = await response.json();
+
+  const responseText = await response.text();
+
+  let data;
+  try {
+    data = JSON.parse(responseText);
+  } catch (jsonError) {
+    console.error('JSON parsing failed. Raw response:', responseText);
+    throw new ModelError(`Invalid JSON response: ${jsonError.message}`);
+  }
 
   // handle errors
   if (data.hasOwnProperty('error')) {
