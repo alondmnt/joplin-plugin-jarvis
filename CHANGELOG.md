@@ -1,3 +1,11 @@
+# [v0.10.5](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.10.5)
+*Released on 2025-08-27T13:05:02Z*
+
+- added: 'None' model to disable generation features (#56)
+- improved: error handling for JSON responses in OpenAI model queries (#54)
+
+---
+
 # [v0.10.4](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.10.4)
 *Released on 2025-07-02T02:33:07Z*
 
