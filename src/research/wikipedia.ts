@@ -117,7 +117,7 @@ async function get_best_page(model_gen: TextGenerationModel,
 
         const this_tokens = model_gen.count_tokens(page['excerpt']);
         if (token_sum + this_tokens > 0.9 * model_gen.max_tokens) {
-          console.log(`stopping at ${i + 1} pages due to max_tokens`);
+          console.debug(`stopping at ${i + 1} pages due to max_tokens`);
           break;
         }
         token_sum += this_tokens;
@@ -128,7 +128,7 @@ async function get_best_page(model_gen: TextGenerationModel,
           activePages = [];
           throw error;
         }
-        console.log(`Error processing Wikipedia page ${i}:`, error);
+        console.debug(`Error processing Wikipedia page ${i}:`, error);
         continue;
       }
     }
@@ -144,7 +144,7 @@ async function get_best_page(model_gen: TextGenerationModel,
     if (error instanceof ModelError) {
       throw error;
     }
-    console.log('Error during Wikipedia page selection:', error);
+    console.debug('Error during Wikipedia page selection:', error);
     return { summary: '' };
   }
 }

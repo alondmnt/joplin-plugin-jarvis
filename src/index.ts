@@ -35,14 +35,14 @@ joplin.plugins.register({
 
     // Helper function to check if update is in progress
     function isUpdateInProgress(): boolean {
-      console.log('isUpdateInProgress', updateAbortController, updateStartTime);
+      console.debug('isUpdateInProgress', updateAbortController, updateStartTime);
       return updateAbortController !== null &&
         (updateStartTime !== null && (Date.now() - updateStartTime) < abort_timeout * 60 * 1000);
     }
 
     // Helper function to safely start an update
     async function startUpdate(model_embed: any, panel: string, force: boolean = false) {
-      console.log('startUpdate', isUpdateInProgress(), force);
+      console.debug('startUpdate', isUpdateInProgress(), force);
       if (isUpdateInProgress() && !force) {
         await joplin.views.dialogs.showMessageBox('Update already in progress');
         return;

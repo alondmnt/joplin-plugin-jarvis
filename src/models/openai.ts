@@ -66,7 +66,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
 
   // cancel button
   if (errorHandler === 1) {
-    console.log('User cancelled the chat operation');
+    console.debug('User cancelled the chat operation');
     throw new ModelError(`OpenAI chat failed: ${error_message}`);
   }
 

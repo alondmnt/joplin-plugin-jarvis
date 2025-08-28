@@ -29,14 +29,14 @@ export async function update_note_db(model: TextEmbeddingModel, panel: string, a
     page += 1;
     notes = await joplin.data.get(['notes'], { fields: ['id', 'title', 'body', 'is_conflict', 'parent_id', 'deleted_time', 'markup_language'], page: page, limit: model.page_size });
     if (notes.items) {
-      console.log(`Processing page ${page}: ${notes.items.length} notes`);
+      console.debug(`Processing page ${page}: ${notes.items.length} notes`);
       await update_embeddings(notes.items, model, settings, abortController);
       processed_notes += notes.items.length;
       update_progress_bar(panel, processed_notes, total_notes, settings);
     }
     // rate limiter
     if (notes.has_more && (page % model.page_cycle) == 0) {
-      console.log(`Waiting for ${model.wait_period} seconds...`);
+      console.debug(`Waiting for ${model.wait_period} seconds...`);
       await new Promise(res => setTimeout(res, model.wait_period * 1000));
     }
   } while (notes.has_more);

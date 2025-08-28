@@ -346,7 +346,7 @@ export async function clear_deleted_notes(embeddings: BlockEmbedding[], db: any)
     }
   }
 
-  console.log(`clear_deleted_notes: ${deleted.length} notes removed from DB`);
+  console.debug(`clear_deleted_notes: ${deleted.length} notes removed from DB`);
   return new_embeddings;
 }
 

@@ -208,7 +208,7 @@ async function update_note(note: any,
   if (note_tags.includes('exclude.from.jarvis') || 
       settings.notes_exclude_folders.has(note.parent_id) ||
       (note.deleted_time > 0)) {
-    console.log(`Excluding note ${note.id} from Jarvis`);
+    console.debug(`Excluding note ${note.id} from Jarvis`);
     delete_note_and_embeddings(model.db, note.id);
     return [];
   }
@@ -297,7 +297,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
     embd = embeddings[i];
     if (embd.body_idx < 0) {
       // unknown position in note (rare case)
-      console.log(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
+      console.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
       continue;
     }
 
@@ -312,7 +312,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
         }
       }
     } catch (error) {
-      console.log(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
+      console.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
       continue;
     }
     const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);

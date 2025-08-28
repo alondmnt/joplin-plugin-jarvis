@@ -57,7 +57,7 @@ export async function search_papers(model_gen: TextGenerationModel,
   });
 
   if ( (results.length < min_results) && (retries > 0) ) {
-    console.log(`search ${retries - 1}`);
+    console.debug(`search ${retries - 1}`);
     return search_papers(model_gen, prompt, n, settings, abortSignal, min_results, retries - 1);
   }
   return [results, search];
@@ -119,7 +119,7 @@ async function run_semantic_scholar_query(query: string, papers: number): Promis
         results.push(info);
       }
     } catch (error) {
-      console.log(error);
+      console.debug(error);
     }
   }
 
@@ -174,7 +174,7 @@ async function run_scopus_query(query: string, papers: number, settings: JarvisS
           };
           results.push(info);
         } catch {
-          console.log('skipped', papers[i]);
+          console.debug('skipped', papers[i]);
           continue;
         }
       }
@@ -185,7 +185,7 @@ async function run_scopus_query(query: string, papers: number, settings: JarvisS
       }
 
     } catch (error) {
-      console.log(error);
+      console.debug(error);
     }
   }
 
@@ -276,7 +276,7 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
           activePromises = [];
           throw error;
         }
-        console.log(`Error processing paper ${i}:`, error);
+        console.debug(`Error processing paper ${i}:`, error);
         // Remove failed promise and continue
         activePromises = activePromises.slice(1);
       }
@@ -287,10 +287,10 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
       controller.abort();
       throw error;
     }
-    console.log(`Error during paper summarization: ${error.message}`);
+    console.debug(`Error during paper summarization: ${error.message}`);
   }
 
-  console.log(`sampled ${results.length} papers. retrieved ${papers.length} papers.`);
+  console.debug(`sampled ${results.length} papers. retrieved ${papers.length} papers.`);
   return results;
 }
 
@@ -377,7 +377,7 @@ async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
   try {
     response = await with_timeout(5000, fetch(url, options));
   } catch {
-    console.log('TIMEOUT crossref');
+    console.debug('TIMEOUT crossref');
     return paper;
   }
 
@@ -392,8 +392,8 @@ async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
     }
   }
   catch (error) {
-    console.log(error);
-    console.log(jsonResponse);
+    console.debug(error);
+    console.debug(jsonResponse);
   }
   return paper;
 }
@@ -415,7 +415,7 @@ async function get_scidir_info(paper: PaperInfo,
   try {
     response = await with_timeout(5000, fetch(url, options));
   } catch {
-    console.log('TIMEOUT scidir');
+    console.debug('TIMEOUT scidir');
     return paper;
   }
 
@@ -452,8 +452,8 @@ async function get_scidir_info(paper: PaperInfo,
     }
   }
   catch (error) {
-    console.log(error);
-    console.log(jsonResponse);
+    console.debug(error);
+    console.debug(jsonResponse);
   }
   return paper;
 }
@@ -474,7 +474,7 @@ async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Prom
   try {
     response = await with_timeout(5000, fetch(url, options));
   } catch {
-    console.log('TIMEOUT scopus');
+    console.debug('TIMEOUT scopus');
     return paper;
   }
 
@@ -489,8 +489,8 @@ async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Prom
     }
   }
   catch (error) {
-    console.log(error);
-    console.log(jsonResponse);
+    console.debug(error);
+    console.debug(jsonResponse);
   }
   return paper;
 }
@@ -510,7 +510,7 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
   try {
     response = await with_timeout(5000, fetch(url, options));
   } catch {
-    console.log('TIMEOUT springer');
+    console.debug('TIMEOUT springer');
     return paper;
   }
 
@@ -526,8 +526,8 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
     }
   }
   catch (error) {
-    console.log(error);
-    console.log(jsonResponse);
+    console.debug(error);
+    console.debug(jsonResponse);
   }
   return paper;
 }
@@ -545,7 +545,7 @@ async function get_semantic_scholar_info(paper: PaperInfo, settings: JarvisSetti
   try {
     response = await with_timeout(5000, fetch(url, options));
   } catch {
-    console.log('TIMEOUT semantic_scholar');
+    console.debug('TIMEOUT semantic_scholar');
     return paper;
   }
 
@@ -560,8 +560,8 @@ async function get_semantic_scholar_info(paper: PaperInfo, settings: JarvisSetti
     }
   }
   catch (error) {
-    console.log(error);
-    console.log(jsonResponse);
+    console.debug(error);
+    console.debug(jsonResponse);
   }
   return paper;
 }
