@@ -11,7 +11,7 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Engine | Offline | Free | Open Source | Difficulty | Chat | Embedding |
 |--------|---------|------|-------------|------------|------|-----------|
 | [Ollama](#offline-chat-model-with-ollama) | Yes | Yes | Yes | Easy| Yes | Yes |
-| [LM Studio](#offline-chat-model-with-lm-studio) | Yes | Yes | No | Easy | Yes | No |
+| [LM Studio](#offline-chat-model-with-lm-studio) | Yes | Yes | No | Easy | Yes | Yes |
 | [Jan](#offline-chat-model-with-jan) | Yes | Yes | Yes | Easy | Yes | No |
 | [Xinference](#offline-chat--embedding-model-with-xinference) | Yes | Yes | Yes | Intermediate | Yes | Yes |
 | [GPT4All](#offline-chat-model-with-gpt4all) | Yes | Yes | Yes | Hard | Yes | No |
@@ -46,8 +46,8 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 
 1. Download [LM Studio](https://lmstudio.ai/)
 2. Open the LM Studio app
-3. Download a model
-4. Go to the Local Server tab, and press Start Server
+3. Go to the "Discover" tab and download a LLM model
+4. Go to the "Developer" tab, select a model to load
 
 | Setting | Advanced | Value |
 |---------|----------|-------|
@@ -57,6 +57,19 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Chat: OpenAI (or compatible) custom model ID | Yes | MODELNAME |
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | http://127.0.0.1:1234/v1/chat/completions |
+
+### Offline embedding model with LM Studio
+
+1. Download [LM Studio](https://lmstudio.ai/)
+2. Open the LM Studio app
+3. Go to the "Discover" tab and download a text embedding model, e.g. from the family of `nomic-embed-text`
+4. Go to the "Developer" tab, select a model to load
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Notes: Semantic similarity model | No | (offline) Ollama |
+| Notes: OpenAI / Ollama (or compatible) custom model ID | Yes | MODELNAME |
+| Notes: OpenAI / Ollama (or compatible) API endpoint | Yes | http://127.0.0.1:1234/v1/embeddings |
 
 ### Offline chat model with Jan
 
