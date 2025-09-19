@@ -3,6 +3,7 @@ import { find_nearest_notes, update_embeddings } from '../notes/embeddings';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
+import { ModelError } from '../utils';
 
 
 export async function update_note_db(model: TextEmbeddingModel, panel: string, abortController: AbortController): Promise<void> {
@@ -59,7 +60,16 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
   if (!selected || (selected.length === 0)) {
     selected = note.body;
   }
-  const nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings);
+  let nearest;
+  try {
+    nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings);
+  } catch (error) {
+    if (error instanceof ModelError) {
+      await joplin.views.dialogs.showMessageBox(`Error: ${error.message}`);
+      return;
+    }
+    throw error;
+  }
 
   // write results to panel
   await update_panel(panel, nearest, settings);

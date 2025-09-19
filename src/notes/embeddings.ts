@@ -232,38 +232,138 @@ async function update_note(note: any,
   }
 
   // otherwise, calculate the new embeddings
-  const new_embd = await calc_note_embeddings(note, note_tags, model, settings, abortSignal);
+  try {
+    const new_embd = await calc_note_embeddings(note, note_tags, model, settings, abortSignal);
 
-  // insert new embeddings into DB
-  await insert_note_embeddings(model.db, new_embd, model);
+    // insert new embeddings into DB
+    await insert_note_embeddings(model.db, new_embd, model);
 
-  return new_embd;
+    return new_embd;
+  } catch (error) {
+    const noteLabel = note.title ? `${note.id} (${note.title})` : note.id;
+    const baseMessage = error instanceof Error ? error.message : String(error);
+    const message = baseMessage.includes(note.id)
+      ? baseMessage
+      : `Note ${noteLabel}: ${baseMessage}`;
+
+    if (error instanceof ModelError && message === error.message) {
+      throw error;
+    }
+
+    const enrichedError = new ModelError(message);
+    (enrichedError as any).cause = error instanceof ModelError && (error as any).cause
+      ? (error as any).cause
+      : error;
+    throw enrichedError;
+  }
 }
 
 // in-place function
 export async function update_embeddings(
-  notes: any[], model: TextEmbeddingModel, settings: JarvisSettings, 
-  abortController: AbortController): Promise<void> {
-  try {
-    const promises = notes.map(note => 
-      update_note(note, model, settings, abortController.signal)
-    );
+  notes: any[],
+  model: TextEmbeddingModel,
+  settings: JarvisSettings,
+  abortController: AbortController,
+): Promise<void> {
+  const successfulNotes: Array<{ note: any; embeddings: BlockEmbedding[] }> = [];
+  let dialogQueue: Promise<unknown> = Promise.resolve();
+  let fatalError: ModelError | null = null;
+  const MAX_RETRY_ATTEMPTS = 2;
 
-    const results = await Promise.all(promises);
+  const runSerialized = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const next = dialogQueue.then(fn);
+    dialogQueue = next.catch(() => undefined);
+    return next;
+  };
 
-    // If we get here, no cancellation occurred - update embeddings
-    remove_note_embeddings(model.embeddings, notes.map(note => note.id));
-    model.embeddings.push(...[].concat(...results));
-  } catch (error) {
-    if (error instanceof ModelError) {
-      // Signal all other ongoing operations to abort
-      abortController.abort();
-      joplin.views.dialogs.showMessageBox(
-        `Error: ${error.message}`
-      );
+  const normalizeError = (rawError: unknown, note: any): ModelError => {
+    if (rawError instanceof ModelError) {
+      return rawError;
     }
-    throw error;
+    const message = rawError instanceof Error ? rawError.message : String(rawError);
+    const noteLabel = note.title ? `${note.id} (${note.title})` : note.id;
+    const fallback = new ModelError(`Note ${noteLabel}: ${message}`);
+    (fallback as any).cause = rawError;
+    return fallback;
+  };
+
+  const handleErrorAction = async (
+    note: any,
+    error: ModelError,
+    attempt: number,
+  ): Promise<'retry' | 'skip' | 'abort'> => runSerialized(async () => {
+    if (fatalError) {
+      return 'abort';
+    }
+
+    if (settings.notes_abort_on_error) {
+      fatalError = error;
+      abortController.abort();
+      await joplin.views.dialogs.showMessageBox(`Error: ${error.message}`);
+      return 'abort';
+    }
+
+    if (attempt < MAX_RETRY_ATTEMPTS) {
+      const choice = await joplin.views.dialogs.showMessageBox(
+        `Error: ${error.message}\nPress OK to retry or Cancel to skip this note.`
+      );
+      return (choice === 0) ? 'retry' : 'skip';
+    }
+
+    const choice = await joplin.views.dialogs.showMessageBox(
+      `Error: ${error.message}\nAlready tried ${attempt + 1} times.\nPress OK to skip this note or Cancel to abort.`
+    );
+    return (choice === 0) ? 'skip' : 'abort';
+  });
+
+  const notePromises = notes.map(async note => {
+    let attempt = 0;
+    while (!abortController.signal.aborted) {
+      try {
+        const embeddings = await update_note(note, model, settings, abortController.signal);
+        successfulNotes.push({ note, embeddings });
+        return;
+      } catch (rawError) {
+        const error = normalizeError(rawError, note);
+
+        if (fatalError) {
+          throw fatalError;
+        }
+
+        const action = await handleErrorAction(note, error, attempt);
+
+        if (action === 'retry') {
+          attempt += 1;
+          continue;
+        }
+
+        if (action === 'skip') {
+          console.warn(`Skipping note ${note.id}: ${error.message}`, (error as any).cause ?? error);
+          return;
+        }
+
+        fatalError = fatalError ?? error;
+        abortController.abort();
+        throw fatalError;
+      }
+    }
+
+    throw fatalError ?? new ModelError('Model embedding operation cancelled');
+  });
+
+  await Promise.all(notePromises);
+
+  if (successfulNotes.length === 0) {
+    return;
   }
+
+  remove_note_embeddings(
+    model.embeddings,
+    successfulNotes.map(result => result.note.id),
+  );
+
+  const mergedEmbeddings = successfulNotes.flatMap(result => result.embeddings);
+  model.embeddings.push(...mergedEmbeddings);
 }
 
 // function to remove all embeddings of the given notes from an array of embeddings in-place

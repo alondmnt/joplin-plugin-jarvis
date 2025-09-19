@@ -59,7 +59,8 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
     model = new USEEmbedding(
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
-      settings.notes_abort_on_error);
+      settings.notes_abort_on_error,
+      settings.notes_embed_timeout);
 
   } else if (settings.notes_model === 'Hugging Face') {
     model = new HuggingFaceEmbedding(
@@ -67,6 +68,7 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
       settings.notes_abort_on_error,
+      settings.notes_embed_timeout,
       settings.notes_hf_endpoint);
 
   } else if (settings.notes_model === 'text-embedding-3-small') {
@@ -74,21 +76,24 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       'text-embedding-3-small',
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
-      settings.notes_abort_on_error);
+      settings.notes_abort_on_error,
+      settings.notes_embed_timeout);
 
   } else if (settings.notes_model === 'text-embedding-3-large') {
     model = new OpenAIEmbedding(
       'text-embedding-3-large',
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
-      settings.notes_abort_on_error);
+      settings.notes_abort_on_error,
+      settings.notes_embed_timeout);
 
   } else if (settings.notes_model === 'text-embedding-ada-002') {
     model = new OpenAIEmbedding(
       'text-embedding-ada-002',
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
-      settings.notes_abort_on_error);
+      settings.notes_abort_on_error,
+      settings.notes_embed_timeout);
 
   } else if (settings.notes_model === 'openai-custom') {
     model = new OpenAIEmbedding(
@@ -96,6 +101,7 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
       settings.notes_abort_on_error,
+      settings.notes_embed_timeout,
       settings.notes_openai_endpoint);
 
   } else if (settings.notes_model.startsWith('gemini')) {
@@ -103,7 +109,8 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_model.split('-').slice(1).join('-'),
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
-      settings.notes_abort_on_error);
+      settings.notes_abort_on_error,
+      settings.notes_embed_timeout);
 
   } else if (settings.notes_model === 'ollama') {
     model = new OllamaEmbedding(
@@ -111,6 +118,7 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
       settings.notes_abort_on_error,
+      settings.notes_embed_timeout,
       settings.notes_openai_endpoint);
 
   } else {
@@ -153,6 +161,7 @@ export class TextEmbeddingModel {
   public request_queue = [];  // internal rate limit
   public requests_per_second: number = null;  // internal rate limit
   public last_request_time: number = 0;  // internal rate limit
+  public embed_timeout: number = 60 * 1000;
 
   constructor() {
   }
@@ -176,13 +185,26 @@ export class TextEmbeddingModel {
 
     // Then set up abort handling for the actual embedding operation
     return new Promise((resolve, reject) => {
-        abortSignal?.addEventListener('abort', () => {
+        const handleAbort = () => {
+            abortSignal?.removeEventListener('abort', handleAbort);
             reject(new Error('Model embedding operation cancelled'));
-        });
+        };
+        abortSignal?.addEventListener('abort', handleAbort);
 
-        this._calc_embedding(text)
-            .then(resolve)
-            .catch(reject);
+        const runner = () => this._calc_embedding(text);
+        const embeddingPromise = (this.embed_timeout && this.embed_timeout > 0)
+            ? timeout_with_retry(this.embed_timeout, runner)
+            : runner();
+
+        embeddingPromise
+            .then(result => {
+                abortSignal?.removeEventListener('abort', handleAbort);
+                resolve(result);
+            })
+            .catch(error => {
+                abortSignal?.removeEventListener('abort', handleAbort);
+                reject(error);
+            });
     });
   }
 
@@ -226,7 +248,7 @@ export class TextEmbeddingModel {
 
 class USEEmbedding extends TextEmbeddingModel {
 
-  constructor(max_tokens: number, jobs: number, abort_on_error: boolean) {
+  constructor(max_tokens: number, jobs: number, abort_on_error: boolean, timeout_secs: number) {
     super();
     this.id = 'Universal Sentence Encoder';
     this.version = '1.3.3';
@@ -234,6 +256,7 @@ class USEEmbedding extends TextEmbeddingModel {
     this.online = false;
     this.page_size = jobs;
     this.abort_on_error = abort_on_error;
+    this.embed_timeout = (timeout_secs > 0) ? timeout_secs * 1000 : 0;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -268,7 +291,11 @@ class USEEmbedding extends TextEmbeddingModel {
       }
 
     } catch (e) {
-      console.log(`USEEmbedding failed to load: ${e}`);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`USEEmbedding failed to load: ${errorMessage}`);
+      await joplin.views.dialogs.showMessageBox(
+        `Error: USEEmbedding failed to load. ${errorMessage}`
+      );
       this.model = null;
     }
   }
@@ -303,7 +330,7 @@ class USEEmbedding extends TextEmbeddingModel {
 class HuggingFaceEmbedding extends TextEmbeddingModel {
   public endpoint: string = null;
 
-  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, endpoint: string=null) {
+  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, timeout_secs: number, endpoint: string=null) {
     super();
     this.id = id
     this.version = '1';
@@ -312,6 +339,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     this.online = true;
     this.page_size = jobs;
     this.abort_on_error = abort_on_error;
+    this.embed_timeout = (timeout_secs > 0) ? timeout_secs * 1000 : 0;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -342,7 +370,11 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     try {
       const vec = await this.embed(test_prompt);
     } catch (e) {
-      console.log(`HuggingFaceEmbedding failed to load: ${e}`);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`HuggingFaceEmbedding failed to load: ${errorMessage}`);
+      await joplin.views.dialogs.showMessageBox(
+        `Error: Hugging Face embedding model failed to load. ${errorMessage}`
+      );
       this.model = null;
     }
   }
@@ -413,7 +445,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
   private api_key: string = null;
   private endpoint: string = null;
 
-  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, endpoint: string=null) {
+  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, timeout_secs: number, endpoint: string=null) {
     super();
     this.id = id
     this.version = '1';
@@ -422,6 +454,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     this.online = true;
     this.page_size = jobs;
     this.abort_on_error = abort_on_error;
+    this.embed_timeout = (timeout_secs > 0) ? timeout_secs * 1000 : 0;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -442,7 +475,11 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     try {
       const vec = await this.embed(test_prompt);
     } catch (e) {
-      console.log(`OpenAIEmbedding failed to load: ${e}`);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`OpenAIEmbedding failed to load: ${errorMessage}`);
+      await joplin.views.dialogs.showMessageBox(
+        `Error: OpenAI embedding model failed to load. ${errorMessage}`
+      );
       this.model = null;
     }
   }
@@ -459,7 +496,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
 class GeminiEmbedding extends TextEmbeddingModel {
   private api_key: string = null;
   
-  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, endpoint: string=null) {
+  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, timeout_secs: number, endpoint: string=null) {
     super();
     this.id = id;
     this.version = '1';
@@ -467,6 +504,7 @@ class GeminiEmbedding extends TextEmbeddingModel {
     this.online = true;
     this.page_size = jobs;
     this.abort_on_error = abort_on_error;
+    this.embed_timeout = (timeout_secs > 0) ? timeout_secs * 1000 : 0;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -488,7 +526,11 @@ class GeminiEmbedding extends TextEmbeddingModel {
     try {
       const vec = await this.embed(test_prompt);
     } catch (e) {
-      console.log(`GeminiEmbedding failed to load: ${e}`);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`GeminiEmbedding failed to load: ${errorMessage}`);
+      await joplin.views.dialogs.showMessageBox(
+        `Error: Gemini embedding model failed to load. ${errorMessage}`
+      );
       this.model = null;
     }
   }
@@ -506,7 +548,7 @@ class OllamaEmbedding extends TextEmbeddingModel {
   private endpoint: string = null;
   private api_key: string = null;
 
-  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, endpoint: string) {
+  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, timeout_secs: number, endpoint: string) {
     super();
     this.id = id
     this.version = '1';
@@ -515,6 +557,7 @@ class OllamaEmbedding extends TextEmbeddingModel {
     this.online = true;
     this.page_size = jobs;
     this.abort_on_error = abort_on_error;
+    this.embed_timeout = (timeout_secs > 0) ? timeout_secs * 1000 : 0;
 
     // rate limits
     this.request_queue = [];  // internal rate limit
@@ -530,7 +573,11 @@ class OllamaEmbedding extends TextEmbeddingModel {
     try {
       const vec = await this.embed(test_prompt);
     } catch (e) {
-      console.log(`OllamaEmbedding failed to load: ${e}`);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`OllamaEmbedding failed to load: ${errorMessage}`);
+      await joplin.views.dialogs.showMessageBox(
+        `Error: Ollama embedding model failed to load. ${errorMessage}`
+      );
       this.model = null;
     }
   }
@@ -858,7 +905,11 @@ export class HuggingFaceGeneration extends TextGenerationModel {
     try {
       const response = await this.complete(test_prompt);
     } catch (e) {
-      console.log(`HuggingFaceGeneration failed to load: ${e}`);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`HuggingFaceGeneration failed to load: ${errorMessage}`);
+      await joplin.views.dialogs.showMessageBox(
+        `Error: Hugging Face generation model failed to load. ${errorMessage}`
+      );
       this.model = null;
     }
   }
@@ -951,7 +1002,11 @@ export class OpenAIGeneration extends TextGenerationModel {
     try {
       const vec = await this.complete(test_prompt);
     } catch (e) {
-      console.log(`OpenAIGeneration failed to load: ${e}`);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`OpenAIGeneration failed to load: ${errorMessage}`);
+      await joplin.views.dialogs.showMessageBox(
+        `Error: OpenAI generation model failed to load. ${errorMessage}`
+      );
       this.model = null;
     }
   }
@@ -1000,7 +1055,11 @@ export class AnthropicGeneration extends OpenAIGeneration {
     try {
       const response = await this.complete(test_prompt);
     } catch (e) {
-      console.log(`AnthropicGeneration failed to load: ${e}`);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`AnthropicGeneration failed to load: ${errorMessage}`);
+      await joplin.views.dialogs.showMessageBox(
+        `Error: Anthropic generation model failed to load. ${errorMessage}`
+      );
       this.model = null;
     }
   }
@@ -1057,7 +1116,11 @@ export class GeminiGeneration extends TextGenerationModel {
     try {
       const vec = await this._complete(test_prompt);
     } catch (e) {
-        console.log(`GeminiGeneration failed to load: ${e}`);
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error(`GeminiGeneration failed to load: ${errorMessage}`);
+        await joplin.views.dialogs.showMessageBox(
+          `Error: Gemini generation model failed to load. ${errorMessage}`
+        );
         this.model = null;
     }
   }

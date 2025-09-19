@@ -193,47 +193,68 @@ export async function query_embedding(input: string, model: string, api_key: str
   } else {
     url = 'https://api.openai.com/v1/embeddings';
   }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + api_key,
-      'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
-      'X-Title': 'Joplin/Jarvis'
-    },
-    body: JSON.stringify(responseParams),
-  });
 
-  const responseText = await response.text();
-
-  let data;
+  let data = null;
   try {
-    data = JSON.parse(responseText);
-  } catch (jsonError) {
-    console.error('JSON parsing failed. Raw response:', responseText);
-    throw new ModelError(`Invalid JSON response: ${jsonError.message}`);
-  }
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + api_key,
+        'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
+        'X-Title': 'Joplin/Jarvis'
+      },
+      body: JSON.stringify(responseParams),
+    });
 
-  // handle errors
-  if (data.hasOwnProperty('error')) {
-    if (abort_on_error) {
-      throw new ModelError(`OpenAI embedding failed: ${data.error.message}`);
+    const responseText = await response.text();
+
+    try {
+      data = JSON.parse(responseText);
+    } catch (jsonError) {
+      console.error('JSON parsing failed. Raw response:', responseText);
+      throw new ModelError(`Invalid JSON response: ${jsonError.message}`);
     }
-    const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Error: ${data.error.message}\nPress OK to retry.`);
-    if (errorHandler === 0) {
-      // OK button
+
+    if (!data.hasOwnProperty('error')) {
+      let vec = new Float32Array(data.data[0].embedding);
+
+      // normalize the vector
+      const norm = Math.sqrt(vec.map((x) => x * x).reduce((a, b) => a + b, 0));
+      vec = vec.map((x) => x / norm);
+
+      return vec;
+    }
+
+    const apiError = data.error.message ? data.error.message : String(data.error);
+    throw new ModelError(`OpenAI embedding failed: ${apiError}`);
+
+  } catch (error) {
+    const baseMessage = error instanceof ModelError
+      ? error.message
+      : error instanceof Error ? error.message : String(error);
+
+    const modelError = error instanceof ModelError
+      ? error
+      : new ModelError(baseMessage.includes('OpenAI embedding failed') ? baseMessage
+        : `OpenAI embedding failed: ${baseMessage}`);
+
+    if (abort_on_error) {
+      await joplin.views.dialogs.showMessageBox(
+        `Error: ${modelError.message}\nThe operation will be cancelled.`
+      );
+      throw modelError;
+    }
+
+    const retryChoice = await joplin.views.dialogs.showMessageBox(
+      `Error: ${modelError.message}\nPress OK to retry.`
+    );
+    if (retryChoice === 0) {
       return query_embedding(input, model, api_key, abort_on_error, custom_url);
     }
-    throw new ModelError(`OpenAI embedding failed: ${data.error.message}`);
+
+    throw modelError;
   }
-  let vec = new Float32Array(data.data[0].embedding);
-
-  // normalize the vector
-  const norm = Math.sqrt(vec.map((x) => x * x).reduce((a, b) => a + b, 0));
-  vec = vec.map((x) => x / norm);
-
-  return vec;
 }
 
 // returns the last messages up to a fraction of the total length

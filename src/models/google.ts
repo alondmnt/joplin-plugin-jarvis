@@ -29,13 +29,14 @@ export async function query_chat(model: GenerativeModel, prompt: Array<{role: st
     return response.text();
 
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error: ${e.message}\nPress OK to retry.`
+      `Gemini Error: ${message}\nPress OK to retry.`
       );
 
     // cancel button
     if (errorHandler === 1) {
-      throw new ModelError(`Gemini chat failed: ${e.message}`);
+      throw new ModelError(`Gemini chat failed: ${message}`);
     }
 
     // retry
@@ -52,13 +53,14 @@ export async function query_completion(model: GenerativeModel, prompt: string, t
     return response.text();
 
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error: ${e.message}\nPress OK to retry.`
+      `Gemini Error: ${message}\nPress OK to retry.`
       );
 
     // cancel button
     if (errorHandler === 1) {
-      throw new ModelError(`Gemini completion failed: ${e.message}`);
+      throw new ModelError(`Gemini completion failed: ${message}`);
     }
 
     // retry
@@ -78,16 +80,17 @@ export async function query_embedding(text: string, model: GenerativeModel, abor
     return vec;
 
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     if (abort_on_error) {
-      throw new ModelError(`Gemini embedding failed: ${e.message}`);
+      throw new ModelError(`Gemini embedding failed: ${message}`);
     }
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error: ${e.message}\nPress OK to retry.`
+      `Gemini Error: ${message}\nPress OK to retry.`
       );
 
     // cancel button
     if (errorHandler === 1) {
-      throw new ModelError(`Gemini embedding failed: ${e.message}`);
+      throw new ModelError(`Gemini embedding failed: ${message}`);
     }
 
     // retry
