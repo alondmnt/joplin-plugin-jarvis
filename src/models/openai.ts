@@ -182,7 +182,7 @@ export async function query_completion(prompt: string, api_key: string,
     temperature, top_p, frequency_penalty, presence_penalty, custom_url);
 }
 
-export async function query_embedding(input: string, model: string, api_key: string, abort_on_error: boolean, custom_url: string=null): Promise<Float32Array> {
+export async function query_embedding(input: string, model: string, api_key: string, _abort_on_error: boolean, custom_url: string=null): Promise<Float32Array> {
   const responseParams = {
     input: input,
     model: model,
@@ -194,8 +194,7 @@ export async function query_embedding(input: string, model: string, api_key: str
     url = 'https://api.openai.com/v1/embeddings';
   }
 
-  let data = null;
-  try {
+  const request = async (): Promise<Float32Array> => {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -209,6 +208,7 @@ export async function query_embedding(input: string, model: string, api_key: str
 
     const responseText = await response.text();
 
+    let data: any;
     try {
       data = JSON.parse(responseText);
     } catch (jsonError) {
@@ -216,41 +216,36 @@ export async function query_embedding(input: string, model: string, api_key: str
       throw new ModelError(`Invalid JSON response: ${jsonError.message}`);
     }
 
-    if (!data.hasOwnProperty('error')) {
-      let vec = new Float32Array(data.data[0].embedding);
-
-      // normalize the vector
-      const norm = Math.sqrt(vec.map((x) => x * x).reduce((a, b) => a + b, 0));
-      vec = vec.map((x) => x / norm);
-
-      return vec;
+    if (data.hasOwnProperty('error')) {
+      const apiError = data.error.message ? data.error.message : String(data.error);
+      throw new ModelError(`OpenAI embedding failed: ${apiError}`);
     }
 
-    const apiError = data.error.message ? data.error.message : String(data.error);
-    throw new ModelError(`OpenAI embedding failed: ${apiError}`);
+    let vec = new Float32Array(data.data[0].embedding);
 
+    // normalize the vector
+    const norm = Math.sqrt(vec.map((x) => x * x).reduce((a, b) => a + b, 0));
+    vec = vec.map((x) => x / norm);
+
+    return vec;
+  };
+
+  try {
+    return await request();
   } catch (error) {
-    const baseMessage = error instanceof ModelError
-      ? error.message
-      : error instanceof Error ? error.message : String(error);
-
-    const modelError = error instanceof ModelError
-      ? error
-      : new ModelError(baseMessage.includes('OpenAI embedding failed') ? baseMessage
-        : `OpenAI embedding failed: ${baseMessage}`);
-
-    if (abort_on_error) {
-      await joplin.views.dialogs.showMessageBox(
-        `Error: ${modelError.message}\nThe operation will be cancelled.`
-      );
-      throw modelError;
+    if (error instanceof ModelError) {
+      throw error;
     }
 
-    const retryChoice = await joplin.views.dialogs.showMessageBox(
-      `Error: ${modelError.message}\nPress OK to retry.`
-    );
-    if (retryChoice === 0) {
-      return query_embedding(input, model, api_key, abort_on_error, custom_url);
+    const baseMessage = error instanceof Error ? error.message : String(error);
+    const message = baseMessage.includes('OpenAI embedding failed')
+      ? baseMessage
+      : `OpenAI embedding failed: ${baseMessage}`;
+
+    const modelError = new ModelError(message);
+    (modelError as any).cause = error;
+    if (error instanceof Error && error.stack) {
+      modelError.stack = error.stack;
     }
 
     throw modelError;

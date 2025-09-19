@@ -240,22 +240,80 @@ async function update_note(note: any,
 
     return new_embd;
   } catch (error) {
-    const noteLabel = note.title ? `${note.id} (${note.title})` : note.id;
-    const baseMessage = error instanceof Error ? error.message : String(error);
-    const message = baseMessage.includes(note.id)
-      ? baseMessage
-      : `Note ${noteLabel}: ${baseMessage}`;
-
-    if (error instanceof ModelError && message === error.message) {
-      throw error;
-    }
-
-    const enrichedError = new ModelError(message);
-    (enrichedError as any).cause = error instanceof ModelError && (error as any).cause
-      ? (error as any).cause
-      : error;
-    throw enrichedError;
+    throw ensureModelError(error, note);
   }
+}
+
+type EmbeddingErrorAction = 'retry' | 'skip' | 'abort';
+
+const MAX_EMBEDDING_RETRIES = 2;
+
+function formatNoteLabel(note: { id: string; title?: string }): string {
+  return note.title ? `${note.id} (${note.title})` : note.id;
+}
+
+function ensureModelError(
+  rawError: unknown,
+  context?: { id?: string; title?: string },
+): ModelError {
+  const baseMessage = rawError instanceof Error ? rawError.message : String(rawError);
+  const noteId = context?.id;
+  const label = noteId ? formatNoteLabel({ id: noteId, title: context?.title }) : null;
+  const message = (label && noteId)
+    ? (baseMessage.includes(noteId) ? baseMessage : `Note ${label}: ${baseMessage}`)
+    : baseMessage;
+
+  if (rawError instanceof ModelError) {
+    if (rawError.message === message) {
+      return rawError;
+    }
+    const enriched = new ModelError(message);
+    (enriched as any).cause = (rawError as any).cause ?? rawError;
+    return enriched;
+  }
+
+  const modelError = new ModelError(message);
+  (modelError as any).cause = rawError;
+  return modelError;
+}
+
+async function promptEmbeddingError(
+  settings: JarvisSettings,
+  error: ModelError,
+  options: {
+    attempt: number;
+    maxAttempts: number;
+    allowSkip: boolean;
+    skipLabel?: string;
+  },
+): Promise<EmbeddingErrorAction> {
+  if (settings.notes_abort_on_error) {
+    await joplin.views.dialogs.showMessageBox(`Error: ${error.message}`);
+    return 'abort';
+  }
+
+  const { attempt, maxAttempts, allowSkip, skipLabel } = options;
+
+  if (attempt < maxAttempts) {
+    const cancelAction = allowSkip ? (skipLabel ?? 'skip this note') : 'cancel this operation.';
+    const message = allowSkip
+      ? `Error: ${error.message}\nPress OK to retry or Cancel to ${cancelAction}.`
+      : `Error: ${error.message}\nPress OK to retry or Cancel to ${cancelAction}`;
+    const choice = await joplin.views.dialogs.showMessageBox(message);
+    if (choice === 0) {
+      return 'retry';
+    }
+    return allowSkip ? 'skip' : 'abort';
+  }
+
+  const message = allowSkip
+    ? `Error: ${error.message}\nAlready tried ${attempt + 1} times.\nPress OK to skip this note or Cancel to abort.`
+    : `Error: ${error.message}\nAlready tried ${attempt + 1} times.\nPress OK to retry again or Cancel to cancel this operation.`;
+  const choice = await joplin.views.dialogs.showMessageBox(message);
+  if (allowSkip) {
+    return (choice === 0) ? 'skip' : 'abort';
+  }
+  return (choice === 0) ? 'retry' : 'abort';
 }
 
 // in-place function
@@ -268,53 +326,11 @@ export async function update_embeddings(
   const successfulNotes: Array<{ note: any; embeddings: BlockEmbedding[] }> = [];
   let dialogQueue: Promise<unknown> = Promise.resolve();
   let fatalError: ModelError | null = null;
-  const MAX_RETRY_ATTEMPTS = 2;
-
   const runSerialized = async <T>(fn: () => Promise<T>): Promise<T> => {
     const next = dialogQueue.then(fn);
     dialogQueue = next.catch(() => undefined);
     return next;
   };
-
-  const normalizeError = (rawError: unknown, note: any): ModelError => {
-    if (rawError instanceof ModelError) {
-      return rawError;
-    }
-    const message = rawError instanceof Error ? rawError.message : String(rawError);
-    const noteLabel = note.title ? `${note.id} (${note.title})` : note.id;
-    const fallback = new ModelError(`Note ${noteLabel}: ${message}`);
-    (fallback as any).cause = rawError;
-    return fallback;
-  };
-
-  const handleErrorAction = async (
-    note: any,
-    error: ModelError,
-    attempt: number,
-  ): Promise<'retry' | 'skip' | 'abort'> => runSerialized(async () => {
-    if (fatalError) {
-      return 'abort';
-    }
-
-    if (settings.notes_abort_on_error) {
-      fatalError = error;
-      abortController.abort();
-      await joplin.views.dialogs.showMessageBox(`Error: ${error.message}`);
-      return 'abort';
-    }
-
-    if (attempt < MAX_RETRY_ATTEMPTS) {
-      const choice = await joplin.views.dialogs.showMessageBox(
-        `Error: ${error.message}\nPress OK to retry or Cancel to skip this note.`
-      );
-      return (choice === 0) ? 'retry' : 'skip';
-    }
-
-    const choice = await joplin.views.dialogs.showMessageBox(
-      `Error: ${error.message}\nAlready tried ${attempt + 1} times.\nPress OK to skip this note or Cancel to abort.`
-    );
-    return (choice === 0) ? 'skip' : 'abort';
-  });
 
   const notePromises = notes.map(async note => {
     let attempt = 0;
@@ -324,13 +340,26 @@ export async function update_embeddings(
         successfulNotes.push({ note, embeddings });
         return;
       } catch (rawError) {
-        const error = normalizeError(rawError, note);
+        const error = ensureModelError(rawError, note);
 
         if (fatalError) {
           throw fatalError;
         }
 
-        const action = await handleErrorAction(note, error, attempt);
+        const action = await runSerialized(() =>
+          promptEmbeddingError(settings, error, {
+            attempt,
+            maxAttempts: MAX_EMBEDDING_RETRIES,
+            allowSkip: true,
+            skipLabel: 'skip this note',
+          })
+        );
+
+        if (action === 'abort') {
+          fatalError = fatalError ?? error;
+          abortController.abort();
+          throw fatalError;
+        }
 
         if (action === 'retry') {
           attempt += 1;
@@ -341,10 +370,6 @@ export async function update_embeddings(
           console.warn(`Skipping note ${note.id}: ${error.message}`, (error as any).cause ?? error);
           return;
         }
-
-        fatalError = fatalError ?? error;
-        abortController.abort();
-        throw fatalError;
       }
     }
 
@@ -501,6 +526,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   }
   // check if to re-calculate embedding of the query
   let query_embeddings = embeddings.filter(embd => embd.id === current_id);
+  const hasCachedQueryEmbedding = query_embeddings.length > 0;
   if ((query_embeddings.length == 0) || (query_embeddings[0].hash !== calc_hash(query))) {
     // re-calculate embedding of the query
     let note_tags: string[];
@@ -511,16 +537,39 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       note_tags = [];
     }
     const abortController = new AbortController();
-    try {
-      query_embeddings = await calc_note_embeddings(
-        {id: current_id, body: query, title: current_title, markup_language: markup_language}, note_tags, model, settings, abortController.signal);
-    } catch (error) {
-      if (error instanceof ModelError) {
-        // Signal all other ongoing operations to abort
+    let attempt = 0;
+    while (true) {
+      try {
+        query_embeddings = await calc_note_embeddings(
+          { id: current_id, body: query, title: current_title, markup_language: markup_language },
+          note_tags,
+          model,
+          settings,
+          abortController.signal,
+        );
+        break;
+      } catch (rawError) {
+        const error = ensureModelError(rawError, { id: current_id, title: current_title });
+        const action = await promptEmbeddingError(settings, error, {
+          attempt,
+          maxAttempts: MAX_EMBEDDING_RETRIES,
+          allowSkip: hasCachedQueryEmbedding,
+          skipLabel: 'use cached embedding',
+        });
+
+        if (action === 'retry') {
+          attempt += 1;
+          continue;
+        }
+
+        if (action === 'skip' && hasCachedQueryEmbedding) {
+          console.warn(`Using cached embedding for note ${current_id}: ${error.message}`, (error as any).cause ?? error);
+          break;
+        }
+
         abortController.abort();
         throw error;
       }
-      throw error;
     }
   }
   if (query_embeddings.length === 0) {

@@ -1,7 +1,6 @@
-import joplin from 'api';
 import { ModelError } from '../utils';
 
-export async function query_embedding(input: string, api_key: string, model: string, abort_on_error: boolean, url: string): Promise<Float32Array> {
+export async function query_embedding(input: string, api_key: string, model: string, _abort_on_error: boolean, url: string): Promise<Float32Array> {
     // Use the correct field name based on the endpoint
     // For /api/embed and /v1/embeddings: use "input"
     // For /api/embeddings: use "prompt"
@@ -27,19 +26,12 @@ export async function query_embedding(input: string, api_key: string, model: str
       body: JSON.stringify(responseParams),
     });
     const data = await response.json();
-  
-    // handle errors
+
     if (data.hasOwnProperty('error')) {
-      if (abort_on_error) {
-        throw new ModelError(`Ollama embedding failed: ${data.error.message}`);
-      }
-      const errorHandler = await joplin.views.dialogs.showMessageBox(
-        `Error: ${data.error.message}\nPress OK to retry.`);
-        if (errorHandler === 0) {
-        // OK button
-        return query_embedding(input, api_key, model, abort_on_error, url);
-      }
-      throw new ModelError(`Ollama embedding failed: ${data.error.message}`);
+      const message = data.error?.message ? data.error.message : String(data.error);
+      const error = new ModelError(`Ollama embedding failed: ${message}`);
+      (error as any).cause = data.error;
+      throw error;
     }
     // Handle different response formats based on endpoint
     let vec: Float32Array;

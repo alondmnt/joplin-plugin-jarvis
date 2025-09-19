@@ -193,7 +193,7 @@ export class TextEmbeddingModel {
 
         const runner = () => this._calc_embedding(text);
         const embeddingPromise = (this.embed_timeout && this.embed_timeout > 0)
-            ? timeout_with_retry(this.embed_timeout, runner)
+            ? timeout_with_retry(this.embed_timeout, runner, undefined, { interactive: false })
             : runner();
 
         embeddingPromise
@@ -314,15 +314,10 @@ class USEEmbedding extends TextEmbeddingModel {
 
       return vec;
     } catch (e) {
-      if (this.abort_on_error) {
-        throw new ModelError(`USEEmbedding failed: ${e.message}`);
-      }
-      const errorHandler = await joplin.views.dialogs.showMessageBox(
-        `Error: ${e.message}\nPress OK to retry.`);
-      if (errorHandler === 0) {
-        return await this.embed(text);
-      }
-      throw new ModelError(`USEEmbedding failed: ${e.message}`);
+      const message = e instanceof Error ? e.message : String(e);
+      const error = new ModelError(`USEEmbedding failed: ${message}`);
+      (error as any).cause = e;
+      throw error;
     }
   }
 }
@@ -388,26 +383,21 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     try {
       vec = await this.query(text);
     } catch (e) {
-      console.log(e.message);
-      if (this.abort_on_error) {
-        throw new ModelError(`HuggingFaceEmbedding failed: ${e.message}`);
-      }
-      if (e.message.includes('too long')) {
-        // TODO: more testing needed
-        const text_trunc = text.substring(0, Math.floor(this.parse_error(e) * text.length));
-        // try again with a shorter text
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(`HuggingFaceEmbedding error: ${message}`);
+
+      if (message.includes('too long')) {
+        const text_trunc = text.substring(0, Math.floor(this.parse_error(message) * text.length));
         vec = await this.query(text_trunc);
 
-      } else if (e.message.includes('overload')) {
+      } else if (message.includes('overload')) {
         console.log('Server overload, waiting and trying again');
         return await this.embed(text);
+
       } else {
-        const errorHandler = await joplin.views.dialogs.showMessageBox(
-          `Error: ${e.message}\nPress OK to retry.`);
-        if (errorHandler === 0) {
-          return await this.embed(text);
-        }
-        throw new ModelError(`HuggingFaceEmbedding failed: ${e.message}`);
+        const error = new ModelError(`HuggingFaceEmbedding failed: ${message}`);
+        (error as any).cause = e;
+        throw error;
       }
     }
 
@@ -430,7 +420,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     const regex = /\((\d+)\)/g;
     const numbers = error.match(regex);
 
-    if (numbers.length >= 2) {
+    if (numbers && numbers.length >= 2) {
       const current = parseInt(numbers[0].substring(1, numbers[0].length - 1));
       const limit = parseInt(numbers[1].substring(1, numbers[1].length - 1));
 

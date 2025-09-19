@@ -68,12 +68,11 @@ export async function query_completion(model: GenerativeModel, prompt: string, t
   }
 }
 
-export async function query_embedding(text: string, model: GenerativeModel, abort_on_error: boolean): Promise<Float32Array> {
+export async function query_embedding(text: string, model: GenerativeModel, _abort_on_error: boolean): Promise<Float32Array> {
   try {
     const result = await model.embedContent(text);
     let vec = new Float32Array(result.embedding.values);
 
-    // normalize the vector (although it should be normalized already, but just in case)
     const norm = Math.sqrt(vec.map((x) => x * x).reduce((a, b) => a + b, 0));
     vec = vec.map((x) => x / norm);
 
@@ -81,19 +80,8 @@ export async function query_embedding(text: string, model: GenerativeModel, abor
 
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    if (abort_on_error) {
-      throw new ModelError(`Gemini embedding failed: ${message}`);
-    }
-    const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error: ${message}\nPress OK to retry.`
-      );
-
-    // cancel button
-    if (errorHandler === 1) {
-      throw new ModelError(`Gemini embedding failed: ${message}`);
-    }
-
-    // retry
-    return await query_embedding(text, model, abort_on_error);
+    const error = new ModelError(`Gemini embedding failed: ${message}`);
+    (error as any).cause = e;
+    throw error;
   }
 }
