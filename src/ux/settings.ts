@@ -65,6 +65,7 @@ export interface JarvisSettings {
   notes_panel_title: string;
   notes_panel_user_style: string;
   notes_abort_on_error: boolean;
+  notes_embed_timeout: number;
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -249,6 +250,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
+    notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
@@ -537,6 +539,18 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Abort on error',
       description: 'If disabled, you may select to retry the operation following an error. Default: true',
+    },
+    'notes_embed_timeout': {
+      value: 10,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 600,
+      step: 5,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Embedding timeout (sec)',
+      description: 'The maximal time to wait for an embedding response in seconds. Set to 0 to disable. Default: 60',
     },
     'notes_embed_title': {
       value: true,
