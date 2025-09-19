@@ -541,7 +541,7 @@ export async function register_settings() {
       description: 'If disabled, you may select to retry the operation following an error. Default: true',
     },
     'notes_embed_timeout': {
-      value: 10,
+      value: 20,
       type: SettingItemType.Int,
       minimum: 0,
       maximum: 600,
@@ -550,7 +550,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Notes: Embedding timeout (sec)',
-      description: 'The maximal time to wait for an embedding response in seconds. Set to 0 to disable. Default: 60',
+      description: 'The maximal time to wait for an embedding response in seconds. Set to 0 to disable. Default: 20',
     },
     'notes_embed_title': {
       value: true,
