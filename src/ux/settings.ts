@@ -541,7 +541,7 @@ export async function register_settings() {
       description: 'If disabled, you may select to retry the operation following an error. Default: true',
     },
     'notes_embed_timeout': {
-      value: 20,
+      value: 120,
       type: SettingItemType.Int,
       minimum: 0,
       maximum: 600,
