@@ -26,7 +26,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
   }
 
   let data = null;
-  let error_message = null;
+  let error_message: string | null = null;
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -53,10 +53,10 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
       return data.choices[0].message.content;
     }
 
-    error_message = data.error.message ? data.error.message : data.error;
+    error_message = normalizeErrorMessage(data.error);
 
   } catch (error) {
-    error_message = error;
+    error_message = normalizeErrorMessage(error);
   }
 
   // display error message
@@ -113,7 +113,7 @@ export async function query_completion(prompt: string, api_key: string,
   }
 
   let data = null;
-  let error_message = null;
+  let error_message: string | null = null;
   try {
   const response = await fetch(url, {
     method: 'POST',
@@ -144,10 +144,10 @@ export async function query_completion(prompt: string, api_key: string,
     }
 
     // display error message
-    error_message = data.error.message ? data.error.message : data.error;
+    error_message = normalizeErrorMessage(data.error);
 
   } catch (error) {
-    error_message = error;
+    error_message = normalizeErrorMessage(error);
   }
 
   const errorHandler = await joplin.views.dialogs.showMessageBox(
@@ -180,6 +180,30 @@ export async function query_completion(prompt: string, api_key: string,
   // retry
   return await query_completion(prompt, api_key, model, max_tokens,
     temperature, top_p, frequency_penalty, presence_penalty, custom_url);
+}
+
+function normalizeErrorMessage(error: any): string {
+  if (!error) {
+    return 'Unknown error';
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message || error.toString();
+  }
+  if (typeof error === 'object') {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === 'string') {
+      return maybeMessage;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch (_) {
+      return String(error);
+    }
+  }
+  return String(error);
 }
 
 export async function query_embedding(input: string, model: string, api_key: string, _abort_on_error: boolean, custom_url: string=null): Promise<Float32Array> {
