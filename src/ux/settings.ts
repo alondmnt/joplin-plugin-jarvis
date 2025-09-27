@@ -73,6 +73,7 @@ export interface JarvisSettings {
   annotate_summary_title: string;
   annotate_links_flag: boolean;
   annotate_links_title: string;
+  annotate_autocomplete_prompt: string;
   annotate_tags_flag: boolean;
   annotate_tags_method: string;
   annotate_tags_max: number;
@@ -258,6 +259,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     annotate_summary_title: await joplin.settings.value('annotate_summary_title'),
     annotate_links_flag: await joplin.settings.value('annotate_links_flag'),
     annotate_links_title: await joplin.settings.value('annotate_links_title'),
+    annotate_autocomplete_prompt: await joplin.settings.value('annotate_autocomplete_prompt'),
     annotate_title_flag: await joplin.settings.value('annotate_title_flag'),
     annotate_tags_method: annotate_tags_method,
     annotate_tags_max: await joplin.settings.value('annotate_tags_max'),
@@ -859,6 +861,15 @@ export async function register_settings() {
       advanced: true,
       label: 'Annotate: Links section title',
       description: 'The title of the section containing the suggested links. Default: # Related notes',
+    },
+    'annotate_autocomplete_prompt': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis.annotate',
+      public: true,
+      advanced: true,
+      label: 'Annotate: Custom autocomplete prompt',
+      description: 'Optional template for the "Auto-complete with Jarvis" command. Available tokens: {context} (current note content), {placeholder} (continuation marker). Default: empty.',
     },
     'annotate_tags_flag': {
       value: true,

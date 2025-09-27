@@ -123,7 +123,7 @@ joplin.plugins.register({
       name: 'jarvis.complete',
       label: 'Auto-complete with Jarvis',
       execute: async () => {
-        auto_complete(model_gen);
+        auto_complete(model_gen, settings);
       }
     });
 
