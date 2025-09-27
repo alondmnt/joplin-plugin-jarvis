@@ -44,6 +44,15 @@ for (const moduleName of builtinModules) {
 	moduleFallback[moduleName] = false;
 }
 
+function externalizeNodePrefix(args, callback) {
+	const request = typeof args === 'string' ? args : args && args.request;
+	if (request && request.startsWith('node:')) {
+		const bareSpecifier = request.slice(5);
+		return callback(null, `commonjs ${bareSpecifier}`);
+	}
+	return callback();
+}
+
 function validatePackageJson() {
 	const content = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 	if (!content.name || content.name.indexOf('joplin-plugin-') !== 0) {
@@ -218,6 +227,7 @@ const pluginConfig = Object.assign({}, baseConfig, {
 			},
 		},
 	],
+	externals: [externalizeNodePrefix],
 });
 
 // These libraries can be included with require(...) or
@@ -255,7 +265,7 @@ const extraScriptConfig = {
 
 	// We support requiring @codemirror/... libraries through require('@codemirror/...')
 	externalsType: 'commonjs',
-	externals: extraScriptExternals,
+	externals: [externalizeNodePrefix, extraScriptExternals],
 };
 
 const createArchiveConfig = {
@@ -265,6 +275,7 @@ const createArchiveConfig = {
 		filename: 'index.js',
 		path: publishDir,
 	},
+	target: 'node',
 	plugins: [new WebpackOnBuildPlugin(onBuildCompleted)],
 	resolve: {
 		fallback: {
@@ -278,7 +289,8 @@ const createArchiveConfig = {
 			"zlib": require.resolve("browserify-zlib"),
 			"buffer": require.resolve("buffer/")
 		},
-	}
+	},
+	externals: [externalizeNodePrefix],
 };
 
 function resolveExtraScriptPath(name) {

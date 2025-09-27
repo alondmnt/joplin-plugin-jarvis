@@ -1,4 +1,9 @@
 import joplin from 'api';
+import { Readability } from "@mozilla/readability";
+const JSDOMParser = require("@mozilla/readability/JSDOMParser");
+const createDOMPurify = require("dompurify");
+const TurndownModule = require("turndown");
+const turndownGfmModule = require("turndown-plugin-gfm");
 
 export function with_timeout(msecs: number, promise: Promise<any>): Promise<any> {
   const timeout = new Promise((resolve, reject) => {
@@ -233,4 +238,142 @@ export class ModelError extends Error {
     super(message);
     this.name = 'ModelError';
   }
+}
+
+/**
+ * Convert messy HTML -> normalized "Markdown-lite" that you use for BOTH embeddings and LLM context.
+ * Deterministic, compact, and keeps helpful structure (headings, lists, code, TSV tables).
+ */
+export async function htmlToText(html: string): Promise<string> {
+  const doc = createDocument(html);
+  const article = doc ? new Readability(doc).parse() : null;
+  const contentHtml = article?.content || html;
+
+  const clean = sanitizeHtml(contentHtml, doc);
+
+  const TurndownCtor = getTurndownConstructor();
+  if (!TurndownCtor) {
+    console.warn("htmlToText: TurndownService unavailable; returning plain text fallback");
+    return stripHtml(clean);
+  }
+
+  const td = new TurndownCtor({ codeBlockStyle: "fenced", bulletListMarker: "-" });
+  const gfm = getGfmPlugin();
+  if (gfm) {
+    td.use(gfm);
+  } else {
+    console.warn("htmlToText: turndown GFM plugin unavailable; continuing without it");
+  }
+
+  let md = td.turndown(clean);
+
+  // Normalize to “Markdown-lite”
+  md = md
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")        // links
+    .replace(
+      /((?:^\s*\|.*\|\s*$\n?)+)/gm,                        // GFM tables -> TSV fenced
+      blk => {
+        const lines = blk.trim().split("\n")
+          .map(l => l.replace(/^\s*\||\|\s*$/g, ""))
+          .map(l => l.split("|").map(c => c.trim()).join("\t"))
+          .join("\n");
+        return "```\n" + lines + "\n```";
+      }
+    )
+    .replace(/^\s*>\s?/gm, "")                             // blockquotes
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return md;
+}
+
+function createDocument(html: string): any | null {
+  if (typeof DOMParser !== 'undefined') {
+    try {
+      return new DOMParser().parseFromString(html, "text/html");
+    } catch (error) {
+      console.warn("htmlToText: DOMParser failed, falling back to JSDOMParser", error);
+    }
+  }
+
+  try {
+    const parser = new JSDOMParser();
+    return parser.parse(html);
+  } catch (error) {
+    console.warn("htmlToText: unable to parse HTML", error);
+    return null;
+  }
+}
+
+function sanitizeHtml(html: string, doc: any): string {
+  const purifier = getDOMPurifyInstance(doc);
+  const options = {
+    ALLOWED_TAGS: [
+      "h1","h2","h3","h4","h5","h6","p","ul","ol","li",
+      "pre","code","table","thead","tbody","tr","th","td","a","strong","em","img","br"
+    ],
+    ALLOWED_ATTR: ["href","alt"],
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false,
+    FORBID_ATTR: ["style","onerror","onclick","id","class"]
+  };
+
+  if (purifier?.sanitize) {
+    return purifier.sanitize(html, options);
+  }
+
+  console.warn("htmlToText: DOMPurify sanitization unavailable; falling back to basic cleaning");
+  return basicSanitize(html);
+}
+
+function getDOMPurifyInstance(doc: any): any {
+  const module: any = (createDOMPurify as any).default ?? createDOMPurify;
+
+  if (module?.sanitize) {
+    return module;
+  }
+
+  if (typeof module === 'function') {
+    const windowLike = (typeof window !== 'undefined' ? window : undefined) || doc?.defaultView;
+    if (windowLike) {
+      try {
+        return module(windowLike);
+      } catch (error) {
+        console.warn("htmlToText: DOMPurify factory failed", error);
+      }
+    }
+  }
+
+  return null;
+}
+
+function basicSanitize(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '');
+}
+
+function getTurndownConstructor(): any {
+  const mod: any = TurndownModule;
+  if (typeof mod === 'function') { return mod; }
+  if (typeof mod?.default === 'function') { return mod.default; }
+  if (typeof mod?.TurndownService === 'function') { return mod.TurndownService; }
+  return null;
+}
+
+function getGfmPlugin(): ((service: any) => void) | null {
+  const mod: any = turndownGfmModule;
+  if (!mod) { return null; }
+  if (typeof mod === 'function') { return mod; }
+  if (typeof mod?.gfm === 'function') { return mod.gfm; }
+  if (typeof mod?.default === 'function') { return mod.default; }
+  return null;
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

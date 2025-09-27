@@ -3,11 +3,7 @@ import { createHash } from 'crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
-import { search_keywords, ModelError } from '../utils';
-import { abort } from 'process';
-import TurndownService from 'turndown';
-
-const td = new TurndownService();
+import { search_keywords, ModelError, htmlToText } from '../utils';
 
 export interface BlockEmbedding {
   id: string;  // note id
@@ -39,7 +35,7 @@ export async function calc_note_embeddings(
   // convert HTML to Markdown if needed (safety check for direct calls)
   if (note.markup_language === 2 && note.body.includes('<')) {
     try {
-      note.body = td.turndown(note.body);
+      note.body = await htmlToText(note.body);
     } catch (error) {
       console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
       // Continue with original HTML content
@@ -216,7 +212,7 @@ async function update_note(note: any,
   // convert HTML to Markdown if needed (must happen before hash calculation)
   if (note.markup_language === 2) {
     try {
-      note.body = td.turndown(note.body);
+      note.body = await htmlToText(note.body);
     } catch (error) {
       console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
       // Continue with original HTML content
@@ -431,7 +427,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
       note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body', 'markup_language'] });
       if (note.markup_language === 2) {
         try {
-          note.body = td.turndown(note.body);
+          note.body = await htmlToText(note.body);
         } catch (error) {
           console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
         }
@@ -519,7 +515,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   // convert HTML to Markdown if needed (must happen before hash calculation)
   if (markup_language === 2) {
     try {
-      query = td.turndown(query);
+      query = await htmlToText(query);
     } catch (error) {
       console.warn(`Failed to convert HTML to Markdown for query:`, error);
     }

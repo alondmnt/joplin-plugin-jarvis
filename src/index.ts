@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { ContentScriptType, MenuItemLocation, ToolbarButtonLocation } from 'api/types';
-import * as debounce from 'lodash.debounce';
+import debounce from 'lodash.debounce';
 import { annotate_title, annotate_summary, annotate_tags, annotate_links } from './commands/annotate';
 import { ask_jarvis, edit_with_jarvis } from './commands/ask';
 import { chat_with_jarvis, chat_with_notes } from './commands/chat';
