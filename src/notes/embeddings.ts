@@ -5,6 +5,54 @@ import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { search_keywords, ModelError, htmlToText } from '../utils';
 
+const ocrMergedFlag = Symbol('ocrTextMerged');
+const noteOcrCache = new Map<string, string>();
+
+async function appendOcrTextToBody(note: any): Promise<void> {
+  if (!note || typeof note !== 'object' || note[ocrMergedFlag]) {
+    return;
+  }
+
+  const body = typeof note.body === 'string' ? note.body : '';
+  const noteId = typeof note.id === 'string' ? note.id : undefined;
+  let ocrText = '';
+
+  if (noteId && noteOcrCache.has(noteId)) {
+    ocrText = noteOcrCache.get(noteId) ?? '';
+  } else if (noteId) {
+    const snippets: string[] = [];
+    try {
+      let page = 0;
+      let resourcesPage: any;
+      do {
+        page += 1;
+        resourcesPage = await joplin.data.get(
+          ['notes', noteId, 'resources'],
+          { fields: ['id', 'title', 'ocr_text'], page }
+        );
+        const items = resourcesPage?.items ?? [];
+        for (const resource of items) {
+          const text = typeof resource?.ocr_text === 'string' ? resource.ocr_text.trim() : '';
+          if (text) {
+            snippets.push(`\n\n## resource: ${resource.title}\n\n${text}`);
+          }
+        }
+      } while (resourcesPage?.has_more);
+    } catch (error) {
+      console.debug(`Failed to retrieve OCR text for note ${noteId}:`, error);
+    }
+    ocrText = snippets.join('\n\n');
+    noteOcrCache.set(noteId, ocrText);
+  }
+
+  if (ocrText) {
+    const separator = body ? (body.endsWith('\n') ? '\n' : '\n\n') : '';
+    note.body = body + separator + ocrText;
+  }
+
+  note[ocrMergedFlag] = true;
+}
+
 export interface BlockEmbedding {
   id: string;  // note id
   hash: string;  // note content hash
@@ -41,6 +89,8 @@ export async function calc_note_embeddings(
       // Continue with original HTML content
     }
   }
+
+  await appendOcrTextToBody(note);
 
   const hash = calc_hash(note.body);
   note.body = convert_newlines(note.body);
@@ -218,6 +268,8 @@ async function update_note(note: any,
       // Continue with original HTML content
     }
   }
+
+  await appendOcrTextToBody(note);
 
   const hash = calc_hash(note.body);
   const old_embd = model.embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
@@ -424,7 +476,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
 
     let note: any;
     try {
-      note = await joplin.data.get(['notes', embd.id], { fields: ['title', 'body', 'markup_language'] });
+      note = await joplin.data.get(['notes', embd.id], { fields: ['id', 'title', 'body', 'markup_language'] });
       if (note.markup_language === 2) {
         try {
           note.body = await htmlToText(note.body);
@@ -432,6 +484,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
           console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
         }
       }
+      await appendOcrTextToBody(note);
     } catch (error) {
       console.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
       continue;
