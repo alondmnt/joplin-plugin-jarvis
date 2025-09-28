@@ -284,7 +284,20 @@ function get_global_commands(text: string): ParsedData {
 }
 
 export async function replace_selection(text: string) {
-	// this works with the rich text editor and CodeMirror 5/6
+  try {
+    await joplin.commands.execute('editor.execCommand', {
+      name: 'jarvis.replaceSelectionAround',
+      args: [text],
+    });
+
+    const selectedText = await joplin.commands.execute('selectedText');
+    if (typeof selectedText === 'string' && selectedText === text) {
+      return;  // successfully replaced using the editor-specific command
+    }
+  } catch (error) {
+    // ignore and fall back to the generic command below
+  }
+  // fall back to the editor-agnostic command
   await joplin.commands.execute('replaceSelection', text);
 
   // wait for 0.5 sec for the note to update

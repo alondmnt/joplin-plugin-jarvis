@@ -9,6 +9,13 @@ function plugin(CodeMirror) {
     this.scrollTo(null, this.charCoords({ line: lineno, ch: 0 }, 'local').top);
     this.scrollTo(null, this.charCoords({ line: lineno, ch: 0 }, 'local').top);
   });
+
+  CodeMirror.commands['jarvis.replaceSelectionAround'] = function jarvisReplaceSelectionAround(cm, text) {
+    const ranges = cm.listSelections();
+    const insertText = typeof text === 'string' ? text : String(text ?? '');
+    const replacements = ranges.map(() => insertText);
+    cm.replaceSelections(replacements, 'around');
+  };
 }
 
 module.exports = {
