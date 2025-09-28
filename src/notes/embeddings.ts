@@ -2,7 +2,7 @@ import joplin from 'api';
 import { createHash } from 'crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
-import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
+import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
 import { search_keywords, ModelError, htmlToText } from '../utils';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
@@ -78,7 +78,8 @@ export async function calc_note_embeddings(
     note_tags: string[],
     model: TextEmbeddingModel,
     settings: JarvisSettings,
-    abortSignal: AbortSignal
+    abortSignal: AbortSignal,
+    kind: EmbeddingKind = 'doc'
 ): Promise<BlockEmbedding[]> {
   // convert HTML to Markdown if needed (safety check for direct calls)
   if (note.markup_language === 2 && note.body.includes('<')) {
@@ -146,7 +147,7 @@ export async function calc_note_embeddings(
           length: sub.length,
           level: level,
           title: title,
-          embedding: await model.embed(decorate + sub, abortSignal),
+          embedding: await model.embed(decorate + sub, kind, abortSignal),
           similarity: 0,
         };
       });
@@ -281,7 +282,7 @@ async function update_note(note: any,
 
   // otherwise, calculate the new embeddings
   try {
-    const new_embd = await calc_note_embeddings(note, note_tags, model, settings, abortSignal);
+    const new_embd = await calc_note_embeddings(note, note_tags, model, settings, abortSignal, 'doc');
 
     // insert new embeddings into DB
     await insert_note_embeddings(model.db, new_embd, model);
@@ -595,6 +596,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
           model,
           settings,
           abortController.signal,
+          'query'
         );
         break;
       } catch (rawError) {

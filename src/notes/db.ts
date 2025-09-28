@@ -70,7 +70,7 @@ export async function init_db(db: any, model: any): Promise<void> {
     model_name TEXT NOT NULL,
     model_version TEXT NOT NULL,
     max_block_size INT NOT NULL,
-    embedding_version INTEGER NOT NULL DEFAULT 2,
+    embedding_version INTEGER NOT NULL DEFAULT 3,
     UNIQUE (model_name, model_version, max_block_size, embedding_version)
   )`);
 
@@ -205,7 +205,10 @@ export async function get_all_embeddings(db: any): Promise<BlockEmbedding[]> {
 
 function insert_model(db: any, model: any): Promise<number> {
   return new Promise((resolve, reject) => {
-    db.run(`INSERT INTO models (model_name, model_version, max_block_size) VALUES ('${model.id}', '${model.version}', ${model.max_block_size})`, function(error) {
+    db.run(
+      `INSERT INTO models (model_name, model_version, max_block_size, embedding_version) VALUES (?, ?, ?, ?)`,
+      [model.id, model.version, model.max_block_size, model.embedding_version],
+      function(error) {
       if (error) {
         console.error('connect_to_db error:', error);
         reject(error);

@@ -13,6 +13,180 @@ import * as ollama from './ollama';
 import { BlockEmbedding } from '../notes/embeddings';  // maybe move definition to this file
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from '../notes/db';
 
+export type EmbeddingKind = 'doc' | 'query';
+export type ConditioningMode = 'flag' | 'prefix' | 'none';
+
+export interface ConditioningAdapter {
+  mode: ConditioningMode;
+  query?: string;
+  doc?: string;
+}
+
+export interface EmbedContext {
+  kind: EmbeddingKind;
+  conditioning: ConditioningMode;
+  adapterKey: string | null;
+  prefix?: string;
+  flagValue?: string;
+  originalText: string;
+}
+
+interface PreparedEmbedding {
+  payload: string;
+  context: EmbedContext;
+}
+
+const DEFAULT_ADAPTERS: Record<string, ConditioningAdapter> = {
+  // OpenAI family (flags)
+  'text-embedding-3': { mode: 'flag', query: 'search_query', doc: 'search_document' },
+  'text-embedding-ada-002': { mode: 'none' },
+
+  // Google Gemini (flags)
+  'gemini': { mode: 'flag', query: 'RETRIEVAL_QUERY', doc: 'RETRIEVAL_DOCUMENT' },
+
+  // OSS / Ollama (prefix / none)
+  'e5': { mode: 'prefix', query: 'query: ', doc: 'passage: ' },
+  'bge': { mode: 'prefix', query: 'Represent this sentence for searching relevant passages: ', doc: '' },
+  'nomic': { mode: 'prefix', query: 'search_query:', doc: 'search_document:' },
+  'gte': { mode: 'none' },
+
+  // USE (none)
+  'universal sentence encoder': { mode: 'none' },
+};
+
+function normalizeAdapterKey(id: string | null | undefined): string {
+  return (id ?? '').trim().toLowerCase();
+}
+
+function candidateKeysFor(modelId: string): string[] {
+  if (!modelId) { return []; }
+  const normalized = normalizeAdapterKey(modelId);
+  const candidates = new Set<string>();
+  const seeds: string[] = [];
+
+  const addSeed = (value: string | null | undefined) => {
+    if (!value) { return; }
+    const trimmed = value.trim();
+    if (!trimmed) { return; }
+    if (!candidates.has(trimmed)) {
+      candidates.add(trimmed);
+      seeds.push(trimmed);
+    }
+  };
+
+  const addHyphenVariants = (value: string) => {
+    if (!value || !value.includes('-')) { return; }
+    const parts = value.split('-');
+    for (let i = parts.length - 1; i > 0; i -= 1) {
+      const joined = parts.slice(0, i).join('-');
+      if (joined.length >= 3) {
+        candidates.add(joined);
+      }
+    }
+  };
+
+  const addSuffixVariants = (value: string) => {
+    if (!value || value.length < 3) { return; }
+    const substrings = value.split(/[^a-z0-9]+/).filter(Boolean);
+    for (const chunk of substrings) {
+      if (chunk.length >= 3) {
+        candidates.add(chunk);
+      }
+    }
+    for (let i = value.length - 3; i >= 0; i -= 1) {
+      const suffix = value.slice(i);
+      if (/^[a-z0-9][a-z0-9\-]*$/.test(suffix) && suffix.length >= 3) {
+        candidates.add(suffix);
+        addHyphenVariants(suffix);
+        break;
+      }
+    }
+  };
+
+  const addSegmentVariants = (value: string) => {
+    if (!value) { return; }
+    const segments = value.split(/[\/@]/).filter(Boolean);
+    for (const segment of segments) {
+      if (segment.length >= 3) {
+        candidates.add(segment);
+        addHyphenVariants(segment);
+        addSuffixVariants(segment);
+      }
+    }
+    addHyphenVariants(value);
+    addSuffixVariants(value);
+  };
+
+  addSeed(normalized);
+
+  if (normalized.includes(':')) {
+    const parts = normalized.split(':');
+    const tail = parts.slice(1).join(':');
+    if (tail) {
+      addSeed(tail);
+    }
+  }
+
+  for (const seed of seeds) {
+    addSegmentVariants(seed);
+  }
+
+  return Array.from(candidates).filter(Boolean);
+}
+
+function resolveAdapterKey(modelId: string): string | null {
+  const normalizedEntries = Object.entries(DEFAULT_ADAPTERS).map(([key, value]) => ({
+    original: key,
+    normalized: normalizeAdapterKey(key),
+    adapter: value,
+  }));
+
+  const candidates = candidateKeysFor(modelId);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const normalizedMap = new Map<string, string>();
+  for (const entry of normalizedEntries) {
+    normalizedMap.set(entry.normalized, entry.original);
+  }
+
+  for (const candidate of candidates) {
+    const match = normalizedMap.get(candidate);
+    if (match) {
+      return match;
+    }
+  }
+
+  let bestMatch: { key: string; length: number } | null = null;
+  for (const candidate of candidates) {
+    for (const entry of normalizedEntries) {
+      if (candidate.startsWith(entry.normalized)) {
+        if (!bestMatch || entry.normalized.length > bestMatch.length) {
+          bestMatch = { key: entry.original, length: entry.normalized.length };
+        }
+      }
+      if (entry.normalized.startsWith(candidate)) {
+        if (!bestMatch || candidate.length > bestMatch.length) {
+          bestMatch = { key: entry.original, length: candidate.length };
+        }
+      }
+      if (entry.normalized.endsWith(candidate)) {
+        if (!bestMatch || candidate.length > bestMatch.length) {
+          bestMatch = { key: entry.original, length: candidate.length };
+        }
+      }
+      if (candidate.endsWith(entry.normalized)) {
+        if (!bestMatch || entry.normalized.length > bestMatch.length) {
+          bestMatch = { key: entry.original, length: entry.normalized.length };
+        }
+      }
+    }
+  }
+
+  return bestMatch?.key ?? null;
+}
+
 tf.setBackend('webgl');
 const test_prompt = 'I am conducting a communitcation test. I need you to reply with a single word and absolutely nothing else: "Ack".';
 const dialogPreview = joplin.views.dialogs.create('joplin.preview.dialog');
@@ -139,7 +313,7 @@ export class TextEmbeddingModel {
   // embeddings
   public embeddings: BlockEmbedding[] = [];  // in-memory
   public db: any = null;  // file system
-  public embedding_version: number = 2;
+  public embedding_version: number = 3;
 
   // model
   public id: string = null;
@@ -163,7 +337,106 @@ export class TextEmbeddingModel {
   public last_request_time: number = 0;  // internal rate limit
   public embed_timeout: number = 60 * 1000;
 
+  protected adapterSourceId: string | null = null;
+  protected adapterKey: string | null = null;
+  protected adapter: ConditioningAdapter | undefined;
+  protected defaultQueryPrefix = 'Query: ';
+
   constructor() {
+  }
+
+  protected configureAdapter(modelId: string | null | undefined): void {
+    this.adapterSourceId = modelId ?? null;
+    if (!modelId) {
+      this.adapterKey = null;
+      this.adapter = undefined;
+      return;
+    }
+    const resolvedKey = resolveAdapterKey(modelId);
+    this.adapterKey = resolvedKey;
+    this.adapter = resolvedKey ? DEFAULT_ADAPTERS[resolvedKey] : undefined;
+  }
+
+  protected ensureAdapter(): void {
+    if (this.id !== this.adapterSourceId) {
+      this.configureAdapter(this.id);
+    }
+  }
+
+  protected prepareEmbedding(text: string, kind: EmbeddingKind): PreparedEmbedding {
+    this.ensureAdapter();
+    const adapter = this.adapter;
+
+    if (adapter?.mode === 'flag') {
+      const flagValue = kind === 'query' ? adapter.query : adapter.doc;
+      return {
+        payload: text,
+        context: {
+          kind,
+          conditioning: 'flag',
+          adapterKey: this.adapterKey,
+          flagValue: flagValue || undefined,
+          originalText: text,
+        },
+      };
+    }
+
+    if (adapter?.mode === 'prefix') {
+      const prefix = kind === 'query' ? (adapter.query ?? '') : (adapter.doc ?? '');
+      const payload = prefix ? `${prefix}${text}` : text;
+      return {
+        payload,
+        context: {
+          kind,
+          conditioning: 'prefix',
+          adapterKey: this.adapterKey,
+          prefix: prefix || undefined,
+          originalText: text,
+        },
+      };
+    }
+
+    if (adapter?.mode === 'none') {
+      return {
+        payload: text,
+        context: {
+          kind,
+          conditioning: 'none',
+          adapterKey: this.adapterKey,
+          originalText: text,
+        },
+      };
+    }
+
+    const prefix = kind === 'query' ? this.defaultQueryPrefix : '';
+    const payload = prefix ? `${prefix}${text}` : text;
+    return {
+      payload,
+      context: {
+        kind,
+        conditioning: prefix ? 'prefix' : 'none',
+        adapterKey: this.adapterKey,
+        prefix: prefix || undefined,
+        originalText: text,
+      },
+    };
+  }
+
+  protected l2Normalize(vec: Float32Array): Float32Array {
+    let denom = 0;
+    for (let i = 0; i < vec.length; i += 1) {
+      const value = vec[i];
+      denom += value * value;
+    }
+    if (!Number.isFinite(denom) || denom <= 0) {
+      return vec;
+    }
+    const scale = 1 / Math.sqrt(denom);
+    const result = new Float32Array(vec.length);
+    for (let i = 0; i < vec.length; i += 1) {
+      result[i] = vec[i] * scale;
+    }
+    return result;
   }
 
   // parent method
@@ -173,13 +446,15 @@ export class TextEmbeddingModel {
   }
 
   // parent method with rate limiter
-  async embed(text: string, abortSignal?: AbortSignal): Promise<Float32Array> {
+  async embed(text: string, kind: EmbeddingKind = 'doc', abortSignal?: AbortSignal): Promise<Float32Array> {
     if (abortSignal?.aborted) {
         throw new Error('Model embedding operation cancelled');
     }
     if (!this.model) {
         throw new Error('Model not initialized');
     }
+
+    const prepared = this.prepareEmbedding(text, kind);
 
     await this.limit_rate();
 
@@ -191,15 +466,17 @@ export class TextEmbeddingModel {
         };
         abortSignal?.addEventListener('abort', handleAbort);
 
-        const runner = () => this._calc_embedding(text);
+        const runner = () => this._calc_embedding(prepared.payload, prepared.context);
         const embeddingPromise = (this.embed_timeout && this.embed_timeout > 0)
             ? timeout_with_retry(this.embed_timeout, runner, undefined, { interactive: false })
             : runner();
 
         embeddingPromise
             .then(result => {
+                const vector = result instanceof Float32Array ? result : new Float32Array(result);
+                const normalized = this.l2Normalize(vector);
                 abortSignal?.removeEventListener('abort', handleAbort);
-                resolve(result);
+                resolve(normalized);
             })
             .catch(error => {
                 abortSignal?.removeEventListener('abort', handleAbort);
@@ -227,7 +504,7 @@ export class TextEmbeddingModel {
   }
 
   // placeholder method, to be overridden by subclasses
-  async _calc_embedding(text: string): Promise<Float32Array> {
+  async _calc_embedding(text: string, _context: EmbedContext): Promise<Float32Array> {
     throw new Error('Method not implemented');
   }
 
@@ -262,6 +539,7 @@ class USEEmbedding extends TextEmbeddingModel {
     this.request_queue = [];  // internal rate limit
     this.requests_per_second = 100;  // internal rate limit
     this.last_request_time = 0;  // internal rate limit
+    this.configureAdapter(this.id);
   }
 
   async _load_model() {
@@ -300,18 +578,14 @@ class USEEmbedding extends TextEmbeddingModel {
     }
   }
 
-  async _calc_embedding(text: string): Promise<Float32Array> {
+  async _calc_embedding(text: string, _context: EmbedContext): Promise<Float32Array> {
     if (!this.model) {
       throw new Error('Model not initialized');
     }
 
     try {
       const embeddings = await this.model.embed([text]);
-      let vec = (await embeddings.data()) as Float32Array;
-      // normalize the vector
-      const norm = Math.sqrt(vec.map(x => x*x).reduce((a, b) => a + b, 0));
-      vec = vec.map(x => x / norm);
-
+      const vec = (await embeddings.data()) as Float32Array;
       return vec;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -340,6 +614,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     this.request_queue = [];  // internal rate limit
     this.requests_per_second = 20;  // internal rate limit
     this.last_request_time = 0;  // internal rate limit
+    this.configureAdapter(this.id);
   }
 
   async _load_model() {
@@ -374,7 +649,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
     }
   }
 
-  async _calc_embedding(text: string): Promise<Float32Array> {
+  async _calc_embedding(text: string, context: EmbedContext): Promise<Float32Array> {
     if (!this.model) {
       throw new Error('Model not initialized');
     }
@@ -392,7 +667,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
 
       } else if (message.includes('overload')) {
         console.log('Server overload, waiting and trying again');
-        return await this.embed(text);
+        return await this.embed(context.originalText, context.kind);
 
       } else {
         const error = new ModelError(`HuggingFaceEmbedding failed: ${message}`);
@@ -400,11 +675,6 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
         throw error;
       }
     }
-
-    // normalize the vector
-    const norm = Math.sqrt(vec.map((x) => x * x).reduce((a, b) => a + b, 0));
-    vec = vec.map((x) => x / norm);
-
     return vec;
   }
 
@@ -450,6 +720,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     this.request_queue = [];  // internal rate limit
     this.requests_per_second = 50;  // internal rate limit
     this.last_request_time = 0;  // internal rate limit
+    this.configureAdapter(this.id);
   }
 
   async _load_model() {
@@ -474,12 +745,12 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     }
   }
 
-  async _calc_embedding(text: string): Promise<Float32Array> {
+  async _calc_embedding(text: string, context: EmbedContext): Promise<Float32Array> {
     if (!this.model) {
       throw new Error('Model not initialized');
     }
 
-    return openai.query_embedding(text, this.id, this.api_key, this.abort_on_error, this.endpoint);
+    return openai.query_embedding(text, this.id, this.api_key, this.abort_on_error, this.endpoint, context);
   }
 }
 
@@ -500,6 +771,7 @@ class GeminiEmbedding extends TextEmbeddingModel {
     this.request_queue = [];  // internal rate limit
     this.requests_per_second = 20;  // internal rate limit
     this.last_request_time = 0;  // internal rate limit
+    this.configureAdapter(this.id);
   }
 
   async _load_model() {
@@ -525,12 +797,12 @@ class GeminiEmbedding extends TextEmbeddingModel {
     }
   }
 
-  async _calc_embedding(text: string): Promise<Float32Array> {
+  async _calc_embedding(text: string, context: EmbedContext): Promise<Float32Array> {
     if (!this.model) {
       throw new Error('Model not initialized');
     }
 
-    return google.query_embedding(text, this.model,this.abort_on_error);
+    return google.query_embedding(text, this.model,this.abort_on_error, context);
   }
 }
 
@@ -553,6 +825,7 @@ class OllamaEmbedding extends TextEmbeddingModel {
     this.request_queue = [];  // internal rate limit
     this.requests_per_second = 50;  // internal rate limit
     this.last_request_time = 0;  // internal rate limit
+    this.configureAdapter(this.id);
   }
 
   async _load_model() {
@@ -572,12 +845,12 @@ class OllamaEmbedding extends TextEmbeddingModel {
     }
   }
 
-  async _calc_embedding(text: string): Promise<Float32Array> {
+  async _calc_embedding(text: string, context: EmbedContext): Promise<Float32Array> {
     if (!this.model) {
       throw new Error('Model not initialized');
     }
 
-    return ollama.query_embedding(text, this.api_key, this.id, this.abort_on_error, this.endpoint);
+    return ollama.query_embedding(text, this.api_key, this.id, this.abort_on_error, this.endpoint, context);
   }
 }
 

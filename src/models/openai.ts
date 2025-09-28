@@ -1,5 +1,6 @@
 import joplin from 'api';
 import { ModelError } from '../utils';
+import type { EmbedContext } from './models';
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,
@@ -206,10 +207,13 @@ function normalizeErrorMessage(error: any): string {
   return String(error);
 }
 
-export async function query_embedding(input: string, model: string, api_key: string, _abort_on_error: boolean, custom_url: string=null): Promise<Float32Array> {
-  const responseParams = {
+export async function query_embedding(input: string, model: string, api_key: string, _abort_on_error: boolean, custom_url: string=null, context?: EmbedContext): Promise<Float32Array> {
+  const responseParams: Record<string, unknown> = {
     input: input,
     model: model,
+  };
+  if (context?.conditioning === 'flag' && context.flagValue) {
+    responseParams['input_type'] = context.flagValue;
   }
   let url = '';
   if (custom_url) {
@@ -245,13 +249,7 @@ export async function query_embedding(input: string, model: string, api_key: str
       throw new ModelError(`OpenAI embedding failed: ${apiError}`);
     }
 
-    let vec = new Float32Array(data.data[0].embedding);
-
-    // normalize the vector
-    const norm = Math.sqrt(vec.map((x) => x * x).reduce((a, b) => a + b, 0));
-    vec = vec.map((x) => x / norm);
-
-    return vec;
+    return new Float32Array(data.data[0].embedding);
   };
 
   try {

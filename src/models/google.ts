@@ -1,6 +1,7 @@
 import joplin from 'api';
 import { GenerativeModel } from '@google/generative-ai';
 import { ModelError } from '../utils';
+import type { EmbedContext } from './models';
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(model: GenerativeModel, prompt: Array<{role: string; content: string;}>,
@@ -68,15 +69,13 @@ export async function query_completion(model: GenerativeModel, prompt: string, t
   }
 }
 
-export async function query_embedding(text: string, model: GenerativeModel, _abort_on_error: boolean): Promise<Float32Array> {
+export async function query_embedding(text: string, model: GenerativeModel, _abort_on_error: boolean, context?: EmbedContext): Promise<Float32Array> {
   try {
-    const result = await model.embedContent(text);
-    let vec = new Float32Array(result.embedding.values);
-
-    const norm = Math.sqrt(vec.map((x) => x * x).reduce((a, b) => a + b, 0));
-    vec = vec.map((x) => x / norm);
-
-    return vec;
+    const request: any = context?.conditioning === 'flag' && context.flagValue
+      ? { content: { parts: [{ text }] }, taskType: context.flagValue }
+      : text;
+    const result = await model.embedContent(request);
+    return new Float32Array(result.embedding.values);
 
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

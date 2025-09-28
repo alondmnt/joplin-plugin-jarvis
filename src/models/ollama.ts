@@ -1,6 +1,7 @@
 import { ModelError } from '../utils';
+import type { EmbedContext } from './models';
 
-export async function query_embedding(input: string, api_key: string, model: string, _abort_on_error: boolean, url: string): Promise<Float32Array> {
+export async function query_embedding(input: string, api_key: string, model: string, _abort_on_error: boolean, url: string, _context?: EmbedContext): Promise<Float32Array> {
     // Use the correct field name based on the endpoint
     // For /api/embed and /v1/embeddings: use "input"
     // For /api/embeddings: use "prompt"
@@ -48,10 +49,6 @@ export async function query_embedding(input: string, api_key: string, model: str
     } else {
       throw new ModelError(`Ollama embedding failed: Unexpected response format`);
     }
-
-    // normalize the vector
-    const norm = Math.sqrt(vec.map((x) => x * x).reduce((a, b) => a + b, 0));
-    vec = vec.map((x) => x / norm);
 
     return vec;
   }
