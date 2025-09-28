@@ -221,57 +221,123 @@ export async function query_embedding(input: string, model: string, api_key: str
   } else {
     url = 'https://api.openai.com/v1/embeddings';
   }
-
-  const request = async (): Promise<Float32Array> => {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + api_key,
-        'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
-        'X-Title': 'Joplin/Jarvis'
-      },
-      body: JSON.stringify(responseParams),
-    });
-
-    const responseText = await response.text();
-
-    let data: any;
-    try {
-      data = JSON.parse(responseText);
-    } catch (jsonError) {
-      console.error('JSON parsing failed. Raw response:', responseText);
-      throw new ModelError(`Invalid JSON response: ${jsonError.message}`);
+  const shouldRetryResponse = (response: Response, body: string): boolean => {
+    const status = response.status;
+    if (status >= 500 && status < 600) {
+      return true;
     }
-
-    if (data.hasOwnProperty('error')) {
-      const apiError = data.error.message ? data.error.message : String(data.error);
-      throw new ModelError(`OpenAI embedding failed: ${apiError}`);
+    const contentType = response.headers.get('content-type') || '';
+    const text = (body || '').trim();
+    if (!text) {
+      return true;
     }
-
-    return new Float32Array(data.data[0].embedding);
+    const lowered = text.toLowerCase();
+    if (lowered.includes('upstream connect error') ||
+        lowered.includes('connection termination') ||
+        lowered.includes('reset reason') ||
+        lowered.includes('bad gateway') ||
+        lowered.includes('gateway timeout')) {
+      return true;
+    }
+    if (!contentType.includes('application/json') && lowered.startsWith('<')) {
+      return true;
+    }
+    return false;
   };
 
-  try {
-    return await request();
-  } catch (error) {
-    if (error instanceof ModelError) {
-      throw error;
+  const shouldRetryError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error);
+    return /network|fetch|timeout|socket|connection/i.test(message || '');
+  };
+
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  const maxAttempts = 3;
+
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const isLastAttempt = attempt === maxAttempts - 1;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + api_key,
+          'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
+          'X-Title': 'Joplin/Jarvis'
+        },
+        body: JSON.stringify(responseParams),
+      });
+
+      const responseText = await response.text();
+
+      if (!isLastAttempt && shouldRetryResponse(response, responseText)) {
+        console.debug(`Retrying embedding request, attempt ${attempt + 1}`);
+        await sleep(200 * (attempt + 1));
+        continue;
+      }
+
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch (jsonError) {
+        if (!isLastAttempt && shouldRetryResponse(response, responseText)) {
+          console.debug(`Retrying embedding request due to JSON parse error, attempt ${attempt + 1}`);
+          await sleep(200 * (attempt + 1));
+          continue;
+        }
+        console.error('JSON parsing failed. Raw response:', responseText);
+        throw new ModelError(`Invalid JSON response: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`);
+      }
+
+      if (data?.hasOwnProperty('error')) {
+        const apiError = data.error?.message ? data.error.message : String(data.error);
+        throw new ModelError(`OpenAI embedding failed: ${apiError}`);
+      }
+
+      const embedding = data?.data?.[0]?.embedding;
+      if (!embedding) {
+        if (!isLastAttempt) {
+          await sleep(200 * (attempt + 1));
+          continue;
+        }
+        throw new ModelError('OpenAI embedding failed: Unexpected response format');
+      }
+
+      return new Float32Array(embedding);
+    } catch (error) {
+      lastError = error;
+      if (!isLastAttempt && shouldRetryError(error)) {
+        await sleep(200 * (attempt + 1));
+        continue;
+      }
+
+      if (error instanceof ModelError) {
+        throw error;
+      }
+
+      const baseMessage = error instanceof Error ? error.message : String(error);
+      const message = baseMessage.includes('OpenAI embedding failed')
+        ? baseMessage
+        : `OpenAI embedding failed: ${baseMessage}`;
+
+      const modelError = new ModelError(message);
+      (modelError as any).cause = error;
+      if (error instanceof Error && error.stack) {
+        modelError.stack = error.stack;
+      }
+
+      throw modelError;
     }
-
-    const baseMessage = error instanceof Error ? error.message : String(error);
-    const message = baseMessage.includes('OpenAI embedding failed')
-      ? baseMessage
-      : `OpenAI embedding failed: ${baseMessage}`;
-
-    const modelError = new ModelError(message);
-    (modelError as any).cause = error;
-    if (error instanceof Error && error.stack) {
-      modelError.stack = error.stack;
-    }
-
-    throw modelError;
   }
+
+  const fallbackError = lastError instanceof ModelError
+    ? lastError
+    : new ModelError('OpenAI embedding failed: transient error after retries');
+  if (!(fallbackError as any).cause && lastError) {
+    (fallbackError as any).cause = lastError;
+  }
+  throw fallbackError;
 }
 
 // returns the last messages up to a fraction of the total length
