@@ -22,8 +22,10 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
     frequency_penalty: frequency_penalty,
     presence_penalty: presence_penalty,
   }
-  if (max_tokens === undefined) {
-    delete params.max_tokens;
+  for (const key of Object.keys(params)) {
+    if (params[key] === null || params[key] === undefined) {
+      delete params[key];
+    }
   }
 
   let data = null;
@@ -111,6 +113,11 @@ export async function query_completion(prompt: string, api_key: string,
     top_p: top_p,
     frequency_penalty: frequency_penalty,
     presence_penalty: presence_penalty,
+  }
+  for (const key of Object.keys(params)) {
+    if (params[key] === null || params[key] === undefined) {
+      delete params[key];
+    }
   }
 
   let data = null;

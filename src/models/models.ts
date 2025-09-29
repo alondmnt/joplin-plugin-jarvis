@@ -1314,6 +1314,10 @@ export class AnthropicGeneration extends OpenAIGeneration {
       return;
     }
     this.model = this.id;  // anything other than null
+    if (this.id.includes('opus')) {
+      // Opus cannot accept both temperature and top_p
+      this.top_p = null;
+    }
 
     try {
       const response = await this.complete(test_prompt);
