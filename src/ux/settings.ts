@@ -122,10 +122,10 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gemini-2.0-pro': 8192,
   'claude-opus-4-1': 32000,
   'claude-opus-4-0': 32000,
-  'claude-sonnet-4-0': 65536,
-  'claude-3-7-sonnet': 65536,
-  'claude-3-5-sonnet': 8192,
-  'claude-3-5-haiku': 8192,
+  'claude-sonnet-4-0': 64000,
+  'claude-3-7-sonnet': 64000,
+  'claude-3-5-sonnet': 8000,
+  'claude-3-5-haiku': 8000,
 };
 
 export const search_engines: { [engine: string] : string; } = {
