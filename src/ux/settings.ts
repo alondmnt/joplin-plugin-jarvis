@@ -432,7 +432,7 @@ export async function register_settings() {
       description: "The Hugging Face API endpoint to use for text generation. Default: empty (HF's default public endpoint)",
     },
     'temp': {
-      value: 10,
+      value: 3,
       type: SettingItemType.Int,
       minimum: 0,
       maximum: 20,
@@ -440,7 +440,7 @@ export async function register_settings() {
       section: 'jarvis.chat',
       public: true,
       label: 'Chat: Temperature',
-      description: 'The temperature of the model. 0 is the least creative. 20 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text. Default: 10',
+      description: 'The temperature of the model. 0 is the least creative. 20 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text. Default: 3',
     },
     'max_tokens': {
       value: 2048,
