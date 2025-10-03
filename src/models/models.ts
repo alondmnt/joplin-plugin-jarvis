@@ -1243,7 +1243,11 @@ export class OpenAIGeneration extends TextGenerationModel {
     }
 
     // model params
-    this.temperature = settings.temperature;
+    if (model_id.startsWith('gpt-5')) {
+      this.temperature = 1
+    } else {
+      this.temperature = settings.temperature;
+    }
     this.top_p = settings.top_p;
     this.frequency_penalty = settings.frequency_penalty;
     this.presence_penalty = settings.presence_penalty;

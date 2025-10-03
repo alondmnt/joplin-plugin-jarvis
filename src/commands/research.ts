@@ -133,11 +133,12 @@ export async function do_research(model_gen: TextGenerationModel, prompt: string
 
 function build_prompt(papers: PaperInfo[], wiki: WikiInfo, search: SearchParams): string {
   let full_prompt = 
-    `write a response to the prompt. address the research questions.
+    `write a response to the prompt in the style of a concise systematic review report. address the research questions.
+    structure the response with clear sections: ## Methods, ## Evidence Synthesis, ## Quality Assessment, ## Conclusions, and ## Follow-up questions.
     use all relevant papers listed below, and cite what you use in the response.
     DO NOT cite papers other than the provided ones, but you may add additional uncited information that might be considered common knowledge.
-    try to explain acronyms and definitions of domain-specific terms.
-    finally, add a section of "## Follow-up questions" to the response.\n\n`;
+    describe your methodology briefly (for example, databases, inclusion criteria, study selection counts) based on the information provided, and note any limitations in the evidence base.
+    summarise the quality and risk-of-bias observations surfaced in the material, and try to explain acronyms and definitions of domain-specific terms.\n\n`;
   full_prompt += wiki['summary'] + '\n\n';
   for (let i = 0; i < papers.length; i++) {
     full_prompt += papers[i]['summary'] + '\n\n';
