@@ -59,10 +59,8 @@ export async function getPubmedFullText(paper: PaperInfo, settings: JarvisSettin
       paper.text_source = 'full';
       paper.full_text_retrieved = true;
       paper.full_text_available = true;
-      console.debug(`PUBMED FULL TEXT SUCCESS pmid=${paper.pmid ?? 'unknown'} pmcid=${paper.pmcid} length=${fullText.length}`);
     } else {
       paper.full_text_retrieved = false;
-      console.debug(`PUBMED FULL TEXT EMPTY pmid=${paper.pmid ?? 'unknown'} pmcid=${paper.pmcid}`);
     }
   } catch (error) {
     console.debug('PUBMED FULL TEXT ERROR', error);
