@@ -2,25 +2,10 @@ import joplin from "api";
 import { JarvisSettings, search_prompts } from '../ux/settings';
 import { TextGenerationModel } from "../models/models";
 import { split_by_tokens, with_timeout, ModelError } from "../utils";
+import { runPubmedQuery, getPubmedFullText } from './pubmed';
+import { PaperInfo, SearchParams } from './types';
 
-export interface PaperInfo {
-  title: string;
-  author: string;
-  year: number;
-  journal: string;
-  doi: string;
-  citation_count: number;
-  text: string;
-  summary: string;
-  compression: number;
-};
-
-export interface SearchParams {
-  prompt: string;
-  response: string;
-  queries: string[];
-  questions: string;
-};
+export { PaperInfo, SearchParams } from './types';
 
 export async function search_papers(model_gen: TextGenerationModel,
     prompt: string, n: number, settings: JarvisSettings,
@@ -33,26 +18,36 @@ export async function search_papers(model_gen: TextGenerationModel,
   const search = await get_search_queries(model_gen, prompt, settings, abortSignal);
 
   // run multiple queries in parallel and remove duplicates
-  let results: PaperInfo[] = [];
-  let dois: Set<string> = new Set();
-  (await Promise.all(
-    search.queries.map((query) => {
+  const results: PaperInfo[] = [];
+  const seenKeys: Set<string> = new Set();
+
+  const queryResults = await Promise.all(
+    search.queries.map(async (query) => {
       if (abortSignal?.aborted) {
         throw new Error('Paper search operation cancelled');
       }
-      if ( settings.paper_search_engine == 'Scopus' ) {
+      if (settings.paper_search_engine === 'Scopus') {
         return run_scopus_query(query, n, settings);
-      } else if ( settings.paper_search_engine == 'Semantic Scholar' ) {
+      }
+      if (settings.paper_search_engine === 'Semantic Scholar') {
         return run_semantic_scholar_query(query, n);
       }
+      if (settings.paper_search_engine === 'PubMed') {
+        return runPubmedQuery(query, n, settings);
+      }
+      return [];
     })
-    )).forEach((query) => {
-      if ( !query ) { return; }
-      query.forEach((paper) => {
-        if (!dois.has(paper.doi)) {
-          results.push(paper);
-          dois.add(paper.doi);
-        }
+  );
+
+  queryResults.forEach((query) => {
+    if (!query) { return; }
+    query.forEach((paper, index) => {
+      const key = get_paper_key(paper);
+      if (!seenKeys.has(key)) {
+        paper.relevance_score = Math.max(0, 1 - index / Math.max(1, n));
+        results.push(paper);
+        seenKeys.add(key);
+      }
     });
   });
 
@@ -61,6 +56,17 @@ export async function search_papers(model_gen: TextGenerationModel,
     return search_papers(model_gen, prompt, n, settings, abortSignal, min_results, retries - 1);
   }
   return [results, search];
+}
+
+function get_paper_key(paper: PaperInfo): string {
+  if (paper.doi && paper.doi.trim()) {
+    return `doi:${paper.doi.trim().toLowerCase()}`;
+  }
+  if (paper.pmid && String(paper.pmid).trim()) {
+    return `pmid:${String(paper.pmid).trim()}`;
+  }
+  const normalizedTitle = paper.title ? paper.title.trim().toLowerCase() : 'unknown-title';
+  return `title:${normalizedTitle}-${paper.year || 0}`;
 }
 
 async function run_semantic_scholar_query(query: string, papers: number): Promise<PaperInfo[]> {
@@ -115,6 +121,9 @@ async function run_semantic_scholar_query(query: string, papers: number): Promis
           text: papers[i]['abstract'],
           summary: '',
           compression: 1,
+          text_source: 'abstract',
+          full_text_available: false,
+          full_text_retrieved: false,
         };
         results.push(info);
       }
@@ -171,6 +180,9 @@ async function run_scopus_query(query: string, papers: number, settings: JarvisS
             text: papers[i]['dc:description'],
             summary: '',
             compression: 1,
+            text_source: 'abstract',
+            full_text_available: false,
+            full_text_retrieved: false,
           };
           results.push(info);
         } catch {
@@ -235,22 +247,26 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
     throw new Error('Paper summarization operation cancelled');
   }
 
-  // randomize the order of the papers
-  papers.sort(() => Math.random() - 0.5);
+  const prioritized = prioritize_papers_for_sampling(papers, settings);
+  const totalCandidates = prioritized.length;
+  // Introduce slight randomness among similarly scored papers to avoid deterministic ties
+  const orderedPapers = prioritized.map(paper => ({ paper, jitter: Math.random() * 0.01 }))
+    .sort((a, b) => ((b.paper.selection_score ?? 0) + b.jitter) - ((a.paper.selection_score ?? 0) + a.jitter))
+    .map(entry => entry.paper);
   let activePromises: Promise<PaperInfo>[] = [];
 
   try {
-    for (let i = 0; i < papers.length; i++) {
+    for (let i = 0; i < orderedPapers.length; i++) {
       if (controller?.signal.aborted) {
         throw new Error('Paper summarization operation cancelled');
       }
 
       // Start new batch of promises if needed
-      if (activePromises.length < 5 && i + activePromises.length < papers.length) {
-        const remainingSlots = Math.min(5 - activePromises.length, papers.length - (i + activePromises.length));
+      if (activePromises.length < 5 && i + activePromises.length < orderedPapers.length) {
+        const remainingSlots = Math.min(5 - activePromises.length, orderedPapers.length - (i + activePromises.length));
         for (let j = 0; j < remainingSlots; j++) {
           const paperIndex = i + activePromises.length;
-          activePromises.push(get_paper_summary(model_gen, papers[paperIndex], search.questions, settings, controller?.signal));
+          activePromises.push(get_paper_summary(model_gen, orderedPapers[paperIndex], search.questions, settings, controller?.signal));
         }
       }
 
@@ -290,8 +306,66 @@ export async function sample_and_summarize_papers(model_gen: TextGenerationModel
     console.debug(`Error during paper summarization: ${error.message}`);
   }
 
-  console.debug(`sampled ${results.length} papers. retrieved ${papers.length} papers.`);
+  console.debug(`sampled ${results.length} papers. retrieved ${totalCandidates} papers.`);
   return results;
+}
+
+function prioritize_papers_for_sampling(papers: PaperInfo[], settings: JarvisSettings): PaperInfo[] {
+  if (papers.length === 0) { return []; }
+
+  const weightRelevance = settings.paper_weight_relevance ?? 0.6;
+  const weightCitations = settings.paper_weight_citations ?? 0.25;
+  const weightFulltext = settings.paper_weight_fulltext ?? 0.15;
+
+  console.debug(`paper selection weights => relevance=${weightRelevance.toFixed(2)} citations=${weightCitations.toFixed(2)} full_text=${weightFulltext.toFixed(2)}`);
+
+  const metrics = papers.map((paper) => {
+    const relevance = Math.min(Math.max(paper.relevance_score ?? 0, 0), 1);
+    const citationScoreRaw = Math.log1p(Math.max(0, paper.citation_count || 0));
+    const fulltextScore = paper.full_text_available ? 1 : 0;
+    return { paper, relevance, citationScoreRaw, fulltextScore };
+  });
+
+  const maxCitationRaw = metrics.reduce((max, current) => Math.max(max, current.citationScoreRaw), 0);
+
+  const scored = metrics.map((metric) => {
+    const citationScore = maxCitationRaw > 0 ? (metric.citationScoreRaw / maxCitationRaw) : 0;
+    const selectionScore = (weightRelevance * metric.relevance)
+      + (weightCitations * citationScore)
+      + (weightFulltext * metric.fulltextScore);
+    metric.paper.selection_score = selectionScore;
+    return metric.paper;
+  });
+
+  const sorted = scored.slice().sort((a, b) => (b.selection_score ?? 0) - (a.selection_score ?? 0));
+
+  const prioritized: PaperInfo[] = [];
+  const add = (paper?: PaperInfo) => {
+    if (!paper) { return; }
+    if (!prioritized.includes(paper)) {
+      prioritized.push(paper);
+    }
+  };
+
+  const bestBy = (selector: (paper: PaperInfo) => number): PaperInfo | undefined => {
+    let best: PaperInfo | undefined;
+    let bestValue = -Infinity;
+    for (const paper of sorted) {
+      const value = selector(paper);
+      if (value > bestValue) {
+        bestValue = value;
+        best = paper;
+      }
+    }
+    return best;
+  };
+
+  add(bestBy((paper) => paper.relevance_score ?? 0));
+  add(bestBy((paper) => Math.log1p(Math.max(0, paper.citation_count || 0))));
+  add(bestBy((paper) => (paper.full_text_available ? 1 : 0)));
+
+  sorted.forEach((paper) => add(paper));
+  return prioritized;
 }
 
 async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInfo,
@@ -344,24 +418,35 @@ async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInf
 }
 
 async function get_paper_text(paper: PaperInfo, model_gen: TextGenerationModel, settings: JarvisSettings): Promise<PaperInfo> {
-  if (paper['text']) { return paper; }  // already have the text
+  if (paper.text_source !== 'full' && paper.pmcid) {
+    paper = await getPubmedFullText(paper, settings);
+  }
+  if (paper.text_source === 'full' && paper['text']) {
+    paper.full_text_retrieved = true;
+    console.debug(`FULL TEXT AVAILABLE source=${paper.text_source} pmid=${paper.pmid ?? 'unknown'} length=${paper.text.length}`);
+    return paper;
+  }
+  if (paper.pmcid && paper.text_source !== 'full') {
+    console.debug(`FULL TEXT UNAVAILABLE pmid=${paper.pmid ?? 'unknown'} pmcid=${paper.pmcid}`);
+    paper.full_text_retrieved = false;
+  } else if (!paper.pmcid) {
+    console.debug(`FULL TEXT NOT REQUESTED (no pmcid) pmid=${paper.pmid ?? 'unknown'}`);
+    paper.full_text_retrieved = false;
+  }
+  if (paper['text']) {
+    paper.full_text_retrieved = paper.text_source === 'full';
+    return paper;  // already have the text
+  }
+
   let info = await get_scidir_info(paper, model_gen, settings);  // ScienceDirect (Elsevier), full text or abstract
   if (info['text']) { return info; }
-  else {
-    info = await get_semantic_scholar_info(paper, settings);  // Semantic Scholar, abstract
-    if (info['text']) { return info; }
-    else {
-      info = await get_crossref_info(paper);  // Crossref, abstract
-      if (info['text']) { return info; }
-      else {
-        info = await get_springer_info(paper, settings);  // Springer, abstract
-        if (info['text']) { return info; }
-        else {
-          return await get_scopus_info(paper, settings);  // Scopus, abstract
-        }
-      }
-    }
-  }
+  info = await get_semantic_scholar_info(paper, settings);  // Semantic Scholar, abstract
+  if (info['text']) { return info; }
+  info = await get_crossref_info(paper);  // Crossref, abstract
+  if (info['text']) { return info; }
+  info = await get_springer_info(paper, settings);  // Springer, abstract
+  if (info['text']) { return info; }
+  return await get_scopus_info(paper, settings);  // Scopus, abstract
 }
 
 async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
@@ -389,6 +474,8 @@ async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
     const info = jsonResponse['message'];
     if ( info.hasOwnProperty('abstract') && (typeof info['abstract'] === 'string') ) {
       paper['text'] = info['abstract'].trim();
+      paper.text_source = 'abstract';
+      paper.full_text_retrieved = false;
     }
   }
   catch (error) {
@@ -443,12 +530,17 @@ async function get_scidir_info(paper: PaperInfo,
         paper['text'] = split_by_tokens(
           paper['text'].trim().split('\n'),
           model_gen, 0.75*model_gen.max_tokens)[0].join('\n');
+        paper.text_source = 'full';
+        paper.full_text_retrieved = true;
+        paper.full_text_available = true;
       } catch {
         paper['text'] = '';
       }
     }
     if ( !paper['text'] && info['coredata']['dc:description'] ) {
       paper['text'] = info['coredata']['dc:description'].trim();
+      paper.text_source = 'abstract';
+      paper.full_text_retrieved = false;
     }
   }
   catch (error) {
@@ -486,6 +578,8 @@ async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Prom
     const info = jsonResponse['abstracts-retrieval-response']['coredata'];
     if ( info['dc:description'] ) {
       paper['text'] = info['dc:description'].trim();
+      paper.text_source = 'abstract';
+      paper.full_text_retrieved = false;
     }
   }
   catch (error) {
@@ -520,9 +614,11 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
   try {
     jsonResponse = await response.json();
     if (jsonResponse['records'].length == 0) { return paper; }
-    const info = jsonResponse['records'][0]['abstract'];
+   const info = jsonResponse['records'][0]['abstract'];
     if ( info ) {
       paper['text'] = info.trim();
+      paper.text_source = 'abstract';
+      paper.full_text_retrieved = false;
     }
   }
   catch (error) {
@@ -557,6 +653,8 @@ async function get_semantic_scholar_info(paper: PaperInfo, settings: JarvisSetti
     const info = jsonResponse['abstract'];
     if ( info ) {
       paper['text'] = info.trim();
+      paper.text_source = 'abstract';
+      paper.full_text_retrieved = false;
     }
   }
   catch (error) {

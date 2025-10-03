@@ -16,6 +16,7 @@ export interface JarvisSettings {
   google_api_key: string;
   scopus_api_key: string;
   springer_api_key: string;
+  pubmed_api_key: string;
   // OpenAI
   model: string;
   chat_timeout: number;
@@ -82,6 +83,9 @@ export interface JarvisSettings {
   paper_search_engine: string;
   use_wikipedia: boolean;
   include_paper_summary: boolean;
+  paper_weight_relevance: number;
+  paper_weight_citations: number;
+  paper_weight_fulltext: number;
   // prompts
   instruction: string;
   scope: string;
@@ -131,6 +135,7 @@ export const model_max_tokens: { [model: string] : number; } = {
 export const search_engines: { [engine: string] : string; } = {
   'Semantic Scholar': 'Semantic Scholar',
   'Scopus': 'Scopus',
+  'PubMed': 'PubMed',
 };
 
 export const search_prompts: { [engine: string] : string; } = {
@@ -146,6 +151,11 @@ export const search_prompts: { [engine: string] : string; } = {
     and you could also search for A or B in separate queries and then compare the results.
     only if explicitly required in the prompt, you can use additional fields to filter the results, such as &year=, &publicationTypes=, &fieldsOfStudy=.
     keep the search queries short and simple.`,
+  'PubMed': `
+    next, generate a few valid PubMed search queries using short boolean expressions.
+    combine key concepts with AND/OR, quote phrases, and optionally use field tags like TITLE, TIAB, or [mh] for MeSH headings.
+    only apply filters (e.g., year[dp], humans[mh]) when explicitly requested in the prompt.
+    keep queries concise, avoiding redundant synonyms unless they improve recall.`,
 };
 
 const title_prompt = `Summarize the following note in a title that contains a single sentence in {preferred_language} which encapsulates the note's main conclusion or idea.`;
@@ -197,13 +207,29 @@ export async function get_settings(): Promise<JarvisSettings> {
 
   const annotate_tags_method = await joplin.settings.value('annotate_tags_method');
 
+  const openai_api_key = await joplin.settings.value('openai_api_key');
+  const hf_api_key = await joplin.settings.value('hf_api_key');
+  const google_api_key = await joplin.settings.value('google_api_key');
+  const scopus_api_key = await joplin.settings.value('scopus_api_key');
+  const springer_api_key = await joplin.settings.value('springer_api_key');
+  const pubmed_api_key = await joplin.settings.value('pubmed_api_key');
+
+  const weight_relevance_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_relevance')) || 0);
+  const weight_citations_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_citations')) || 0);
+  const weight_fulltext_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_fulltext')) || 0);
+  const weight_total = Math.max(1, weight_relevance_raw + weight_citations_raw + weight_fulltext_raw);
+  const paper_weight_relevance = weight_relevance_raw / weight_total;
+  const paper_weight_citations = weight_citations_raw / weight_total;
+  const paper_weight_fulltext = weight_fulltext_raw / weight_total;
+
   return {
     // APIs
-    openai_api_key: await joplin.settings.value('openai_api_key'),
-    hf_api_key: await joplin.settings.value('hf_api_key'),
-    google_api_key: await joplin.settings.value('google_api_key'),
-    scopus_api_key: await joplin.settings.value('scopus_api_key'),
-    springer_api_key: await joplin.settings.value('springer_api_key'),
+    openai_api_key,
+    hf_api_key,
+    google_api_key,
+    scopus_api_key,
+    springer_api_key,
+    pubmed_api_key,
 
     // OpenAI
     model: await joplin.settings.value('model'),
@@ -273,6 +299,9 @@ export async function get_settings(): Promise<JarvisSettings> {
     paper_search_engine: await joplin.settings.value('paper_search_engine'),
     use_wikipedia: await joplin.settings.value('use_wikipedia'),
     include_paper_summary: await joplin.settings.value('include_paper_summary'),
+    paper_weight_relevance,
+    paper_weight_citations,
+    paper_weight_fulltext,
 
     // prompts
     instruction: await parse_dropdown_setting('instruction'),
@@ -923,6 +952,15 @@ export async function register_settings() {
       label: 'Research: Scopus API Key',
       description: 'Your Elsevier/Scopus API Key (optional for research). Get one at https://dev.elsevier.com/.',
     },
+    'pubmed_api_key': {
+      value: '',
+      type: SettingItemType.String,
+      secure: true,
+      section: 'jarvis.research',
+      public: true,
+      label: 'Research: PubMed API Key',
+      description: 'Optional NCBI API Key to raise PubMed rate limits (https://www.ncbi.nlm.nih.gov/account/).',
+    },
     'springer_api_key': {
       value: '',
       type: SettingItemType.String,
@@ -957,6 +995,39 @@ export async function register_settings() {
       public: true,
       label: 'Research: Include paper summary in response to research prompts',
       description: 'Default: false',
+    },
+    'paper_weight_relevance': {
+      value: 50,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 100,
+      step: 5,
+      section: 'jarvis.research',
+      public: true,
+      label: 'Research: Weight relevance',
+      description: 'Relative weight (0-100) for LLM-derived relevance when prioritizing papers. Default: 50.',
+    },
+    'paper_weight_citations': {
+      value: 30,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 100,
+      step: 5,
+      section: 'jarvis.research',
+      public: true,
+      label: 'Research: Weight citations',
+      description: 'Relative weight (0-100) for citation counts when prioritizing papers. Default: 30.',
+    },
+    'paper_weight_fulltext': {
+      value: 20,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 100,
+      step: 5,
+      section: 'jarvis.research',
+      public: true,
+      label: 'Research: Weight full text availability',
+      description: 'Relative weight (0-100) for preferring papers with accessible full text. Default: 20.',
     },
     'chat_prefix': {
       value: '\\n\\n---\\n**Jarvis:** ',
@@ -1037,16 +1108,6 @@ export async function register_settings() {
       description: 'Custom CSS to apply to the notes panel.',
     }
   });
-
-  // set default values
-  // (it seems that default values are ignored for secure settings)
-  const secure_fields = ['openai_api_key', 'hf_api_key', 'google_api_key', 'scopus_api_key', 'springer_api_key']
-  for (const field of secure_fields) {
-    const value = await joplin.settings.value(field);
-    if (value.length == 0) {
-      await joplin.settings.setValue(field, field);
-    }
-  }
 }
 
 export async function set_folders(exclude: boolean, folder_id: string, settings: JarvisSettings) {
