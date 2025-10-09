@@ -196,9 +196,6 @@ async function get_page_summary(model_gen: TextGenerationModel,
     throw new Error('Wikipedia page summarization operation cancelled');
   }
 
-  const user_p = model_gen.top_p;
-  model_gen.top_p = 0.2;  // make the model more focused
-
   const prompt = 
     `here is a section from an article, research questions, and a draft summary of the complete article.
     if the section is not relevant to answering these questions, return the original summary unchanged in the response.
@@ -227,8 +224,6 @@ async function get_page_summary(model_gen: TextGenerationModel,
     only if it is not relevant to any of them, return "NOT RELEVANT", and explain why.
     SUMMARY:\n${summary}
     QUESTIONS:\n${questions}`, abortSignal);
-
-  model_gen.top_p = user_p;
 
   if ((decision.includes('NOT RELEVANT')) || (summary.trim().length == 0)) {
     return page;
