@@ -381,7 +381,7 @@ async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInf
       return a structured summary using the following fields, one per line, in the format "Field: detail".
       keep each detail to at most two sentences and avoid filler.
       Always include the fields EvidenceType, FocusOrArguments, KeyInsights, LimitationsOrCritiques, and RelevanceToQuestions.
-      Include ContextOrSetting, MethodologyNotes, ComparativeElements, and CredibilityAssessment only when the source provides meaningful information for them; otherwise omit those fields entirely.
+      Include ContextOrSetting, MethodologyNotes, ComparativeElements, QuantitativeHighlights (for notable numerical details such as sample sizes, effect estimates, timeframes, counts, or other quantitative metrics), and CredibilityAssessment only when the source provides meaningful information for them; otherwise omit those fields entirely.
       ensure the wording accommodates scientific, humanities, and social-science sources alike.
       if a required field lacks direct information, briefly note that within the detail (for example, "RelevanceToQuestions: Provides background only for Q1.").
       only if the study is completely unrelated, even broadly, to these questions,
