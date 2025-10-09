@@ -2,10 +2,12 @@
 *Released on 2025-10-09T08:51:56Z*
 
 - added: OCR text indexing
+    - you can now chat with your note attachments too
 - added: doc/query conditioning (embeddings v3)
+    - this is expected to improve semantic search
     - you will be prompted to rebuild your Jarvis database
 - added: keep response text selected for accept/reject/regenerate
-- added: research: pubmed database for research
+- added: research: pubmed database paper search
 - added: setting: autocomplete prompt
 - added: setting: notes embeddings timeout
 - improved: upgraded models list
