@@ -1,3 +1,41 @@
+# [v0.11.0](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.11.0)
+*Released on 2025-10-09T08:51:56Z*
+
+- added: OCR text indexing
+- added: doc/query conditioning (embeddings v3)
+    - you will be prompted to rebuild your Jarvis database
+- added: keep response text selected for accept/reject/regenerate
+- added: research: pubmed database for research
+- added: setting: autocomplete prompt
+- added: setting: notes embeddings timeout
+- improved: upgraded models list
+    - gpt-5
+    - claude 4.1
+    - gemini 2.5
+- improved: html note processing
+- improved: embeddings error handling: report note ID / title, retry / skip note
+- improved: openai error message handling
+- improved: research: paper ranking with new settings
+- improved: research: prompts and otuput
+- improved: decrease default temperature setting
+- fixed: claude-opus support
+- fixed: claude max_tokens setting
+- chore: move most logs to debug log
+
+**Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.10.6...v0.11.0
+
+---
+
+# [v0.10.6-alpha](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.10.6)
+*Released on 2025-09-19T13:04:11Z*
+
+- improved: embedding error handling
+- added: setting: notes_embed_timeout
+- package update: google/generative-ai
+- chore: move most logs to debug log
+
+---
+
 # [v0.10.5](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.10.5)
 *Released on 2025-08-27T13:05:02Z*
 
