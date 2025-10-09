@@ -207,8 +207,9 @@ async function run_scopus_query(query: string, papers: number, settings: JarvisS
 async function get_search_queries(model_gen: TextGenerationModel, prompt: string,
     settings: JarvisSettings, abortSignal?: AbortSignal): Promise<SearchParams> {
   const response = await model_gen.complete(
-    `you are writing an academic text.
-    first, list a few research questions that arise from the prompt below.
+    `you are writing an academic text using structured evidence synthesis conventions.
+    first, list a few research questions that arise from the prompt below, framing them using recognised evidence synthesis structures (for example, PICO/PECO where applicable).
+    craft a concise descriptive title and avoid including phrases such as "systematic review" or "scoping review" unless the prompt explicitly requests them.
     ${search_prompts[settings.paper_search_engine]}
     PROMPT:\n${prompt}
     use the following format for the response.
@@ -375,10 +376,14 @@ async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInf
     paper = await get_paper_text(paper, model_gen, settings);
     if (!paper['text']) { return paper; }
 
-    model_gen.temperature = 0.3;
-    const prompt = `you are a helpful assistant doing a literature review.
-    if the study below contains any information that pertains to topics discussed in the research questions below,
-      return a summary in a single paragraph of the relevant parts of the study.
+    const prompt = `you are a helpful assistant conducting evidence synthesis.
+    if the work below contains any information that pertains to topics discussed in the research questions below,
+      return a structured summary using the following fields, one per line, in the format "Field: detail".
+      keep each detail to at most two sentences and avoid filler.
+      Always include the fields EvidenceType, FocusOrArguments, KeyInsights, LimitationsOrCritiques, and RelevanceToQuestions.
+      Include ContextOrSetting, MethodologyNotes, ComparativeElements, and CredibilityAssessment only when the source provides meaningful information for them; otherwise omit those fields entirely.
+      ensure the wording accommodates scientific, humanities, and social-science sources alike.
+      if a required field lacks direct information, briefly note that within the detail (for example, "RelevanceToQuestions: Provides background only for Q1.").
       only if the study is completely unrelated, even broadly, to these questions,
       return: 'NOT RELEVANT.' and explain why it is not helpful.
       QUESTIONS:\n${questions}
@@ -392,12 +397,21 @@ async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInf
       return paper;
     }
 
-    paper['summary'] = `(${paper['author']}, ${paper['year']}) ${response.replace(/\n+/g, ' ')}`;
+    paper['summary'] = `(${paper['author']}, ${paper['year']})\n${response.trim()}`;
     paper['compression'] = paper['summary'].length / paper['text'].length;
 
     let cite = `- ${paper['author']} et al., [${paper['title']}](https://doi.org/${paper['doi']}), ${paper['journal']}, ${paper['year']}, cited: ${paper['citation_count']}.\n`;
     if (settings.include_paper_summary) {
-      cite += `\t- ${paper['summary']}\n`;
+      const summaryLines = paper['summary'].split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+      if (summaryLines.length > 0) {
+        const firstLine = summaryLines[0];
+        const rest = summaryLines.slice(1);
+        let formattedSummary = firstLine;
+        if (rest.length > 0) {
+          formattedSummary += '\n\t  ' + rest.join('\n\t  ');
+        }
+        cite += `\t- ${formattedSummary}\n`;
+      }
     }
     await joplin.commands.execute('replaceSelection', cite);
     return paper;
@@ -423,14 +437,11 @@ async function get_paper_text(paper: PaperInfo, model_gen: TextGenerationModel, 
   }
   if (paper.text_source === 'full' && paper['text']) {
     paper.full_text_retrieved = true;
-    console.debug(`FULL TEXT AVAILABLE source=${paper.text_source} pmid=${paper.pmid ?? 'unknown'} length=${paper.text.length}`);
     return paper;
   }
   if (paper.pmcid && paper.text_source !== 'full') {
-    console.debug(`FULL TEXT UNAVAILABLE pmid=${paper.pmid ?? 'unknown'} pmcid=${paper.pmcid}`);
     paper.full_text_retrieved = false;
   } else if (!paper.pmcid) {
-    console.debug(`FULL TEXT NOT REQUESTED (no pmcid) pmid=${paper.pmid ?? 'unknown'}`);
     paper.full_text_retrieved = false;
   }
   if (paper['text']) {

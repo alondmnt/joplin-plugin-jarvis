@@ -133,12 +133,18 @@ export async function do_research(model_gen: TextGenerationModel, prompt: string
 
 function build_prompt(papers: PaperInfo[], wiki: WikiInfo, search: SearchParams): string {
   let full_prompt = 
-    `write a response to the prompt in the style of a concise systematic review report. address the research questions.
-    structure the response with clear sections: ## Methods, ## Evidence Synthesis, ## Quality Assessment, ## Conclusions, and ## Follow-up questions.
+    `write a response to the prompt in the style of a concise systematic review report while remaining adaptable to scoping or horizon-scanning style questions when a formal systematic approach is unsuitable. address the research questions.
+    structure the response with clear sections: ## Methods, ## Study Overview Table, ## Evidence Synthesis, ## Quality Assessment, ## Conclusions, and ## Follow-up questions.
+    avoid adding labels such as "systematic review" to the title or headings unless the prompt explicitly requires it.
     use all relevant papers listed below, and cite what you use in the response.
     DO NOT cite papers other than the provided ones, but you may add additional uncited information that might be considered common knowledge.
     describe your methodology briefly (for example, databases, inclusion criteria, study selection counts) based on the information provided, and note any limitations in the evidence base.
-    summarise the quality and risk-of-bias observations surfaced in the material, and try to explain acronyms and definitions of domain-specific terms.\n\n`;
+    summarise the quality and credibility observations surfaced in the material, and try to explain acronyms and definitions of domain-specific terms.
+    in the ## Study Overview Table section, include a concise markdown table listing each study alongside EvidenceType, KeyInsights, and CredibilityAssessment (or analogous cues); if a study lacks a field, note "n/a" and add a one-line caption describing any limitations of the table.
+    in the ## Evidence Synthesis section, group findings logically; for each key conclusion, state how many studies support it and cite them inline (e.g., (Smith 2023; Lee 2022)).
+    in the ## Quality Assessment section, aggregate the CredibilityAssessment, LimitationsOrCritiques, or analogous cues and explain what they mean for confidence in the evidence; if the question does not suit a formal assessment, state that explicitly.
+    if no background summary is available, add a brief contextual overview drawn from the included studies.
+    ensure the section "## Follow-up questions" includes at least two actionable questions that stem from gaps or uncertainties in the evidence.\n\n`;
   full_prompt += wiki['summary'] + '\n\n';
   for (let i = 0; i < papers.length; i++) {
     full_prompt += papers[i]['summary'] + '\n\n';
