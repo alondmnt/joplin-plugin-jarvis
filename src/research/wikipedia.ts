@@ -197,12 +197,13 @@ async function get_page_summary(model_gen: TextGenerationModel,
   }
 
   const prompt = 
-    `here is a section from an article, research questions, and a draft summary of the complete article.
+    `here is a section from an article, research questions, and a draft structured summary intended for background context.
+    the structured summary uses the following fields:
+      EvidenceType, BackgroundHighlights, ContextOrSetting, KeyTermsAndDefinitions, NotableFiguresOrChronology, AnchorStatisticsOrFacts, DivergencesOrDebates, LimitationsOrControversies, RelevanceToQuestions.
     if the section is not relevant to answering these questions, return the original summary unchanged in the response.
-    otherwise, add to the summary information from the section that is relevant to the questions,
-    and output the revised summary in the response.
-    in the response, do not remove any relevant information that already exists in the summary,
-    and describe how the article as a whole answers the given questions.`;
+    otherwise, enrich the relevant fields with concise additions drawn from the section, keeping each field to at most two sentences.
+    highlight widely accepted quantitative facts in AnchorStatisticsOrFacts when available, and note any tension with primary evidence in DivergencesOrDebates.
+    do not remove useful information that already exists, and ensure the summary emphasises its role as contextual background rather than primary evidence. explicitly close the RelevanceToQuestions field by stating it is for background context only.`;
 
   let summary = 'empty summary.';
   const summary_steps = split_by_tokens(
@@ -229,12 +230,22 @@ async function get_page_summary(model_gen: TextGenerationModel,
     return page;
   }
 
-  page['summary'] = `(Wikipedia, ${page['year']}) ${summary.replace(/\n+/g, ' ')}`;
+  const normalizedSummary = summary.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).join('\n');
+  page['summary'] = `(Wikipedia, ${page['year']})\n${normalizedSummary}`;
 
   const wikilink = page['title'] ? page['title'].replace(/ /g, '_') : '';
   let cite = `- Wikipedia, [${page['title']}](https://en.wikipedia.org/wiki/${wikilink}), ${page['year']}.\n`;
   if (settings.include_paper_summary) {
-    cite += `\t- ${page['summary']}\n`;
+    const summaryLines = page['summary'].split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+    if (summaryLines.length > 0) {
+      const firstLine = summaryLines[0];
+      const rest = summaryLines.slice(1);
+      let formattedSummary = firstLine;
+      if (rest.length > 0) {
+        formattedSummary += '\n\t  ' + rest.join('\n\t  ');
+      }
+      cite += `\t- ${formattedSummary}\n`;
+    }
   }
   await joplin.commands.execute('replaceSelection', cite);
 

@@ -143,7 +143,7 @@ function build_prompt(papers: PaperInfo[], wiki: WikiInfo, search: SearchParams)
     in the ## Study Overview Table section, include a concise markdown table listing each study alongside EvidenceType, KeyInsights, QuantitativeHighlights (summarise available numerical details such as sample sizes, effect estimates, time horizons, or comparable metrics), and CredibilityAssessment (or analogous cues); if a study lacks a field, note "n/a" and add a one-line caption describing any limitations of the table.
     in the ## Evidence Synthesis section, group findings logically; for each key conclusion, state how many studies support it and cite them inline (e.g., (Smith 2023; Lee 2022)).
     in the ## Quality Assessment section, aggregate the CredibilityAssessment, LimitationsOrCritiques, or analogous cues and explain what they mean for confidence in the evidence; if the question does not suit a formal assessment, state that explicitly.
-    if no background summary is available, add a brief contextual overview drawn from the included studies.
+    if no structured background summary is available, add a brief contextual overview drawn from the included studies; otherwise, treat the Wikipedia background summary as secondary context and cite it accordingly.
     ensure the section "## Follow-up questions" includes at least two actionable questions that stem from gaps or uncertainties in the evidence.\n\n`;
   full_prompt += wiki['summary'] + '\n\n';
   for (let i = 0; i < papers.length; i++) {
