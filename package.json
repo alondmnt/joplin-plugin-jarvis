@@ -1,6 +1,6 @@
 {
   "name": "joplin-plugin-jarvis",
-  "version": "0.10.6",
+  "version": "0.11.0",
   "scripts": {
     "dist": "webpack --env joplinPluginConfig=buildMain && webpack --env joplinPluginConfig=buildExtraScripts && webpack --env joplinPluginConfig=createArchive",
     "prepare": "npm run dist",
