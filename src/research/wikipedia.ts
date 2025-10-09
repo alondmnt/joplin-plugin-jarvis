@@ -14,6 +14,37 @@ export interface WikiInfo {
   summary: string;
 };
 
+function normalize_search_term(term: string, maxLength = 300): string {
+  if (!term) {
+    return '';
+  }
+
+  const normalized = term.replace(/\s+/g, ' ').trim();
+  if (normalized.length === 0) {
+    return '';
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  const words = normalized.split(' ');
+  let truncated = '';
+  for (const word of words) {
+    const candidate = truncated.length === 0 ? word : `${truncated} ${word}`;
+    if (candidate.length > maxLength) {
+      break;
+    }
+    truncated = candidate;
+  }
+
+  if (truncated.length === 0) {
+    truncated = normalized.slice(0, maxLength);
+  }
+  console.debug(`Truncated Wikipedia search term from ${normalized.length} to ${truncated.length} characters.`);
+  return truncated;
+}
+
 // return a summary of the top relevant wikipedia page
 export async function search_wikipedia(model_gen: TextGenerationModel,
     prompt: string, search: SearchParams, settings: JarvisSettings,
@@ -23,10 +54,11 @@ export async function search_wikipedia(model_gen: TextGenerationModel,
     throw new Error('Wikipedia search operation cancelled');
   }
 
-  const search_term = await get_wikipedia_search_query(model_gen, prompt, abortSignal);
-  if ( !search_term ) { return { summary: '' }; }
+  const search_term_raw = await get_wikipedia_search_query(model_gen, prompt, abortSignal);
+  const search_term = normalize_search_term(search_term_raw);
+  if (!search_term) { return { summary: '' }; }
 
-  const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&origin=*&format=json&srlimit=20&srsearch=${search_term}`;
+  const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&origin=*&format=json&srlimit=20&srsearch=${encodeURIComponent(search_term)}`;
   const options = {
     method: 'GET',
     headers: {'Accept': 'application/json'},
@@ -37,7 +69,12 @@ export async function search_wikipedia(model_gen: TextGenerationModel,
 
   let pages: Promise<WikiInfo>[] = [];
   const jsonResponse: any = await response.json();
-  const results = jsonResponse['query']['search'];
+  const results = jsonResponse?.query?.search;
+
+  if (!Array.isArray(results) || results.length === 0) {
+    console.debug('Wikipedia search returned no results or malformed payload.');
+    return { summary: '' };
+  }
   for (let i = 0; i < results.length; i++) {
     if (abortSignal?.aborted) {
       throw new Error('Wikipedia search operation cancelled');
@@ -65,6 +102,7 @@ async function get_wikipedia_search_query(model_gen: TextGenerationModel,
   const response = await model_gen.complete(
     `you are a helpful assistant doing a literature review.
     generate a single search query for Wikipedia that will help find relevant articles to introduce the topics in the prompt below.
+    keep the query under 300 characters and limit punctuation.
     return only the search query, without any explanation.
     PROMPT:\n${prompt}`, abortSignal);
   return response.trim();
