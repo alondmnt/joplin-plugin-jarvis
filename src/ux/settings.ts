@@ -378,7 +378,7 @@ export async function register_settings() {
       section: 'jarvis.chat',
       public: true,
       label: 'Chat: Model',
-      description: 'The model to ask / chat / research with Jarvis. All predefined models are ONLINE, but custom OFFLINE models are supported. Default: gpt-4o-mini',
+      description: 'The model to ask / chat / research with Jarvis. All predefined models are ONLINE, but custom OFFLINE models are supported. Default: gpt-5-mini',
       options: {
         'none': 'None (disable generation features)',
         'openai-custom': 'OpenAI-compatible custom model (e.g., Ollama, Claude)',
