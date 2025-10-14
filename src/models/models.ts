@@ -191,33 +191,37 @@ tf.setBackend('webgl');
 const test_prompt = 'I am conducting a communitcation test. I need you to reply with a single word and absolutely nothing else: "Ack".';
 const dialogPreview = joplin.views.dialogs.create('joplin.preview.dialog');
 
-export async function load_generation_model(settings: JarvisSettings): Promise<TextGenerationModel> {
+export async function load_generation_model(
+  settings: JarvisSettings,
+  modelOverride?: string,
+): Promise<TextGenerationModel> {
+  const effectiveSettings = modelOverride ? { ...settings, model: modelOverride } : settings;
   let model: TextGenerationModel = null;
-  console.log(`load_generation_model: ${settings.model}`);
+  console.log(`load_generation_model: ${effectiveSettings.model}`);
 
-  if (settings.model === 'none') {
-    model = new NoOpGeneration(settings);
+  if (effectiveSettings.model === 'none') {
+    model = new NoOpGeneration(effectiveSettings);
 
-  } else if (settings.model === 'Hugging Face') {
-    model = new HuggingFaceGeneration(settings);
+  } else if (effectiveSettings.model === 'Hugging Face') {
+    model = new HuggingFaceGeneration(effectiveSettings);
 
-  } else if (settings.model.startsWith('claude') ||
-             (settings.model === 'openai-custom' &&
-              settings.chat_openai_model_id.startsWith('claude'))) {
-    model = new AnthropicGeneration(settings);
+  } else if (effectiveSettings.model.startsWith('claude') ||
+             (effectiveSettings.model === 'openai-custom' &&
+              effectiveSettings.chat_openai_model_id.startsWith('claude'))) {
+    model = new AnthropicGeneration(effectiveSettings);
 
-  } else if (settings.model.startsWith('gpt') ||
-             settings.model.startsWith('o4') ||
-             settings.model.startsWith('o3') ||
-             settings.model.startsWith('o1') ||
-             settings.model.startsWith('openai')) {
-    model = new OpenAIGeneration(settings);
+  } else if (effectiveSettings.model.startsWith('gpt') ||
+             effectiveSettings.model.startsWith('o4') ||
+             effectiveSettings.model.startsWith('o3') ||
+             effectiveSettings.model.startsWith('o1') ||
+             effectiveSettings.model.startsWith('openai')) {
+    model = new OpenAIGeneration(effectiveSettings);
 
-  } else if (settings.model.startsWith('gemini')) {
-    model = new GeminiGeneration(settings);
+  } else if (effectiveSettings.model.startsWith('gemini')) {
+    model = new GeminiGeneration(effectiveSettings);
 
   } else {
-    console.error(`Unknown model: ${settings.model}`);
+    console.error(`Unknown model: ${effectiveSettings.model}`);
     return model;
   }
 

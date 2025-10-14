@@ -380,10 +380,42 @@ export async function runLexicalRetrieval(
     rrfInputs.push({ label: searchQuery.label, query: searchQuery.query, hits });
   }
 
+  let totalHits = rrfInputs.reduce((sum, entry) => sum + entry.hits.length, 0);
+
+  if (totalHits === 0) {
+    const fallbackPieces = [
+      queries.normalizedQuery,
+      queries.hardTerms?.join(' ') ?? '',
+    ].map((value) => (value ?? '').trim()).filter(Boolean);
+    const fallbackQuery = fallbackPieces.length ? fallbackPieces.join(' ') : '';
+    if (fallbackQuery) {
+      const fallbackHits = await fetchSearchResults(fallbackQuery, candidateLimit);
+      if (fallbackHits.length > 0) {
+        rrfInputs.push({
+          label: 'fallback',
+          query: fallbackQuery,
+          hits: fallbackHits,
+        });
+        totalHits += fallbackHits.length;
+      }
+    }
+  }
+
   if (rrfInputs.length === 0) {
     return {
       candidates: [],
       rrfLogs: [],
+    };
+  }
+
+  if (totalHits === 0) {
+    return {
+      candidates: [],
+      rrfLogs: rrfInputs.map((entry) => ({
+        query: entry.label,
+        hits: entry.hits.length,
+        topIds: [],
+      })),
     };
   }
 

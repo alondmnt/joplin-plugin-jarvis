@@ -9,6 +9,20 @@ export const context_cmd = 'Context:';
 export const notcontext_cmd = 'Not context:';
 export const title_separator = ' ::: ';
 
+const GENERATION_MODEL_CHOICES: { [model: string]: string } = {
+  'openai-custom': 'OpenAI-compatible custom model (e.g., Ollama, Claude)',
+  'gpt-5-nano':'OpenAI: gpt-5-nano (in:400K, out:32K, cheapest reasoning)',
+  'gpt-5-mini':'OpenAI: gpt-5-mini (in:400K, out:32K)',
+  'gpt-5': 'OpenAI: gpt-5 (in:400K, out:32K, strongest reasoning)',
+  'claude-3-5-haiku-latest': 'Anthropic: claude-3-5-haiku (in:200K, out:8K, cheapest)',
+  'claude-sonnet-4-0': 'Anthropic: claude-sonnet-4-0 (in:200K, out:64K)',
+  'claude-opus-4-1': 'Anthropic: claude-opus-4-1 (in:200K, out:32K, strongest)',
+  'gemini-2.5-flash-lite': 'Google AI: gemini-2.5-flash-lite (in:1M, out:64K)',
+  'gemini-2.5-flash': 'Google AI: gemini-2.5-flash (in:1M, out:64K)',
+  'gemini-2.5-pro': 'Google AI: gemini-2.5-pro (in:1M, out:64K)',
+  'Hugging Face': 'Hugging Face',
+};
+
 export interface JarvisSettings {
   // APIs
   openai_api_key: string;
@@ -26,6 +40,7 @@ export interface JarvisSettings {
   chat_openai_endpoint: string;
   chat_hf_model_id: string;
   chat_hf_endpoint: string;
+  lexical_model: string;
   temperature: number;
   max_tokens: number;
   memory_tokens: number;
@@ -234,6 +249,7 @@ export async function get_settings(): Promise<JarvisSettings> {
 
     // OpenAI
     model: await joplin.settings.value('model'),
+    lexical_model: await joplin.settings.value('lexical_model'),
     chat_timeout: await joplin.settings.value('chat_timeout'),
     chat_system_message: await joplin.settings.value('chat_system_message'),
     chat_openai_model_id: await joplin.settings.value('chat_openai_model_id'),
@@ -383,17 +399,7 @@ export async function register_settings() {
       description: 'The model to ask / chat / research with Jarvis. All predefined models are ONLINE, but custom OFFLINE models are supported. Default: gpt-5-mini',
       options: {
         'none': 'None (disable generation features)',
-        'openai-custom': 'OpenAI-compatible custom model (e.g., Ollama, Claude)',
-        'gpt-5-nano':'OpenAI: gpt-5-nano (in:400K, out:32K, cheapest reasoning)',
-        'gpt-5-mini':'OpenAI: gpt-5-mini (in:400K, out:32K)',
-        'gpt-5': 'OpenAI: gpt-5 (in:400K, out:32K, strongest reasoning)',
-        'claude-3-5-haiku-latest': 'Anthropic: claude-3-5-haiku (in:200K, out:8K, cheapest)',
-        'claude-sonnet-4-0': 'Anthropic: claude-sonnet-4-0 (in:200K, out:64K)',
-        'claude-opus-4-1': 'Anthropic: claude-opus-4-1 (in:200K, out:32K, strongest)',
-        'gemini-2.5-flash-lite': 'Google AI: gemini-2.5-flash-lite (in:1M, out:64K)',
-        'gemini-2.5-flash': 'Google AI: gemini-2.5-flash (in:1M, out:64K)',
-        'gemini-2.5-pro': 'Google AI: gemini-2.5-pro (in:1M, out:64K)',
-        'Hugging Face': 'Hugging Face',
+        ...GENERATION_MODEL_CHOICES,
       }
     },
     'chat_timeout': {
@@ -554,6 +560,18 @@ export async function register_settings() {
         'gemini-text-embedding-004': '(online) Google AI: text-embedding-004 [Multilingual]',
         'gemini-embedding-001': '(online) Google AI: embedding-001 [Multilingual]',
         'Hugging Face': '(online) Hugging Face [Multilingual]',
+      }
+    },
+    'lexical_model': {
+      value: 'gpt-5-nano',
+      type: SettingItemType.String,
+      isEnum: true,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Notes: Lexical retrieval model',
+      description: 'Model used for planner, reranker, and other lexical retrieval steps. Default: gpt-5-nano',
+      options: {
+        ...GENERATION_MODEL_CHOICES,
       }
     },
     'notes_parallel_jobs': {

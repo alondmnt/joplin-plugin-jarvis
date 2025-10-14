@@ -1,9 +1,14 @@
 import { ChatNotesPlanResponse } from '../prompts/chatWithNotes';
 
-export type QueryLabel = 'normalized' | 'expansions' | 'acronyms' | 'entities' | 'title';
+export type QueryLabel = 'normalized' | 'expansions' | 'acronyms' | 'entities' | 'title' | 'fallback';
 
 export interface SearchQuery { label: QueryLabel; query: string; }
-export interface PlanQueries { queries: SearchQuery[]; filters: string; }
+export interface PlanQueries {
+  queries: SearchQuery[];
+  filters: string;
+  normalizedQuery: string;
+  hardTerms: string[];
+}
 
 // ---- helpers ----
 
@@ -88,14 +93,25 @@ function ensureHardTerms(plan: ChatNotesPlanResponse): string[] {
 }
 
 function sanitizePlan(plan: ChatNotesPlanResponse): ChatNotesPlanResponse {
+  const cleanNormalized = cleanNormalizedQuery(plan.normalized_query);
   return {
     ...plan,
+    normalized_query: cleanNormalized,
     expansions: capSet(plan.expansions, 6),
     soft_terms: capSet(plan.soft_terms, 6),
     acronyms: capSet(plan.acronyms, 6),
     entities: capSet(plan.entities, 5),
     hard_terms: ensureHardTerms(plan),
   };
+}
+
+function cleanNormalizedQuery(value: string): string {
+  const trimmed = value?.trim() ?? '';
+  if (!trimmed) return '';
+  const firstClause = trimmed.split(/\s+OR\s+/i)[0]?.trim();
+  const base = firstClause && firstClause.length > 0 ? firstClause : trimmed;
+  if (base.length <= 120) return base;
+  return base.slice(0, 120);
 }
 
 /**
@@ -141,5 +157,5 @@ export function buildQueriesFromPlan(plan: ChatNotesPlanResponse): PlanQueries {
   const entQuery = appendFilters(entOr, filters, true); // filters BEFORE any:1
   if (entQuery) queries.push({ label: 'entities', query: entQuery });
 
-  return { queries, filters };
+  return { queries, filters, normalizedQuery: cleaned.normalized_query?.trim() ?? '', hardTerms: cleaned.hard_terms ?? [] };
 }

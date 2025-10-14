@@ -73,6 +73,9 @@ joplin.plugins.register({
     }, delay_db_update * 1000, {leading: true, trailing: false});
 
     let model_gen = await load_generation_model(settings);
+    let model_lex = settings.lexical_model === settings.model
+      ? model_gen
+      : await load_generation_model(settings, settings.lexical_model);
 
     await joplin.contentScripts.register(
       ContentScriptType.CodeMirrorPlugin,
@@ -222,7 +225,7 @@ joplin.plugins.register({
         if (model_embed.model === null) {
           await model_embed.initialize();
         }
-        chat_with_notes(model_embed, model_gen, panel);
+        chat_with_notes(model_embed, model_gen, model_lex, panel);
       }
     });
 
@@ -233,7 +236,7 @@ joplin.plugins.register({
         if (model_embed.model === null) {
           await model_embed.initialize();
         }
-        chat_with_notes(model_embed, model_gen, panel, true);
+        chat_with_notes(model_embed, model_gen, model_lex, panel, true);
       }
     });
 
@@ -335,30 +338,38 @@ joplin.plugins.register({
 
     await joplin.settings.onChange(async (event) => {
       settings = await get_settings();
-      // load generation model
-      if (event.keys.includes('openai_api_key') ||
-          event.keys.includes('anthropic_api_key') ||
-          event.keys.includes('hf_api_key') ||
-          event.keys.includes('google_api_key') ||
-          event.keys.includes('model') ||
-          event.keys.includes('chat_system_message') ||
-          event.keys.includes('chat_timeout') ||
-          event.keys.includes('chat_openai_model_id') ||
-          event.keys.includes('chat_openai_model_type') ||
-          event.keys.includes('chat_openai_endpoint') ||
-          event.keys.includes('max_tokens') ||
-          event.keys.includes('memory_tokens') ||
-          event.keys.includes('notes_context_tokens') ||
-          event.keys.includes('temperature') ||
-          event.keys.includes('top_p') ||
-          event.keys.includes('frequency_penalty') ||
-          event.keys.includes('presence_penalty') ||
-          event.keys.includes('chat_hf_model_id') ||
-          event.keys.includes('chat_hf_endpoint') ||
-          event.keys.includes('chat_prefix') ||
-          event.keys.includes('chat_suffix')) {
-
+      // load generation models
+      const chatModelKeys = new Set([
+        'openai_api_key',
+        'anthropic_api_key',
+        'hf_api_key',
+        'google_api_key',
+        'model',
+        'chat_system_message',
+        'chat_timeout',
+        'chat_openai_model_id',
+        'chat_openai_model_type',
+        'chat_openai_endpoint',
+        'max_tokens',
+        'memory_tokens',
+        'notes_context_tokens',
+        'temperature',
+        'top_p',
+        'frequency_penalty',
+        'presence_penalty',
+        'chat_hf_model_id',
+        'chat_hf_endpoint',
+        'chat_prefix',
+        'chat_suffix',
+      ]);
+      const shouldReloadChatModel = event.keys.some((key) => chatModelKeys.has(key));
+      if (shouldReloadChatModel) {
         model_gen = await load_generation_model(settings);
+      }
+      if (shouldReloadChatModel || event.keys.includes('lexical_model')) {
+        model_lex = settings.lexical_model === settings.model
+          ? model_gen
+          : await load_generation_model(settings, settings.lexical_model);
       }
       // load embedding model
       if (event.keys.includes('openai_api_key') ||

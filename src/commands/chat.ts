@@ -28,7 +28,13 @@ export async function chat_with_jarvis(model_gen: TextGenerationModel) {
  * Entry point for “Chat with Notes”. Runs lexical retrieval when the flag is enabled,
  * otherwise falls back to the legacy embeddings flow.
  */
-export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, panel: string, preview: boolean=false) {
+export async function chat_with_notes(
+  model_embed: TextEmbeddingModel,
+  model_gen: TextGenerationModel,
+  model_lex: TextGenerationModel,
+  panel: string,
+  preview: boolean=false,
+) {
   if (model_embed.model === null) { return; }
 
   const settings = await get_settings();
@@ -38,6 +44,7 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
     const handled = await tryLexicalChat({
       promptText,
       modelGen: model_gen,
+      modelLex: model_lex,
       settings,
       panel,
       preview,
@@ -138,6 +145,7 @@ function buildPlannerTurns(model_gen: TextGenerationModel, promptText: string, m
 interface LexicalChatParams {
   promptText: string;
   modelGen: TextGenerationModel;
+  modelLex: TextGenerationModel;
   settings: JarvisSettings;
   panel: string;
   preview: boolean;
@@ -256,7 +264,8 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
       citedNotes: [],
       conversation: plannerTurns,
     };
-    const plannerResult = await generatePlan(params.modelGen, plannerInput);
+    const plannerModel = params.modelLex ?? params.modelGen;
+    const plannerResult = await generatePlan(plannerModel, plannerInput);
     timings.plan = Date.now() - planStart;
     flags.planFromCache = plannerResult.fromCache;
     flags.planRepaired = plannerResult.repaired;
@@ -294,8 +303,9 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
     }
 
     const rerankStart = Date.now();
+    const rerankModel = params.modelLex ?? params.modelGen;
     const rerankResult = await runPairwiseRerank(
-      params.modelGen,
+      rerankModel,
       plannerResult.plan,
       retrievalResult.candidates,
       {
