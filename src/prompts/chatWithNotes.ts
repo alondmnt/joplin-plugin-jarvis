@@ -217,13 +217,16 @@ export function buildChatNotesRerankPrompt(input: ChatNotesRerankPromptInput): s
         ? candidate.headings.join(' > ')
         : 'N/A';
     const updated = candidate.updated_at ?? 'unknown';
+    const snippet = candidate.snippet.length > 500
+      ? `${candidate.snippet.slice(0, 500)}…`
+      : candidate.snippet;
     return `${label}) Note ID: ${candidate.id}
 Title: ${candidate.title}
 Headings: ${headings}
 Lexical score: ${candidate.score0.toFixed(4)}
 Last updated: ${updated}
 Snippet:
-${candidate.snippet}`;
+${snippet}`;
   };
 
   return `${CHAT_NOTES_RERANK_PROMPT}

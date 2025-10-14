@@ -52,7 +52,9 @@ function shouldSkipRerank(normalizedScores: number[], options: PairwiseRerankOpt
   if (normalizedScores.length < 3) return true;
   const delta01 = normalizedScores[0] - normalizedScores[1];
   const delta12 = normalizedScores[1] - normalizedScores[2];
-  return delta01 >= options.skipDelta01 && delta12 >= options.skipDelta12;
+  if (delta01 >= options.skipDelta01) return true;
+  if (delta01 >= 0.2 && delta12 >= options.skipDelta12) return true;
+  return false;
 }
 
 async function runComparison(
@@ -149,7 +151,7 @@ export async function runPairwiseRerank(
           pair: [candidateA.id, candidateB.id],
           winner: response.winner,
           confident: response.confident,
-          reason: response.reason,
+          reason: response.reason ? response.reason.slice(0, 160) : undefined,
           raw,
           promptVersion: response.prompt_version,
         });

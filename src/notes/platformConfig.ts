@@ -15,24 +15,24 @@ export interface RetrievalPlatformConfig {
 
 const DESKTOP_CONFIG: RetrievalPlatformConfig = {
   platform: 'desktop',
-  candidateLimit: 150,
-  pairwisePoolSize: 24,
-  pairwiseCap: 30,
-  topK: 12,
-  maxPassagesPerNote: 5,
+  candidateLimit: 40,
+  pairwisePoolSize: 12,
+  pairwiseCap: 20,
+  topK: 8,
+  maxPassagesPerNote: 2,
   windowTokens: 150,
-  maxAnswerPassages: 16,
+  maxAnswerPassages: 6,
 };
 
 const MOBILE_CONFIG: RetrievalPlatformConfig = {
   platform: 'mobile',
-  candidateLimit: 40,
-  pairwisePoolSize: 16,
-  pairwiseCap: 15,
-  topK: 8,
+  candidateLimit: 25,
+  pairwisePoolSize: 8,
+  pairwiseCap: 12,
+  topK: 5,
   maxPassagesPerNote: 3,
   windowTokens: 140,
-  maxAnswerPassages: 10,
+  maxAnswerPassages: 4,
 };
 
 /**

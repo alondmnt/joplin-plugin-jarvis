@@ -231,6 +231,25 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
   }
 
   try {
+    const totalStart = Date.now();
+    const timings = {
+      plan: 0,
+      retrieval: 0,
+      rerank: 0,
+      passage: 0,
+      answer: 0,
+    };
+    const counts = {
+      candidates: 0,
+      rrfSources: 0,
+      rerankPool: 0,
+      rerankComparisons: 0,
+      passagesTotal: 0,
+      passagesUsed: 0,
+    };
+    const flags: Record<string, unknown> = {};
+
+    const planStart = Date.now();
     const plannerTurns = buildPlannerTurns(params.modelGen, params.promptText);
     const plannerInput = {
       scopeSummary: 'All notes',
@@ -238,12 +257,18 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
       conversation: plannerTurns,
     };
     const plannerResult = await generatePlan(params.modelGen, plannerInput);
+    timings.plan = Date.now() - planStart;
+    flags.planFromCache = plannerResult.fromCache;
+    flags.planRepaired = plannerResult.repaired;
+    flags.planFallback = plannerResult.usedFallback;
     const planQueries = buildQueriesFromPlan(plannerResult.plan);
     console.info('Jarvis lexical retrieval plan', plannerResult.plan);
 
     const contextNotes = new Set(plannerResult.plan.context_notes ?? []);
     const platformConfig = await getRetrievalPlatformConfig();
+    console.info('Jarvis lexical platform config', platformConfig);
 
+    const retrievalStart = Date.now();
     const retrievalResult = await runLexicalRetrieval(
       plannerResult.plan,
       planQueries,
@@ -253,10 +278,13 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
       },
       contextNotes,
     );
+    timings.retrieval = Date.now() - retrievalStart;
     console.info('Jarvis lexical retrieval candidates', {
       queries: retrievalResult.rrfLogs,
       count: retrievalResult.candidates.length,
     });
+    counts.candidates = retrievalResult.candidates.length;
+    counts.rrfSources = retrievalResult.rrfLogs.length;
     if (!retrievalResult.candidates.length) {
       return false;
     }
@@ -265,7 +293,7 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
       await replace_selection('\n\nGenerating notes response...');
     }
 
-    console.time('Jarvis lexical rerank');
+    const rerankStart = Date.now();
     const rerankResult = await runPairwiseRerank(
       params.modelGen,
       plannerResult.plan,
@@ -278,8 +306,11 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
         skipDelta12: 0.15,
       },
     );
-    console.timeEnd('Jarvis lexical rerank');
+    timings.rerank = Date.now() - rerankStart;
     console.info('Jarvis lexical rerank comparisons', rerankResult.comparisons);
+    counts.rerankPool = rerankResult.normalizedScores.length;
+    counts.rerankComparisons = rerankResult.comparisons.length;
+    flags.rerankSkipped = rerankResult.skipped;
 
     const topNotes = rerankResult.ordered;
     console.info('Jarvis lexical rerank result', {
@@ -291,46 +322,56 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
       return false;
     }
 
-  console.time('Jarvis lexical passage picker');
-  const passages = pickPassages(topNotes, plannerResult.plan, contextNotes, {
-    maxPassagesPerNote: platformConfig.maxPassagesPerNote,
-    windowTokens: platformConfig.windowTokens,
-  });
-  console.timeEnd('Jarvis lexical passage picker');
-  const limitedPassages = passages.slice(0, platformConfig.maxAnswerPassages);
-  console.info('Jarvis lexical passages selected', {
-    count: passages.length,
-    used: limitedPassages.length,
-  });
+    const passageStart = Date.now();
+    const passages = pickPassages(topNotes, plannerResult.plan, contextNotes, {
+      maxPassagesPerNote: platformConfig.maxPassagesPerNote,
+      windowTokens: platformConfig.windowTokens,
+    });
+    timings.passage = Date.now() - passageStart;
+    const limitedPassages = passages.slice(0, platformConfig.maxAnswerPassages);
+    counts.passagesTotal = passages.length;
+    counts.passagesUsed = limitedPassages.length;
+    console.info('Jarvis lexical passages selected', {
+      count: passages.length,
+      used: limitedPassages.length,
+    });
 
-  const lastUserMessage = getLastUserMessage(plannerTurns) || plannerResult.plan.normalized_query || params.promptText;
-  console.time('Jarvis lexical answer compose');
-  const answer = await composeAnswer(
-    params.modelGen,
-    plannerResult.plan,
-    lastUserMessage,
-    limitedPassages,
-  );
-  console.timeEnd('Jarvis lexical answer compose');
-  console.info('Jarvis lexical answer composed', {
-    citations: answer.citations.length,
-    markdownLength: answer.answerMarkdown.length,
+    const lastUserMessage = getLastUserMessage(plannerTurns) || plannerResult.plan.normalized_query || params.promptText;
+    const answerStart = Date.now();
+    const answer = await composeAnswer(
+      params.modelGen,
+      plannerResult.plan,
+      lastUserMessage,
+      limitedPassages,
+    );
+    timings.answer = Date.now() - answerStart;
+    console.info('Jarvis lexical answer composed', {
+      citations: answer.citations.length,
+      markdownLength: answer.answerMarkdown.length,
     });
 
     const noteReferences = buildNoteReferences(answer.citations);
     const formattedAnswer = `${params.settings.chat_prefix}${answer.answerMarkdown}${params.settings.chat_suffix}`;
     const finalText = `\n\n${params.modelGen.model_prefix}${formattedAnswer}\n\n${noteReferences}${params.modelGen.user_prefix}`;
 
-  if (!params.preview) {
-    await replace_selection(finalText);
-  }
+    if (!params.preview) {
+      await replace_selection(finalText);
+    }
 
-  if (answer.citations.length === 0 && limitedPassages.length > 0) {
-    console.warn('Jarvis lexical answer returned no citations despite having passages');
-  }
+    if (answer.citations.length === 0 && limitedPassages.length > 0) {
+      console.warn('Jarvis lexical answer returned no citations despite having passages');
+    }
 
     const panelEntries = buildPanelEntries(topNotes);
     await update_panel(params.panel, panelEntries, params.settings);
+
+    const totalMs = Date.now() - totalStart;
+    console.info('Jarvis lexical retrieval metrics', {
+      timings,
+      counts,
+      flags,
+      total_ms: totalMs,
+    });
 
     return true;
   } catch (error) {

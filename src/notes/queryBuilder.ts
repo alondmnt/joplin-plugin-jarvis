@@ -67,25 +67,57 @@ function appendFilters(q: string | null, filters: string, preferFiltersFirst = f
 
 // ---- main ----
 
+function capSet(values: string[] | undefined, limit: number): string[] {
+  if (!values || values.length === 0) return [];
+  return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean))).slice(0, limit);
+}
+
+function ensureHardTerms(plan: ChatNotesPlanResponse): string[] {
+  const capped = capSet(plan.hard_terms, 4);
+  if (capped.length > 0) {
+    return capped;
+  }
+  const fallback = plan.normalized_query
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (fallback.length > 0) {
+    return [fallback[0]];
+  }
+  return ['notes'];
+}
+
+function sanitizePlan(plan: ChatNotesPlanResponse): ChatNotesPlanResponse {
+  return {
+    ...plan,
+    expansions: capSet(plan.expansions, 6),
+    soft_terms: capSet(plan.soft_terms, 6),
+    acronyms: capSet(plan.acronyms, 6),
+    entities: capSet(plan.entities, 5),
+    hard_terms: ensureHardTerms(plan),
+  };
+}
+
 /**
  * Translate the planner response into concrete Joplin search queries.
  * Handles quoting, OR blocks (`any:1`), and filter composition for Step B.
  */
 export function buildQueriesFromPlan(plan: ChatNotesPlanResponse): PlanQueries {
-  const filters = composeFilterStrings(plan);
+  const cleaned = sanitizePlan(plan);
+  const filters = composeFilterStrings(cleaned);
   const queries: SearchQuery[] = [];
 
   // Q1: Base AND (normalized + hard_terms)
   const baseParts: string[] = [];
-  if (plan.normalized_query?.trim()) baseParts.push(plan.normalized_query.trim());
-  if (plan.hard_terms?.length)       baseParts.push(joinAnd(plan.hard_terms));
+  if (cleaned.normalized_query?.trim()) baseParts.push(cleaned.normalized_query.trim());
+  if (cleaned.hard_terms?.length)       baseParts.push(joinAnd(cleaned.hard_terms));
   const baseQuery = appendFilters(baseParts.join(' ').trim(), filters);
   if (baseQuery) queries.push({ label: 'normalized', query: baseQuery });
 
   // Q2: Expansions OR (expansions ∪ soft_terms) — acronyms get their own query later
   const expansionPool = [
-    ...(plan.expansions ?? []),
-    ...(plan.soft_terms ?? []),
+    ...(cleaned.expansions ?? []),
+    ...(cleaned.soft_terms ?? []),
   ];
   const exOr = joinOrAny1(expansionPool);
   const exQuery = appendFilters(exOr, filters, true); // filters BEFORE any:1
@@ -93,19 +125,19 @@ export function buildQueriesFromPlan(plan: ChatNotesPlanResponse): PlanQueries {
 
   // Q3: Title focus (normalized + hard_terms mapped to title:)
   const titleTerms: string[] = [];
-  if (plan.normalized_query?.trim()) titleTerms.push(plan.normalized_query.trim());
-  if (plan.hard_terms?.length)       titleTerms.push(...plan.hard_terms);
+  if (cleaned.normalized_query?.trim()) titleTerms.push(cleaned.normalized_query.trim());
+  if (cleaned.hard_terms?.length)       titleTerms.push(...cleaned.hard_terms);
   const titleBits = uniq(titleTerms).map(t => `title:${escapeTerm(t)}`).join(' ');
   const titleQuery = appendFilters(titleBits || null, filters);
   if (titleQuery) queries.push({ label: 'title', query: titleQuery });
 
   // Q4: Acronyms OR (dedicated narrower query)
-  const acOr = joinOrAny1(plan.acronyms ?? []);
+  const acOr = joinOrAny1(cleaned.acronyms ?? []);
   const acQuery = appendFilters(acOr, filters, true); // filters BEFORE any:1
   if (acQuery) queries.push({ label: 'acronyms', query: acQuery });
 
   // Q5: Entities OR
-  const entOr = joinOrAny1(plan.entities ?? []);
+  const entOr = joinOrAny1(cleaned.entities ?? []);
   const entQuery = appendFilters(entOr, filters, true); // filters BEFORE any:1
   if (entQuery) queries.push({ label: 'entities', query: entQuery });
 

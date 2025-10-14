@@ -69,6 +69,7 @@ const DEFAULT_MMR_LAMBDA = 0.7;
 const DEFAULT_MAX_OVERLAP = 0.6;
 const DEFAULT_LONG_NOTE_WINDOW_CAP = 80;
 const DEFAULT_LONG_NOTE_TOKEN_CAP = 18000;
+const MAX_PASSAGE_EXCERPT_CHARS = 400;
 
 function splitIntoSections(note: LexicalCandidate): Section[] {
   const sections: Section[] = [];
@@ -266,7 +267,10 @@ export function pickPassages(
     const windows = buildWindowCandidates(note, plan, contextNotes, config);
     if (windows.length === 0) continue;
 
-    if (windows.length > config.longNoteWindowCap || note.tokens.length > config.longNoteTokenCap) {
+    const guardrailTriggered =
+      windows.length > config.longNoteWindowCap || note.tokens.length > config.longNoteTokenCap;
+
+    if (guardrailTriggered) {
       console.warn(
         'Jarvis passage picker long-note guardrail triggered',
         note.id,
@@ -276,7 +280,13 @@ export function pickPassages(
 
     computeWindowScores(windows, queryTokens);
 
-    const mmrCandidates = windows.map((window) => ({
+    const candidatePool = guardrailTriggered
+      ? [...windows]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, Math.max(config.maxPassagesPerNote * 3, config.maxPassagesPerNote))
+      : windows;
+
+    const mmrCandidates = candidatePool.map((window) => ({
       id: window.id,
       score: window.score,
       window: { start: window.start, end: window.end },
@@ -291,11 +301,15 @@ export function pickPassages(
 
     for (const selection of selected) {
       const payload = selection.payload;
+      const excerpt =
+        payload.excerpt.length > MAX_PASSAGE_EXCERPT_CHARS
+          ? `${payload.excerpt.slice(0, MAX_PASSAGE_EXCERPT_CHARS)}…`
+          : payload.excerpt;
       selections.push({
         noteId: note.id,
         noteTitle: note.title,
         headingPath: payload.headingPath,
-        excerpt: payload.excerpt,
+        excerpt,
         score: payload.score,
         noteScore0: note.score0,
         features: payload.features,
