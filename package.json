@@ -4,6 +4,9 @@
   "scripts": {
     "dist": "webpack --env joplinPluginConfig=buildMain && webpack --env joplinPluginConfig=buildExtraScripts && webpack --env joplinPluginConfig=createArchive",
     "prepare": "npm run dist",
+    "prompt-contracts": "node -e \"require('fs').rmSync('temp',{recursive:true,force:true});\" && npx tsc -p tsconfig.prompts.json && node temp/prompt-tests/scripts/prompt_contract_tests.js && node -e \"require('fs').rmSync('temp',{recursive:true,force:true});\"",
+    "notes-tests": "node -e \"require('fs').rmSync('temp',{recursive:true,force:true});\" && npx tsc -p tsconfig.notes-tests.json && node temp/notes-tests/scripts/tokenizer_tests.js && node temp/notes-tests/scripts/passage_scorer_tests.js && node temp/notes-tests/scripts/rrf_tests.js && node temp/notes-tests/scripts/cache_tests.js && node temp/notes-tests/scripts/mmr_tests.js && node temp/notes-tests/scripts/window_sizer_tests.js && node temp/notes-tests/scripts/acronym_tests.js && node temp/notes-tests/scripts/plan_fallback_tests.js && node temp/notes-tests/scripts/phrase_matcher_tests.js && node temp/notes-tests/scripts/query_builder_tests.js && node temp/notes-tests/scripts/retrieval_planner_tests.js && node -e \"require('fs').rmSync('temp',{recursive:true,force:true});\"",
+    "tokenizer-tests": "npm run notes-tests",
     "update": "npm install -g generator-joplin && yo joplin --update"
   },
   "license": "AGPL-3.0",

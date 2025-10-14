@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "temp/prompt-tests",
+    "rootDir": ".",
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "scripts/prompt_contract_tests.ts",
+    "src/prompts/chatWithNotes.ts"
+  ]
+}

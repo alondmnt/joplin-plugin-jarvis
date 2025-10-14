@@ -1,6 +1,16 @@
 import joplin from 'api';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks } from '../notes/embeddings';
+import type { ChatNotesPlanResponse, ChatNotesPlanTurn } from '../prompts/chatWithNotes';
+import { buildQueriesFromPlan } from '../notes/queryBuilder';
+import { generatePlan } from '../notes/retrievalPlanner';
+import { runLexicalRetrieval } from '../notes/lexicalRetrieval';
+import type { LexicalCandidate } from '../notes/lexicalRetrieval';
+import { runPairwiseRerank } from '../notes/reranker';
+import { pickPassages } from '../notes/passagePicker';
+import { composeAnswer } from '../notes/answerComposer';
+import type { AnswerCitation } from '../notes/answerComposer';
+import { getRetrievalPlatformConfig } from '../notes/platformConfig';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
 import { split_by_tokens } from '../utils';
@@ -14,10 +24,29 @@ export async function chat_with_jarvis(model_gen: TextGenerationModel) {
   await replace_selection(await model_gen.chat(prompt));
 }
 
+/**
+ * Entry point for “Chat with Notes”. Runs lexical retrieval when the flag is enabled,
+ * otherwise falls back to the legacy embeddings flow.
+ */
 export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, panel: string, preview: boolean=false) {
   if (model_embed.model === null) { return; }
 
   const settings = await get_settings();
+  const promptText = await get_chat_prompt(model_gen);
+
+  if (settings.notes_lexical_retrieval) {
+    const handled = await tryLexicalChat({
+      promptText,
+      modelGen: model_gen,
+      settings,
+      panel,
+      preview,
+    });
+    if (handled) {
+      return;
+    }
+  }
+
   const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings);
   if (nearest[0].embeddings.length === 0) {
     if (!preview) { await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix); }
@@ -82,6 +111,232 @@ export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<s
   prompt = split_by_tokens([prompt], model_gen, model_gen.memory_tokens, 'last')[0].join(' ');
 
   return prompt;
+}
+
+/**
+ * Parse the last N user/assistant turns from the chat prompt for planner input.
+ */
+function buildPlannerTurns(model_gen: TextGenerationModel, promptText: string, maxTurns = 6): ChatNotesPlanTurn[] {
+  if (!promptText) return [];
+  const entries = model_gen._parse_chat(promptText) as Array<{ role: string; content: string }>;
+  const filtered = entries
+    .filter((entry) => entry && (entry.role === 'user' || entry.role === 'assistant') && typeof entry.content === 'string')
+    .map((entry) => {
+      const role: 'user' | 'assistant' = entry.role === 'assistant' ? 'assistant' : 'user';
+      return {
+        role,
+        content: (entry.content || '').trim(),
+      };
+    })
+    .filter((turn) => turn.content.length > 0);
+  if (filtered.length > maxTurns) {
+    return filtered.slice(filtered.length - maxTurns);
+  }
+  return filtered;
+}
+
+interface LexicalChatParams {
+  promptText: string;
+  modelGen: TextGenerationModel;
+  settings: JarvisSettings;
+  panel: string;
+  preview: boolean;
+}
+
+/**
+ * Extract the most recent user utterance from the planner conversation turns.
+ */
+function getLastUserMessage(turns: ChatNotesPlanTurn[]): string {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (turn.role === 'user' && turn.content?.trim()) {
+      return turn.content.trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * Build a deterministic note heading slug (mirrors the renderer’s anchor format).
+ */
+function slugifyHeading(input: string): string {
+  return input
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9\-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/**
+ * Render citation labels to Joplin note links for the injected references footer.
+ */
+function buildNoteReferences(citations: AnswerCitation[]): string {
+  if (!citations.length) {
+    return `${ref_notes_prefix} none`;
+  }
+  const unique = new Map<number, AnswerCitation>();
+  for (const citation of citations) {
+    if (!unique.has(citation.label)) {
+      unique.set(citation.label, citation);
+    }
+  }
+  const parts = Array.from(unique.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([label, citation]) => {
+      const heading = citation.heading_path?.length
+        ? citation.heading_path[citation.heading_path.length - 1]
+        : '';
+      const slug = heading ? slugifyHeading(heading) : '';
+      const anchor = slug ? `#${slug}` : '';
+      return `[${label}](:/${citation.note_id}${anchor})`;
+    });
+  return `${ref_notes_prefix} ${parts.join(', ')}`;
+}
+
+/**
+ * Convert lexical Top-K notes into a shape suitable for the existing notes panel.
+ */
+function buildPanelEntries(candidates: LexicalCandidate[]): NoteEmbedding[] {
+  return candidates.slice(0, 10).map((candidate) => {
+    const embedding: BlockEmbedding = {
+      id: candidate.id,
+      hash: '',
+      line: 0,
+      body_idx: 0,
+      length: candidate.body.length,
+      level: 0,
+      title: candidate.headings[0] ?? candidate.title,
+      embedding: new Float32Array(),
+      similarity: candidate.score0,
+    };
+    return {
+      id: candidate.id,
+      title: candidate.title,
+      embeddings: [embedding],
+      similarity: candidate.score0,
+    };
+  });
+}
+
+/**
+ * Execute the full lexical pipeline (planner → search → rerank → passage → answer).
+ * Returns true when the pipeline succeeds, signaling the caller to skip embeddings.
+ */
+async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
+  if (params.preview) {
+    return false;
+  }
+
+  try {
+    const plannerTurns = buildPlannerTurns(params.modelGen, params.promptText);
+    const plannerInput = {
+      scopeSummary: 'All notes',
+      citedNotes: [],
+      conversation: plannerTurns,
+    };
+    const plannerResult = await generatePlan(params.modelGen, plannerInput);
+    const planQueries = buildQueriesFromPlan(plannerResult.plan);
+    console.info('Jarvis lexical retrieval plan', plannerResult.plan);
+
+    const contextNotes = new Set(plannerResult.plan.context_notes ?? []);
+    const platformConfig = await getRetrievalPlatformConfig();
+
+    const retrievalResult = await runLexicalRetrieval(
+      plannerResult.plan,
+      planQueries,
+      {
+        candidateLimit: platformConfig.candidateLimit,
+        highlightRadius: 260,
+      },
+      contextNotes,
+    );
+    console.info('Jarvis lexical retrieval candidates', {
+      queries: retrievalResult.rrfLogs,
+      count: retrievalResult.candidates.length,
+    });
+    if (!retrievalResult.candidates.length) {
+      return false;
+    }
+
+    if (!params.preview) {
+      await replace_selection('\n\nGenerating notes response...');
+    }
+
+    console.time('Jarvis lexical rerank');
+    const rerankResult = await runPairwiseRerank(
+      params.modelGen,
+      plannerResult.plan,
+      retrievalResult.candidates,
+      {
+        pairwisePoolSize: platformConfig.pairwisePoolSize,
+        pairwiseCap: platformConfig.pairwiseCap,
+        topK: platformConfig.topK,
+        skipDelta01: 0.35,
+        skipDelta12: 0.15,
+      },
+    );
+    console.timeEnd('Jarvis lexical rerank');
+    console.info('Jarvis lexical rerank comparisons', rerankResult.comparisons);
+
+    const topNotes = rerankResult.ordered;
+    console.info('Jarvis lexical rerank result', {
+      skipped: rerankResult.skipped,
+      poolSize: rerankResult.normalizedScores.length,
+      kept: topNotes.length,
+    });
+    if (!topNotes.length) {
+      return false;
+    }
+
+  console.time('Jarvis lexical passage picker');
+  const passages = pickPassages(topNotes, plannerResult.plan, contextNotes, {
+    maxPassagesPerNote: platformConfig.maxPassagesPerNote,
+    windowTokens: platformConfig.windowTokens,
+  });
+  console.timeEnd('Jarvis lexical passage picker');
+  const limitedPassages = passages.slice(0, platformConfig.maxAnswerPassages);
+  console.info('Jarvis lexical passages selected', {
+    count: passages.length,
+    used: limitedPassages.length,
+  });
+
+  const lastUserMessage = getLastUserMessage(plannerTurns) || plannerResult.plan.normalized_query || params.promptText;
+  console.time('Jarvis lexical answer compose');
+  const answer = await composeAnswer(
+    params.modelGen,
+    plannerResult.plan,
+    lastUserMessage,
+    limitedPassages,
+  );
+  console.timeEnd('Jarvis lexical answer compose');
+  console.info('Jarvis lexical answer composed', {
+    citations: answer.citations.length,
+    markdownLength: answer.answerMarkdown.length,
+    });
+
+    const noteReferences = buildNoteReferences(answer.citations);
+    const formattedAnswer = `${params.settings.chat_prefix}${answer.answerMarkdown}${params.settings.chat_suffix}`;
+    const finalText = `\n\n${params.modelGen.model_prefix}${formattedAnswer}\n\n${noteReferences}${params.modelGen.user_prefix}`;
+
+  if (!params.preview) {
+    await replace_selection(finalText);
+  }
+
+  if (answer.citations.length === 0 && limitedPassages.length > 0) {
+    console.warn('Jarvis lexical answer returned no citations despite having passages');
+  }
+
+    const panelEntries = buildPanelEntries(topNotes);
+    await update_panel(params.panel, panelEntries, params.settings);
+
+    return true;
+  } catch (error) {
+    console.error('Lexical retrieval pipeline failed; falling back to embeddings', error);
+    return false;
+  }
 }
 
 async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, settings: JarvisSettings):

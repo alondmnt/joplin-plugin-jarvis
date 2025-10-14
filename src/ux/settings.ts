@@ -67,6 +67,7 @@ export interface JarvisSettings {
   notes_panel_user_style: string;
   notes_abort_on_error: boolean;
   notes_embed_timeout: number;
+  notes_lexical_retrieval: boolean;
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -282,6 +283,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
+    notes_lexical_retrieval: await joplin.settings.value('notes_lexical_retrieval'),
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
@@ -766,6 +768,15 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Show search box',
       description: 'Default: true',
+    },
+    'notes_lexical_retrieval': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Use lexical retrieval (experimental)',
+      description: 'Experimental: replace embeddings database with lexical + LLM retrieval for chat.',
     },
     'notes_prompt': {
       value: '',

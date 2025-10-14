@@ -1,0 +1,33 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "temp/notes-tests",
+    "rootDir": ".",
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "scripts/acronym_tests.ts",
+    "scripts/cache_tests.ts",
+    "scripts/mmr_tests.ts",
+    "scripts/passage_scorer_tests.ts",
+    "scripts/phrase_matcher_tests.ts",
+    "scripts/plan_fallback_tests.ts",
+    "scripts/query_builder_tests.ts",
+    "scripts/retrieval_planner_tests.ts",
+    "scripts/rrf_tests.ts",
+    "scripts/tokenizer_tests.ts",
+    "scripts/window_sizer_tests.ts",
+    "src/notes/cache.ts",
+    "src/notes/passageScorer.ts",
+    "src/notes/phraseMatcher.ts",
+    "src/notes/planFallback.ts",
+    "src/notes/queryBuilder.ts",
+    "src/notes/retrievalPlanner.ts",
+    "src/notes/rrf.ts",
+    "src/notes/textUtils.ts",
+    "src/notes/tokenizer.ts",
+    "src/notes/windowSizer.ts"
+  ]
+}
