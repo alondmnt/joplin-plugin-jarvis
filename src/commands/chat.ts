@@ -7,6 +7,7 @@ import { generatePlan } from '../notes/retrievalPlanner';
 import { runLexicalRetrieval } from '../notes/lexicalRetrieval';
 import type { LexicalCandidate } from '../notes/lexicalRetrieval';
 import { runPairwiseRerank } from '../notes/reranker';
+import type { PairwiseRerankResult } from '../notes/reranker';
 import { pickPassages } from '../notes/passagePicker';
 import { composeAnswer } from '../notes/answerComposer';
 import type { AnswerCitation } from '../notes/answerComposer';
@@ -240,6 +241,7 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
 
   try {
     const totalStart = Date.now();
+    /** Track per-stage timings (ms) to surface retrieval bottlenecks. */
     const timings = {
       plan: 0,
       retrieval: 0,
@@ -247,6 +249,7 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
       passage: 0,
       answer: 0,
     };
+    /** Count key figures (candidates, comparisons, PRF stats) for debugging. */
     const counts = {
       candidates: 0,
       rrfSources: 0,
@@ -254,6 +257,9 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
       rerankComparisons: 0,
       passagesTotal: 0,
       passagesUsed: 0,
+      prfNotes: 0,
+      prfTerms: 0,
+      prfHits: 0,
     };
     const flags: Record<string, unknown> = {};
 
@@ -276,6 +282,11 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
     const contextNotes = new Set(plannerResult.plan.context_notes ?? []);
     const platformConfig = await getRetrievalPlatformConfig();
     console.info('Jarvis lexical platform config', platformConfig);
+    const budgetDeadline = platformConfig.retrievalBudgetMs > 0
+      ? totalStart + platformConfig.retrievalBudgetMs
+      : null;
+    const remainingBudget = () => (budgetDeadline ? (budgetDeadline - Date.now()) : Number.POSITIVE_INFINITY);
+    let circuitBreaker: { stage: string; reason?: string } | null = null;
 
     const retrievalStart = Date.now();
     const retrievalResult = await runLexicalRetrieval(
@@ -294,39 +305,109 @@ async function tryLexicalChat(params: LexicalChatParams): Promise<boolean> {
     });
     counts.candidates = retrievalResult.candidates.length;
     counts.rrfSources = retrievalResult.rrfLogs.length;
+    counts.prfNotes = retrievalResult.prf?.analysedNotes ?? 0;
+    counts.prfTerms = retrievalResult.prf?.terms.length ?? 0;
+    counts.prfHits = retrievalResult.prf?.hits ?? 0;
+    if (retrievalResult.dominantScope) {
+      flags.dominantScopeField = retrievalResult.dominantScope.field;
+      flags.dominantScopeValue = retrievalResult.dominantScope.value;
+      flags.dominantScopeShare = retrievalResult.dominantScope.share;
+      flags.dominantScopeCount = retrievalResult.dominantScope.count;
+    }
     if (!retrievalResult.candidates.length) {
       return false;
+    }
+    if (!circuitBreaker && budgetDeadline && Date.now() >= budgetDeadline) {
+      circuitBreaker = { stage: 'post_retrieval', reason: 'budget_exhausted' };
     }
 
     if (!params.preview) {
       await replace_selection('\n\nGenerating notes response...');
     }
 
-    const rerankStart = Date.now();
-    const rerankModel = params.modelLex ?? params.modelGen;
-    const rerankResult = await runPairwiseRerank(
-      rerankModel,
-      plannerResult.plan,
-      retrievalResult.candidates,
-      {
-        pairwisePoolSize: platformConfig.pairwisePoolSize,
-        pairwiseCap: platformConfig.pairwiseCap,
-        topK: platformConfig.topK,
-        skipDelta01: 0.35,
-        skipDelta12: 0.15,
-      },
-    );
-    timings.rerank = Date.now() - rerankStart;
-    console.info('Jarvis lexical rerank comparisons', rerankResult.comparisons);
-    counts.rerankPool = rerankResult.normalizedScores.length;
-    counts.rerankComparisons = rerankResult.comparisons.length;
-    flags.rerankSkipped = rerankResult.skipped;
+    const takeLexicalTop = () => retrievalResult.candidates.slice(0, platformConfig.topK);
+    let topNotes: LexicalCandidate[] = [];
+    let rerankResult: PairwiseRerankResult | null = null;
 
-    const topNotes = rerankResult.ordered;
+    if (circuitBreaker) {
+      flags.circuitBreakerStage = circuitBreaker.stage;
+      flags.circuitBreakerReason = circuitBreaker.reason;
+      flags.rerankFallback = 'budget';
+      topNotes = takeLexicalTop();
+    } else {
+      const remainingMs = remainingBudget();
+      if (remainingMs <= 0) {
+        circuitBreaker = { stage: 'before_rerank', reason: 'budget_exhausted' };
+        flags.circuitBreakerStage = circuitBreaker.stage;
+        flags.circuitBreakerReason = circuitBreaker.reason;
+        flags.rerankFallback = 'budget';
+        topNotes = takeLexicalTop();
+      } else {
+        const rerankStart = Date.now();
+        const rerankModel = params.modelLex ?? params.modelGen;
+        const abortController = new AbortController();
+        const timeoutHandle = budgetDeadline
+          ? setTimeout(() => abortController.abort(), Math.max(0, remainingMs))
+          : null;
+        try {
+          rerankResult = await runPairwiseRerank(
+            rerankModel,
+            plannerResult.plan,
+            retrievalResult.candidates,
+            {
+              pairwisePoolSize: platformConfig.pairwisePoolSize,
+              pairwiseCap: platformConfig.pairwiseCap,
+              topK: platformConfig.topK,
+              skipDelta01: 0.35,
+              skipDelta12: 0.15,
+              abortSignal: abortController.signal,
+            },
+          );
+          timings.rerank = Date.now() - rerankStart;
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+          console.info('Jarvis lexical rerank comparisons', rerankResult.comparisons);
+          counts.rerankPool = rerankResult.normalizedScores.length;
+          counts.rerankComparisons = rerankResult.comparisons.length;
+          flags.rerankSkipped = rerankResult.skipped;
+          topNotes = rerankResult.ordered;
+          if (budgetDeadline && Date.now() > budgetDeadline) {
+            circuitBreaker = { stage: 'post_rerank', reason: 'budget_exhausted' };
+            flags.circuitBreakerStage = circuitBreaker.stage;
+            flags.circuitBreakerReason = circuitBreaker.reason;
+            flags.rerankFallback = 'post_rerank_budget';
+            topNotes = takeLexicalTop();
+          }
+        } catch (error) {
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+          timings.rerank = Date.now() - rerankStart;
+          const message = error instanceof Error ? error.message : String(error);
+          const aborted = /cancelled/i.test(message) || message === 'AbortError';
+          circuitBreaker = { stage: 'rerank', reason: aborted ? 'budget_timeout' : 'error' };
+          flags.circuitBreakerStage = circuitBreaker.stage;
+          flags.circuitBreakerReason = circuitBreaker.reason;
+          flags.rerankFallback = aborted ? 'budget' : 'error';
+          console.warn('Pairwise rerank aborted; falling back to lexical order', error);
+          topNotes = takeLexicalTop();
+        }
+      }
+    }
+
+    if (!topNotes.length) {
+      console.warn('No top notes available after rerank; falling back to lexical candidates');
+      topNotes = takeLexicalTop();
+    }
+
+    if (!rerankResult) {
+      counts.rerankPool = counts.rerankPool || 0;
+      counts.rerankComparisons = counts.rerankComparisons || 0;
+      flags.rerankSkipped = true;
+    }
+
     console.info('Jarvis lexical rerank result', {
-      skipped: rerankResult.skipped,
-      poolSize: rerankResult.normalizedScores.length,
+      skipped: rerankResult?.skipped ?? true,
+      poolSize: rerankResult?.normalizedScores.length ?? 0,
       kept: topNotes.length,
+      circuitBreaker,
     });
     if (!topNotes.length) {
       return false;
