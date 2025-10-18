@@ -11,6 +11,7 @@ export interface RetrievalPlatformConfig {
   maxPassagesPerNote: number;
   windowTokens: number;
   maxAnswerPassages: number;
+  retrievalBudgetMs: number;
 }
 
 const DESKTOP_CONFIG: RetrievalPlatformConfig = {
@@ -22,6 +23,7 @@ const DESKTOP_CONFIG: RetrievalPlatformConfig = {
   maxPassagesPerNote: 2,
   windowTokens: 150,
   maxAnswerPassages: 6,
+  retrievalBudgetMs: 1200,
 };
 
 const MOBILE_CONFIG: RetrievalPlatformConfig = {
@@ -33,6 +35,7 @@ const MOBILE_CONFIG: RetrievalPlatformConfig = {
   maxPassagesPerNote: 3,
   windowTokens: 140,
   maxAnswerPassages: 4,
+  retrievalBudgetMs: 600,
 };
 
 /**

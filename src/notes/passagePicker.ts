@@ -70,6 +70,174 @@ const DEFAULT_MAX_OVERLAP = 0.6;
 const DEFAULT_LONG_NOTE_WINDOW_CAP = 80;
 const DEFAULT_LONG_NOTE_TOKEN_CAP = 18000;
 const MAX_PASSAGE_EXCERPT_CHARS = 400;
+const TEMPORAL_AGGREGATE_REGEX = /\b(total|totals|sum|sums|duration|durations|hours?|minutes?|time|times|spent|logged|logging|track(?:ing)?)\b/;
+const TEMPORAL_CO_OCCURRENCE_RADIUS = 8;
+const AGGREGATE_KEYWORDS = new Set([
+  'total',
+  'totals',
+  'sum',
+  'sums',
+  'duration',
+  'durations',
+  'hour',
+  'hours',
+  'minute',
+  'minutes',
+  'time',
+  'times',
+  'spent',
+  'spend',
+  'logged',
+  'logging',
+  'log',
+  'track',
+  'tracking',
+]);
+const MONTH_NAME_TOKENS = new Set([
+  'january', 'jan',
+  'february', 'feb',
+  'march', 'mar',
+  'april', 'apr',
+  'may',
+  'june', 'jun',
+  'july', 'jul',
+  'august', 'aug',
+  'september', 'sep', 'sept',
+  'october', 'oct',
+  'november', 'nov',
+  'december', 'dec',
+]);
+
+interface TemporalGate {
+  required: boolean;
+  monthTokens: string[];
+  taskTokens: Set<string>;
+}
+
+function isMonthToken(token: string): boolean {
+  if (!token) return false;
+  const lower = token.toLowerCase();
+  if (MONTH_NAME_TOKENS.has(lower)) return true;
+  if (/^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[-_]?\d{4}$/.test(lower)) return true;
+  if (/^\d{4}[-/](?:0[1-9]|1[0-2])$/.test(lower)) return true;
+  if (/^(?:0?[1-9]|1[0-2])[-/]\d{4}$/.test(lower)) return true;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(lower)) return true;
+  if (/^\d{4}\/\d{2}\/\d{2}$/.test(lower)) return true;
+  return false;
+}
+
+function extractMonthFragment(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (value.length >= 7) {
+    return value.slice(0, 7).toLowerCase();
+  }
+  return null;
+}
+
+function buildTemporalGate(plan: ChatNotesPlanResponse, queryTokens: Set<string>): TemporalGate {
+  const monthTokens = new Set<string>();
+  for (const token of queryTokens) {
+    if (isMonthToken(token)) {
+      monthTokens.add(token.toLowerCase());
+    }
+  }
+
+  const addDateToken = (value: string | null | undefined) => {
+    const fragment = extractMonthFragment(value);
+    if (fragment) {
+      monthTokens.add(fragment);
+    }
+  };
+
+  const filters = plan.filters ?? {
+    created_after: null,
+    created_before: null,
+    updated_after: null,
+    updated_before: null,
+  };
+
+  addDateToken(filters.updated_after);
+  addDateToken(filters.updated_before);
+  addDateToken(filters.created_after);
+  addDateToken(filters.created_before);
+
+  const textSources = [
+    plan.normalized_query,
+    ...(plan.expansions ?? []),
+    ...(plan.hard_terms ?? []),
+    ...(plan.soft_terms ?? []),
+  ];
+  const combinedText = textSources.filter(Boolean).join(' ').toLowerCase();
+  const aggregateIntent = TEMPORAL_AGGREGATE_REGEX.test(combinedText);
+  const hasTemporalFilter = Boolean(
+    filters.updated_after ||
+    filters.updated_before ||
+    filters.created_after ||
+    filters.created_before,
+  );
+  const hasMonthIntent = monthTokens.size > 0 || hasTemporalFilter;
+
+  const taskTokens = new Set<string>();
+  const addTaskTokens = (value: string | null | undefined) => {
+    if (!value) return;
+    const tokens = tokenizeForSearch(value).tokens;
+    for (const token of tokens) {
+      const lower = token.toLowerCase();
+      if (!lower) continue;
+      if (isMonthToken(lower)) continue;
+      if (AGGREGATE_KEYWORDS.has(lower)) continue;
+      taskTokens.add(lower);
+    }
+  };
+
+  for (const term of plan.hard_terms ?? []) addTaskTokens(term);
+  if (taskTokens.size === 0) {
+    addTaskTokens(plan.normalized_query);
+  }
+
+  const required = aggregateIntent && hasMonthIntent && taskTokens.size > 0;
+
+  return {
+    required,
+    monthTokens: Array.from(monthTokens),
+    taskTokens,
+  };
+}
+
+function matchesMonthToken(token: string, gate: TemporalGate): boolean {
+  if (!token) return false;
+  const lower = token.toLowerCase();
+  if (isMonthToken(lower)) return true;
+  for (const monthToken of gate.monthTokens) {
+    if (monthToken && lower.includes(monthToken)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function windowPassesTemporalGate(tokens: string[], gate: TemporalGate): boolean {
+  if (!gate.required) return true;
+  if (!tokens.length) return false;
+  const monthIndexes: number[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (matchesMonthToken(token, gate)) {
+      monthIndexes.push(index);
+    }
+  }
+  if (monthIndexes.length === 0) return false;
+  for (const monthIndex of monthIndexes) {
+    const start = Math.max(0, monthIndex - TEMPORAL_CO_OCCURRENCE_RADIUS);
+    const end = Math.min(tokens.length - 1, monthIndex + TEMPORAL_CO_OCCURRENCE_RADIUS);
+    for (let idx = start; idx <= end; idx += 1) {
+      if (gate.taskTokens.has(tokens[idx])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 function splitIntoSections(note: LexicalCandidate): Section[] {
   const sections: Section[] = [];
@@ -112,16 +280,14 @@ function splitIntoSections(note: LexicalCandidate): Section[] {
 
 function buildWindowCandidates(
   note: LexicalCandidate,
-  plan: ChatNotesPlanResponse,
   contextNotes: Set<string>,
   options: PassagePickerOptions,
+  queryTokens: Set<string>,
+  hardTokens: Set<string>,
+  quotedPhrases: string[],
 ): WindowCandidate[] {
   const sections = splitIntoSections(note);
   if (sections.length === 0) return [];
-
-  const queryTokens = buildQueryTokenSet(plan);
-  const hardTokens = buildHardTokenSet(plan);
-  const quotedPhrases = collectQuotedPhrases(plan);
 
   const windows: WindowCandidate[] = [];
   let noteTokenOffset = 0;
@@ -233,10 +399,10 @@ function computeWindowScores(
     window.score =
       (1.0 * window.features.bm25) +
       (0.6 * window.features.spanProximity) +
-      (0.5 * window.features.anchorBoost) +
-      (0.3 * window.features.headingBoost) +
+      (0.5 * window.features.headingBoost) +
+      (0.3 * window.features.recencyBoost) +
       (0.2 * window.features.contextBoost) +
-      (0.1 * window.features.recencyBoost);
+      (0.15 * window.features.anchorBoost);
   }
 }
 
@@ -262,10 +428,25 @@ export function pickPassages(
 
   const selections: PassageSelection[] = [];
   const queryTokens = buildQueryTokenSet(plan);
+  const hardTokens = buildHardTokenSet(plan);
+  const quotedPhrases = collectQuotedPhrases(plan);
+  const temporalGate = buildTemporalGate(plan, queryTokens);
 
   for (const note of notes) {
-    const windows = buildWindowCandidates(note, plan, contextNotes, config);
+    const windows = buildWindowCandidates(
+      note,
+      contextNotes,
+      config,
+      queryTokens,
+      hardTokens,
+      quotedPhrases,
+    );
     if (windows.length === 0) continue;
+
+    const filteredWindows = windows.filter((window) => windowPassesTemporalGate(window.tokens, temporalGate));
+    if (filteredWindows.length === 0) {
+      continue;
+    }
 
     const guardrailTriggered =
       windows.length > config.longNoteWindowCap || note.tokens.length > config.longNoteTokenCap;
@@ -278,13 +459,13 @@ export function pickPassages(
       );
     }
 
-    computeWindowScores(windows, queryTokens);
+    computeWindowScores(filteredWindows, queryTokens);
 
     const candidatePool = guardrailTriggered
-      ? [...windows]
+      ? [...filteredWindows]
           .sort((a, b) => b.score - a.score)
           .slice(0, Math.max(config.maxPassagesPerNote * 3, config.maxPassagesPerNote))
-      : windows;
+      : filteredWindows;
 
     const mmrCandidates = candidatePool.map((window) => ({
       id: window.id,

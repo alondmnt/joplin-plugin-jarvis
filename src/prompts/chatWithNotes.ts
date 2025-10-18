@@ -41,6 +41,8 @@ export interface ChatNotesPlanFilters {
   notebooks: string[];
   created_after: string | null;
   created_before: string | null;
+  updated_after?: string | null;
+  updated_before?: string | null;
 }
 
 export interface ChatNotesPlanResponse {
@@ -143,6 +145,8 @@ export function validateChatNotesPlanResponse(payload: unknown): ChatNotesPlanRe
     notebooks: ensureStringArray('filters.notebooks', filtersRecord.notebooks ?? []),
     created_after: ensureIsoOrNull('filters.created_after', filtersRecord.created_after ?? null),
     created_before: ensureIsoOrNull('filters.created_before', filtersRecord.created_before ?? null),
+    updated_after: ensureIsoOrNull('filters.updated_after', filtersRecord.updated_after ?? null),
+    updated_before: ensureIsoOrNull('filters.updated_before', filtersRecord.updated_before ?? null),
   };
 
   return {

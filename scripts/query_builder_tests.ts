@@ -24,8 +24,8 @@ function testBuildQueries() {
   assert.ok(filters.includes('tag:projects/atlas'));
   assert.ok(filters.includes('tag:milestones'));
   assert.ok(filters.includes('notebook:mission-control/2025'));
-  assert.ok(filters.includes('created:20251001'));
-  assert.ok(filters.includes('-created:20251031'));
+  assert.ok(filters.includes('updated:20251001'));
+  assert.ok(filters.includes('-updated:20251031'));
 
   const normalized = queries.find(q => q.label === 'normalized');
   assert.ok(normalized);

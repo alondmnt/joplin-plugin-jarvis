@@ -1,6 +1,16 @@
 import { ChatNotesPlanResponse } from '../prompts/chatWithNotes';
 
-export type QueryLabel = 'normalized' | 'expansions' | 'acronyms' | 'entities' | 'title' | 'fallback';
+/** Labels describing the query variants we send to Joplin search (used for logging/RRF). */
+export type QueryLabel =
+  | 'normalized'
+  | 'expansions'
+  | 'acronyms'
+  | 'entities'
+  | 'title'
+  | 'tags'
+  | 'prf'
+  | 'fallback'
+  | 'scoped';
 
 export interface SearchQuery { label: QueryLabel; query: string; }
 export interface PlanQueries {
@@ -15,7 +25,12 @@ export interface PlanQueries {
 const toYmd = (iso: string) => iso.slice(0, 10).replace(/-/g, ''); // YYYYMMDD
 
 const uniq = (arr: string[] = []) =>
-  Array.from(new Set(arr.map(s => s?.trim()).filter(Boolean))) as string[];
+  Array.from(new Set(arr.map((s) => s?.trim()).filter(Boolean))) as string[];
+
+const TIME_INTENT_REGEX =
+  /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|today|yesterday|this\s+(?:week|month|year)|last\s+(?:week|month|year)|recent|(?:\d{4}[-/](?:0[1-9]|1[0-2]))|(?:0?[1-9]|1[0-2])[-/]\d{4})\b/;
+
+const HASHTAG_REGEX = /#([\p{L}\p{N}_-]+)/gu;
 
 function escapeTerm(term: string): string {
   const t = term?.trim() ?? '';
@@ -25,6 +40,7 @@ function escapeTerm(term: string): string {
   return (/\s/.test(t) || /[:()]/.test(t)) ? `"${escaped}"` : escaped;
 }
 
+/** Compose date/tag/notebook filters, prioritising updated:* ranges when present. */
 function composeFilterStrings(plan: ChatNotesPlanResponse): string {
   const clauses: string[] = [];
 
@@ -37,10 +53,18 @@ function composeFilterStrings(plan: ChatNotesPlanResponse): string {
     if (e) clauses.push(`notebook:${e}`);
   }
 
-  const { created_after: ca, created_before: cb } = plan.filters ?? {};
-  // Joplin range: created:YYYYMMDD (on/after), -created:YYYYMMDD (exclude on/after => before)
-  if (ca) clauses.push(`created:${toYmd(ca)}`);
-  if (cb) clauses.push(`-created:${toYmd(cb)}`);
+  const filtersRecord = plan.filters ?? {
+    created_after: null,
+    created_before: null,
+    updated_after: null,
+    updated_before: null,
+  };
+  const temporalIntent = hasTemporalIntent(plan);
+  const after = filtersRecord.updated_after ?? (temporalIntent ? filtersRecord.created_after : null);
+  const before = filtersRecord.updated_before ?? (temporalIntent ? filtersRecord.created_before : null);
+  // Joplin range: updated:YYYYMMDD (on/after), -updated:YYYYMMDD (exclude on/after => before)
+  if (after) clauses.push(`updated:${toYmd(after)}`);
+  if (before) clauses.push(`-updated:${toYmd(before)}`);
 
   return clauses.join(' ');
 }
@@ -97,14 +121,15 @@ function sanitizePlan(plan: ChatNotesPlanResponse): ChatNotesPlanResponse {
   return {
     ...plan,
     normalized_query: cleanNormalized,
-    expansions: capSet(plan.expansions, 6),
-    soft_terms: capSet(plan.soft_terms, 6),
+    expansions: capSet(plan.expansions, 8),
+    soft_terms: capSet(plan.soft_terms, 8),
     acronyms: capSet(plan.acronyms, 6),
     entities: capSet(plan.entities, 5),
     hard_terms: ensureHardTerms(plan),
   };
 }
 
+/** Trim the planner's normalized query to the first OR-clause and cap its length. */
 function cleanNormalizedQuery(value: string): string {
   const trimmed = value?.trim() ?? '';
   if (!trimmed) return '';
@@ -122,6 +147,7 @@ export function buildQueriesFromPlan(plan: ChatNotesPlanResponse): PlanQueries {
   const cleaned = sanitizePlan(plan);
   const filters = composeFilterStrings(cleaned);
   const queries: SearchQuery[] = [];
+  const tagTerms = collectHashTags(cleaned);
 
   // Q1: Base AND (normalized + hard_terms)
   const baseParts: string[] = [];
@@ -157,5 +183,63 @@ export function buildQueriesFromPlan(plan: ChatNotesPlanResponse): PlanQueries {
   const entQuery = appendFilters(entOr, filters, true); // filters BEFORE any:1
   if (entQuery) queries.push({ label: 'entities', query: entQuery });
 
-  return { queries, filters, normalizedQuery: cleaned.normalized_query?.trim() ?? '', hardTerms: cleaned.hard_terms ?? [] };
+  for (const tag of tagTerms) {
+    if (!tag) continue;
+    const tagQuery = appendFilters(`tag:${escapeTerm(tag)}`, filters, true);
+    if (tagQuery) {
+      queries.push({ label: 'tags', query: tagQuery });
+    }
+  }
+
+  return {
+    queries,
+    filters,
+    normalizedQuery: cleaned.normalized_query?.trim() ?? '',
+    hardTerms: cleaned.hard_terms ?? [],
+  };
+}
+
+/** Rely on planner-provided tag filters plus inline `#tag` mentions for tag-specific queries. */
+function collectHashTags(plan: ChatNotesPlanResponse): string[] {
+  const collected = new Set<string>();
+  for (const tag of plan.filters?.tags ?? []) {
+    if (tag && tag.trim()) {
+      collected.add(tag.trim());
+    }
+  }
+
+  const sources = [
+    plan.normalized_query,
+    ...(plan.expansions ?? []),
+    ...(plan.hard_terms ?? []),
+    ...(plan.soft_terms ?? []),
+  ];
+  for (const text of sources) {
+    if (!text) continue;
+    let match: RegExpExecArray | null;
+    HASHTAG_REGEX.lastIndex = 0;
+    while ((match = HASHTAG_REGEX.exec(text)) !== null) {
+      const tag = match[1]?.trim();
+      if (tag) {
+        collected.add(tag);
+      }
+    }
+  }
+
+  return Array.from(collected);
+}
+
+function hasTemporalIntent(plan: ChatNotesPlanResponse): boolean {
+  const textSources = [
+    plan.normalized_query,
+    ...(plan.expansions ?? []),
+    ...(plan.hard_terms ?? []),
+    ...(plan.soft_terms ?? []),
+    ...(plan.entities ?? []),
+  ];
+  const combined = textSources
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return TIME_INTENT_REGEX.test(combined);
 }
