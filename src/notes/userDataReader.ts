@@ -1,5 +1,7 @@
-import { EmbStore, decodeQ8Vectors } from './userDataStore';
+import { EmbStore } from './userDataStore';
 import { BlockEmbedding } from './embeddings';
+import { ShardDecoder } from './shardDecoder';
+import { ShardLRUCache } from './userDataCache';
 
 export interface ReadEmbeddingsOptions {
   store: EmbStore;
@@ -18,11 +20,15 @@ export interface NoteEmbeddingsResult {
  * as `BlockEmbedding` objects so downstream search/chat code can reuse existing flows.
  *
  * Shards whose epoch differs from the current meta are ignored. If `maxRows` is set,
- * decoding stops once the cap is reached across all shards.
+ * decoding stops once the cap is reached across all shards. A reusable decoder and
+ * tiny LRU cache keep repeated lookups (chat follow-ups) cheap in both allocations
+ * and base64 decode cost.
  */
 export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
   const { store, noteIds, maxRows } = options;
   const results: NoteEmbeddingsResult[] = [];
+  const decoder = new ShardDecoder();
+  const cache = new ShardLRUCache(4);
 
   for (const noteId of noteIds) {
     const meta = await store.getMeta(noteId);
@@ -36,11 +42,22 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
       if (maxRows && rowsRead >= maxRows) {
         break;
       }
+      const cacheKey = `${noteId}:${meta.modelId}:${meta.current.epoch}:${i}`;
+      let cached = cache.get(cacheKey);
       const shard = await store.getShard(noteId, i);
       if (!shard || shard.epoch !== meta.current.epoch) {
         continue;
       }
-      const decoded = decodeQ8Vectors(shard);
+      if (!cached) {
+        const decoded = decoder.decode(shard);
+        cached = {
+          key: cacheKey,
+          vectors: decoded.vectors.slice(),
+          scales: decoded.scales.slice(),
+        };
+        cache.set(cached);
+      }
+      const decoded = { vectors: cached.vectors, scales: cached.scales };
       const shardRows = Math.min(decoded.vectors.length / meta.dim, shard.meta.length);
       for (let row = 0; row < shardRows; row += 1) {
         if (maxRows && rowsRead >= maxRows) {
