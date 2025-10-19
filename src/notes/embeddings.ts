@@ -2,11 +2,14 @@ import joplin from 'api';
 import { createHash } from 'crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
+import { UserDataEmbStore } from './userDataStore';
+import { prepareUserDataEmbeddings } from './userDataIndexer';
 import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
 import { search_keywords, ModelError, htmlToText } from '../utils';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
 const noteOcrCache = new Map<string, string>();
+const userDataStore = new UserDataEmbStore();
 
 async function appendOcrTextToBody(note: any): Promise<void> {
   if (!note || typeof note !== 'object' || note[ocrMergedFlag]) {
@@ -286,6 +289,8 @@ async function update_note(note: any,
 
     // insert new embeddings into DB
     await insert_note_embeddings(model.db, new_embd, model);
+
+    await maybeWriteUserDataEmbeddings(note, new_embd, model, settings, hash);
 
     return new_embd;
   } catch (error) {
@@ -798,4 +803,43 @@ function calc_hash(text: string): string {
 
 function convert_newlines(str: string): string {
   return str.replace(/\r\n|\r/g, '\n');
+}
+
+async function maybeWriteUserDataEmbeddings(
+  note: any,
+  blocks: BlockEmbedding[],
+  model: TextEmbeddingModel,
+  settings: JarvisSettings,
+  contentHash: string,
+): Promise<void> {
+  if (!settings.experimental_userDataIndex) {
+    if (note?.id) {
+      try {
+        await userDataStore.gcOld(note.id, model.id, contentHash);
+      } catch (error) {
+        console.warn(`Failed to clean userData embeddings for note ${note.id}:`, error);
+      }
+    }
+    return;
+  }
+  const noteId = note?.id;
+  if (!noteId) {
+    return;
+  }
+  try {
+    const prepared = await prepareUserDataEmbeddings({
+      noteId,
+      contentHash,
+      blocks,
+      model,
+      settings,
+      store: userDataStore,
+    });
+    if (!prepared) {
+      return;
+    }
+    await userDataStore.put(noteId, prepared.meta, prepared.shards);
+  } catch (error) {
+    console.warn(`Failed to persist userData embeddings for note ${noteId}:`, error);
+  }
 }

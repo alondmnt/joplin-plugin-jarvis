@@ -4,6 +4,7 @@
  * and are intentionally decoupled from any concrete storage implementation.
  */
 
+import { Buffer } from 'buffer';
 import joplin from 'api';
 import { ModelType } from 'api/types';
 
