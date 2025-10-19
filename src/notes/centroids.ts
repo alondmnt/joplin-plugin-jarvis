@@ -209,6 +209,62 @@ export function reservoirSampleVectors(
 }
 
 /**
+ * Compute cosine scores between a normalized query vector and each centroid in the set.
+ */
+export function scoreCentroids(query: Float32Array, centroids: LoadedCentroids): Float32Array {
+  if (query.length !== centroids.dim) {
+    return new Float32Array(0);
+  }
+  const scores = new Float32Array(centroids.nlist);
+  const { data, dim } = centroids;
+  for (let list = 0; list < centroids.nlist; list += 1) {
+    const base = list * dim;
+    let dot = 0;
+    for (let d = 0; d < dim; d += 1) {
+      dot += query[d] * data[base + d];
+    }
+    scores[list] = dot;
+  }
+  return scores;
+}
+
+/**
+ * Pick the ids of the top-scoring centroids for a query.
+ */
+export function selectTopCentroidIds(
+  query: Float32Array,
+  centroids: LoadedCentroids,
+  nprobe: number,
+): number[] {
+  if (nprobe <= 0 || centroids.nlist === 0) {
+    return [];
+  }
+  const scores = scoreCentroids(query, centroids);
+  if (scores.length === 0) {
+    return [];
+  }
+  const probeCount = Math.min(nprobe, scores.length);
+  const indices = Array.from({ length: scores.length }, (_, i) => i);
+  indices.sort((a, b) => scores[b] - scores[a]);
+  return indices.slice(0, probeCount);
+}
+
+/**
+ * Heuristic to choose how many IVF lists to probe for a given candidate pool size.
+ */
+export function chooseNprobe(nlist: number, candidateCount: number): number {
+  if (nlist <= 0) {
+    return 0;
+  }
+  const base = Math.max(1, Math.round(nlist * 0.05));
+  let probes = Math.max(8, base);
+  if (candidateCount > 0 && candidateCount < 2000) {
+    probes = Math.max(4, Math.round(probes / 2));
+  }
+  return Math.min(nlist, probes);
+}
+
+/**
  * Train IVF centroids using k-means with cosine similarity. Returns null when
  * there are not enough samples to produce multiple lists.
  */

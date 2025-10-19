@@ -1,7 +1,11 @@
+/**
+ * Cached shard payload reusing decoded q8 buffers to avoid repeated base64 work.
+ */
 export interface CachedShard {
   key: string;
   vectors: Int8Array;
   scales: Float32Array;
+  centroidIds?: Uint16Array;
 }
 
 /**

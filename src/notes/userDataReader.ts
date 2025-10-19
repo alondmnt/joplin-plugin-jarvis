@@ -8,6 +8,7 @@ export interface ReadEmbeddingsOptions {
   store: EmbStore;
   noteIds: string[];
   maxRows?: number;
+  allowedCentroidIds?: Set<number> | null;
 }
 
 export interface NoteEmbeddingsResult {
@@ -23,10 +24,11 @@ export interface NoteEmbeddingsResult {
  * Shards whose epoch differs from the current meta are ignored. If `maxRows` is set,
  * decoding stops once the cap is reached across all shards. A reusable decoder and
  * tiny LRU cache keep repeated lookups (chat follow-ups) cheap in both allocations
- * and base64 decode cost.
+ * and base64 decode cost. When `allowedCentroidIds` is supplied, rows whose IVF list
+ * is not in the set are skipped before converting back to Float32.
  */
 export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
-  const { store, noteIds, maxRows } = options;
+  const { store, noteIds, maxRows, allowedCentroidIds } = options;
   const results: NoteEmbeddingsResult[] = [];
   const decoder = new ShardDecoder();
   const cache = new ShardLRUCache(4);
@@ -55,16 +57,22 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
           key: cacheKey,
           vectors: decoded.vectors.slice(),
           scales: decoded.scales.slice(),
+          // Keep centroid assignments so IVF-aware ranking can filter without re-decoding.
+          centroidIds: decoded.centroidIds ? decoded.centroidIds.slice() : undefined,
         };
         cache.set(cached);
       }
-      const decoded = { vectors: cached.vectors, scales: cached.scales };
+      const decoded = { vectors: cached.vectors, scales: cached.scales, centroids: cached.centroidIds };
       const shardRows = Math.min(decoded.vectors.length / meta.dim, shard.meta.length);
       for (let row = 0; row < shardRows; row += 1) {
         if (maxRows && rowsRead >= maxRows) {
           break;
         }
         const metaRow = shard.meta[row];
+        const centroidId = decoded.centroids ? decoded.centroids[row] : undefined;
+        if (allowedCentroidIds && centroidId !== undefined && !allowedCentroidIds.has(centroidId)) {
+          continue;
+        }
         const rowScale = decoded.scales[row] ?? 0; // Zero when vector is empty; clamp downstream.
         const q8Row: QuantizedRowView = {
           values: decoded.vectors.subarray(row * meta.dim, (row + 1) * meta.dim),
@@ -81,6 +89,7 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
           embedding: extractRowVector(decoded.vectors, decoded.scales, meta.dim, row),
           similarity: 0,
           q8: q8Row,
+          centroidId, // Preserve IVF assignments for later filtering.
         });
         rowsRead += 1;
       }

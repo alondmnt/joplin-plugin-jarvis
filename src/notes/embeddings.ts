@@ -10,6 +10,8 @@ import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../model
 import { search_keywords, ModelError, htmlToText } from '../utils';
 import { quantizeVectorToQ8, cosineSimilarityQ8, QuantizedRowView } from './q8';
 import { TopKHeap } from './topK';
+import { loadModelCentroids } from './centroidLoader';
+import { chooseNprobe, selectTopCentroidIds, MIN_TOTAL_ROWS_FOR_IVF } from './centroids';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
 const noteOcrCache = new Map<string, string>();
@@ -72,6 +74,7 @@ export interface BlockEmbedding {
   embedding: Float32Array;  // block embedding
   similarity: number;  // similarity to the query
   q8?: QuantizedRowView;  // optional q8 view used for cosine scoring
+  centroidId?: number;  // optional IVF list id (when shards store assignments)
 }
 
 export interface NoteEmbedding {
@@ -579,27 +582,6 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   let combinedEmbeddings = embeddings;
 
-  if (settings.experimental_userDataIndex) {
-    const candidateIds = new Set(combinedEmbeddings.map(embed => embed.id));
-    candidateIds.add(current_id);
-    try {
-      const userDataResults = await readUserDataEmbeddings({
-        store: userDataStore,
-        noteIds: Array.from(candidateIds),
-      });
-      if (userDataResults.length > 0) {
-        const replaceIds = new Set(userDataResults.map(result => result.noteId));
-        const userBlocks = userDataResults.flatMap(result => result.blocks);
-        const legacyBlocks = combinedEmbeddings.filter(embed => !replaceIds.has(embed.id));
-        combinedEmbeddings = legacyBlocks.concat(userBlocks);
-        remove_note_embeddings(model.embeddings, Array.from(replaceIds));
-        model.embeddings.push(...userBlocks);
-      }
-    } catch (error) {
-      log.warn('Failed to load userData embeddings', error);
-    }
-  }
-
   // convert HTML to Markdown if needed (must happen before hash calculation)
   if (markup_language === 2) {
     try {
@@ -662,13 +644,61 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   }
   let rep_embedding = calc_mean_embedding(query_embeddings);
 
-  // include links in the representation of the query
+  const computeAllowedCentroids = async (queryVector: Float32Array, candidateCount: number): Promise<Set<number> | null> => {
+    if (!settings.experimental_userDataIndex || candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
+      return null;
+    }
+    const centroids = await loadModelCentroids(model.id);
+    if (!centroids || centroids.dim !== queryVector.length || centroids.nlist <= 0) {
+      return null;
+    }
+    const nprobe = chooseNprobe(centroids.nlist, candidateCount);
+    if (nprobe <= 0) {
+      return null;
+    }
+    const topIds = selectTopCentroidIds(queryVector, centroids, nprobe);
+    return topIds.length > 0 ? new Set(topIds) : null;
+  };
+
+  let preloadAllowedCentroidIds: Set<number> | null = null;
+  if (rep_embedding) {
+    preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, combinedEmbeddings.length);
+  }
+
+  if (settings.experimental_userDataIndex) {
+    const candidateIds = new Set(combinedEmbeddings.map(embed => embed.id));
+    candidateIds.add(current_id);
+    try {
+      const userDataResults = await readUserDataEmbeddings({
+        store: userDataStore,
+        noteIds: Array.from(candidateIds),
+        allowedCentroidIds: preloadAllowedCentroidIds,
+      });
+      if (userDataResults.length > 0) {
+        const replaceIds = new Set(userDataResults.map(result => result.noteId));
+        const userBlocks = userDataResults.flatMap(result => result.blocks);
+        const legacyBlocks = combinedEmbeddings.filter(embed => !replaceIds.has(embed.id));
+        combinedEmbeddings = legacyBlocks.concat(userBlocks);
+        remove_note_embeddings(model.embeddings, Array.from(replaceIds));
+        model.embeddings.push(...userBlocks);
+      }
+    } catch (error) {
+      log.warn('Failed to load userData embeddings', error);
+    }
+  }
+
+  // include links in the representation of the query using the updated candidate pool
   if (settings.notes_include_links) {
     const links_embedding = calc_links_embedding(query, combinedEmbeddings);
     if (links_embedding) {
       rep_embedding = calc_mean_embedding_float32([rep_embedding, links_embedding],
         [1 - settings.notes_include_links, settings.notes_include_links]);
     }
+  }
+
+  let allowedCentroidIds = await computeAllowedCentroids(rep_embedding, combinedEmbeddings.length);
+  if (!allowedCentroidIds) {
+    allowedCentroidIds = preloadAllowedCentroidIds;
   }
 
   const queryQ8 = quantizeVectorToQ8(rep_embedding);
@@ -688,6 +718,10 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       continue;
     }
     if (embed.id === current_id) {
+      continue;
+    }
+    if (allowedCentroidIds && embed.centroidId !== undefined && !allowedCentroidIds.has(embed.centroidId)) {
+      // The row belongs to a list we decided not to probe for this query.
       continue;
     }
     filtered.push(embed);
