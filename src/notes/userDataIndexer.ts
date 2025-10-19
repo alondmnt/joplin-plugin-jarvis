@@ -6,6 +6,9 @@ import { EmbStore, NoteEmbMeta, NoteEmbHistoryEntry, EmbShard } from './userData
 import { buildBlockRowMeta } from './blockMeta';
 import { quantizePerRow } from './q8';
 import { buildShards } from './shards';
+import { writeAnchorMetadata } from './anchorStore';
+import { ensureCatalogNote, ensureModelAnchor } from './catalog';
+import { getLogger } from '../utils/logger';
 
 export interface PrepareUserDataParams {
   noteId: string;
@@ -26,6 +29,8 @@ export interface PreparedUserData {
  * Prepare per-note metadata and shards for userData storage. Returns null when
  * there are no blocks or the embedding dimension cannot be inferred.
  */
+const log = getLogger();
+
 export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): Promise<PreparedUserData | null> {
   const { noteId, contentHash, blocks, model, settings, store } = params;
 
@@ -83,6 +88,22 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
     },
     history,
   };
+
+  if (settings.experimental_userDataIndex) {
+    try {
+      const catalogId = await ensureCatalogNote();
+      const anchorId = await ensureModelAnchor(catalogId, model.id, model.version ?? 'unknown');
+      await writeAnchorMetadata(anchorId, {
+        modelId: model.id,
+        dim,
+        version: model.version ?? 'unknown',
+        hash: computeSettingsHash(settings),
+        updatedAt,
+      });
+    } catch (error) {
+      log.warn('Failed to update model anchor metadata', { modelId: model.id, error });
+    }
+  }
 
   return { meta, shards };
 }
