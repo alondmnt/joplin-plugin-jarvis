@@ -67,6 +67,7 @@ export interface JarvisSettings {
   notes_panel_user_style: string;
   notes_abort_on_error: boolean;
   notes_embed_timeout: number;
+  experimental_userDataIndex: boolean;
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -282,6 +283,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
+    experimental_userDataIndex: await joplin.settings.value('experimental.userDataIndex'),
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
@@ -584,6 +586,15 @@ export async function register_settings() {
       advanced: true,
       label: 'Notes: Embedding timeout (sec)',
       description: 'The maximal time to wait for an embedding response in seconds. Set to 0 to disable. Default: 20',
+    },
+    'experimental.userDataIndex': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: Per-note userData index',
+      description: 'Enable the next-generation embeddings store that persists per note via userData. Defaults to disabled.',
     },
     'notes_embed_title': {
       value: true,
