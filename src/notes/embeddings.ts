@@ -4,6 +4,7 @@ import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } fro
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { UserDataEmbStore } from './userDataStore';
 import { prepareUserDataEmbeddings } from './userDataIndexer';
+import { readUserDataEmbeddings } from './userDataReader';
 import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
 import { search_keywords, ModelError, htmlToText } from '../utils';
 
@@ -571,6 +572,29 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true):
     Promise<NoteEmbedding[]> {
 
+  let combinedEmbeddings = embeddings;
+
+  if (settings.experimental_userDataIndex) {
+    const candidateIds = new Set(combinedEmbeddings.map(embed => embed.id));
+    candidateIds.add(current_id);
+    try {
+      const userDataResults = await readUserDataEmbeddings({
+        store: userDataStore,
+        noteIds: Array.from(candidateIds),
+      });
+      if (userDataResults.length > 0) {
+        const replaceIds = new Set(userDataResults.map(result => result.noteId));
+        const userBlocks = userDataResults.flatMap(result => result.blocks);
+        const legacyBlocks = combinedEmbeddings.filter(embed => !replaceIds.has(embed.id));
+        combinedEmbeddings = legacyBlocks.concat(userBlocks);
+        remove_note_embeddings(model.embeddings, Array.from(replaceIds));
+        model.embeddings.push(...userBlocks);
+      }
+    } catch (error) {
+      console.warn('Failed to load userData embeddings:', error);
+    }
+  }
+
   // convert HTML to Markdown if needed (must happen before hash calculation)
   if (markup_language === 2) {
     try {
@@ -580,7 +604,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }
   }
   // check if to re-calculate embedding of the query
-  let query_embeddings = embeddings.filter(embd => embd.id === current_id);
+  let query_embeddings = combinedEmbeddings.filter(embd => embd.id === current_id);
   const hasCachedQueryEmbedding = query_embeddings.length > 0;
   if ((query_embeddings.length == 0) || (query_embeddings[0].hash !== calc_hash(query))) {
     // re-calculate embedding of the query
@@ -635,7 +659,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   // include links in the representation of the query
   if (settings.notes_include_links) {
-    const links_embedding = calc_links_embedding(query, embeddings);
+    const links_embedding = calc_links_embedding(query, combinedEmbeddings);
     if (links_embedding) {
       rep_embedding = calc_mean_embedding_float32([rep_embedding, links_embedding],
         [1 - settings.notes_include_links, settings.notes_include_links]);
@@ -643,7 +667,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   }
 
   // calculate the similarity between the query and each embedding, and filter by it
-  const nearest = (await Promise.all(embeddings.map(
+  const nearest = (await Promise.all(combinedEmbeddings.map(
     async (embed: BlockEmbedding): Promise<BlockEmbedding> => {
     embed.similarity = calc_similarity(rep_embedding, embed.embedding);
     return embed;
@@ -815,7 +839,7 @@ async function maybeWriteUserDataEmbeddings(
   if (!settings.experimental_userDataIndex) {
     if (note?.id) {
       try {
-        await userDataStore.gcOld(note.id, model.id, contentHash);
+        await userDataStore.gcOld(note.id, '', '');
       } catch (error) {
         console.warn(`Failed to clean userData embeddings for note ${note.id}:`, error);
       }
