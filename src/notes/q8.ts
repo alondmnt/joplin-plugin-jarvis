@@ -1,3 +1,6 @@
+/**
+ * Result of quantizing a collection of vectors row-by-row.
+ */
 export interface QuantizeResult {
   dim: number;
   rows: number;
@@ -55,4 +58,47 @@ export function quantizePerRow(vectors: Float32Array[]): QuantizeResult {
   }
 
   return { dim, rows, vectors: qVectors, scales };
+}
+
+/**
+ * Compact q8 representation of a single vector, paired with the scale used during quantization.
+ */
+export interface QuantizedVector {
+  values: Int8Array;
+  scale: number;
+}
+
+/**
+ * View of a quantized row inside a shard. Holds a slice of the shared Int8 buffer plus its scale.
+ */
+export interface QuantizedRowView {
+  values: Int8Array;
+  scale: number;
+}
+
+/**
+ * Quantize a normalized Float32 vector to q8 so callers can reuse shard-style cosine scoring.
+ */
+export function quantizeVectorToQ8(vector: Float32Array): QuantizedVector {
+  const result = quantizePerRow([vector]);
+  const scale = result.scales[0] ?? 1;
+  return {
+    values: result.vectors.subarray(0, result.dim),
+    scale: scale === 0 ? 1 : scale,
+  };
+}
+
+/**
+ * Compute cosine similarity between a q8 row and q8 query. Both vectors must share the same dimension.
+ */
+export function cosineSimilarityQ8(row: QuantizedRowView, query: QuantizedVector): number {
+  const dim = query.values.length;
+  if (row.values.length !== dim) {
+    throw new Error(`q8 dimension mismatch: row=${row.values.length}, query=${dim}`);
+  }
+  let dot = 0;
+  for (let i = 0; i < dim; i += 1) {
+    dot += row.values[i] * query.values[i];
+  }
+  return dot * row.scale * query.scale;
 }

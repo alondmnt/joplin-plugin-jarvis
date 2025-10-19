@@ -2,6 +2,7 @@ import { EmbStore } from './userDataStore';
 import { BlockEmbedding } from './embeddings';
 import { ShardDecoder } from './shardDecoder';
 import { ShardLRUCache } from './userDataCache';
+import type { QuantizedRowView } from './q8';
 
 export interface ReadEmbeddingsOptions {
   store: EmbStore;
@@ -64,6 +65,11 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
           break;
         }
         const metaRow = shard.meta[row];
+        const rowScale = decoded.scales[row] ?? 0; // Zero when vector is empty; clamp downstream.
+        const q8Row: QuantizedRowView = {
+          values: decoded.vectors.subarray(row * meta.dim, (row + 1) * meta.dim),
+          scale: rowScale === 0 ? 1 : rowScale,
+        };
         blocks.push({
           id: metaRow.noteId,
           hash: metaRow.noteHash,
@@ -74,6 +80,7 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
           title: metaRow.title,
           embedding: extractRowVector(decoded.vectors, decoded.scales, meta.dim, row),
           similarity: 0,
+          q8: q8Row,
         });
         rowsRead += 1;
       }

@@ -8,6 +8,8 @@ import { readUserDataEmbeddings } from './userDataReader';
 import { getLogger } from '../utils/logger';
 import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
 import { search_keywords, ModelError, htmlToText } from '../utils';
+import { quantizeVectorToQ8, cosineSimilarityQ8, QuantizedRowView } from './q8';
+import { TopKHeap } from './topK';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
 const noteOcrCache = new Map<string, string>();
@@ -69,6 +71,7 @@ export interface BlockEmbedding {
   title: string;  // heading title
   embedding: Float32Array;  // block embedding
   similarity: number;  // similarity to the query
+  q8?: QuantizedRowView;  // optional q8 view used for cosine scoring
 }
 
 export interface NoteEmbedding {
@@ -668,13 +671,27 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }
   }
 
-  // calculate the similarity between the query and each embedding, and filter by it
-  const nearest = (await Promise.all(combinedEmbeddings.map(
-    async (embed: BlockEmbedding): Promise<BlockEmbedding> => {
-    embed.similarity = calc_similarity(rep_embedding, embed.embedding);
-    return embed;
+  const queryQ8 = quantizeVectorToQ8(rep_embedding);
+  const filtered: BlockEmbedding[] = [];
+  for (const embed of combinedEmbeddings) {
+    let similarity: number;
+    if (embed.q8 && embed.q8.values.length === queryQ8.values.length) {
+      similarity = cosineSimilarityQ8(embed.q8, queryQ8);
+    } else {
+      similarity = calc_similarity(rep_embedding, embed.embedding);
+    }
+    embed.similarity = similarity;
+    if (similarity < settings.notes_min_similarity) {
+      continue;
+    }
+    if (embed.length < settings.notes_min_length) {
+      continue;
+    }
+    if (embed.id === current_id) {
+      continue;
+    }
+    filtered.push(embed);
   }
-  ))).filter((embd) => (embd.similarity >= settings.notes_min_similarity) && (embd.length >= settings.notes_min_length) && (embd.id !== current_id));
 
   if (!return_grouped_notes) {
     // return the sorted list of block embeddings in a NoteEmbdedding[] object
@@ -684,9 +701,24 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     return [{
       id: current_id,
       title: 'Chat context',
-      embeddings: nearest.sort((a, b) => b.similarity - a.similarity),
+      embeddings: filtered.sort((a, b) => b.similarity - a.similarity),
       similarity: null,
     }];
+  }
+
+  const heapCapacity = Math.max(settings.notes_max_hits * 8, 256); // Keep extra buffer so per-note grouping remains rich.
+  const nearestSource = filtered.length <= heapCapacity
+    ? filtered
+    : new TopKHeap<BlockEmbedding>(heapCapacity, { minScore: settings.notes_min_similarity });
+
+  let nearest: BlockEmbedding[];
+  if (Array.isArray(nearestSource)) {
+    nearest = nearestSource;
+  } else {
+    for (const embed of filtered) {
+      nearestSource.push(embed.similarity, embed);
+    }
+    nearest = nearestSource.valuesDescending().map(entry => entry.value);
   }
 
   // group the embeddings by note id
