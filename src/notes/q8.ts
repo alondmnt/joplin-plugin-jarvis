@@ -5,6 +5,10 @@ export interface QuantizeResult {
   scales: Float32Array;
 }
 
+/**
+ * Quantize each Float32 vector independently to q8 with a per-row scale. Intended
+ * for lossy storage ahead of base64 encoding.
+ */
 export function quantizePerRow(vectors: Float32Array[]): QuantizeResult {
   const rows = vectors.length;
   if (rows === 0) {
@@ -40,7 +44,7 @@ export function quantizePerRow(vectors: Float32Array[]): QuantizeResult {
 
     const scale = maxAbs > 0 ? maxAbs / 127 : 1;
     scales[row] = scale;
-    const invScale = scale > 0 ? 1 / scale : 0;
+    const invScale = scale > 0 ? 1 / scale : 0; // guard divide-by-zero when vector is all zeros
     const base = row * dim;
 
     for (let i = 0; i < dim; i += 1) {

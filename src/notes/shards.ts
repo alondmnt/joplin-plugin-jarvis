@@ -9,8 +9,12 @@ export interface BuildShardsOptions {
   targetBytes?: number;
 }
 
-const DEFAULT_TARGET_BYTES = 300_000;
+const DEFAULT_TARGET_BYTES = 300_000; // stay under conservative sync limits (~300 KB per shard)
 
+/**
+ * Chunk quantized vectors + metadata into base64 shards sized for userData. Each
+ * shard is encoded independently so readers can stream them on demand.
+ */
 export function buildShards(options: BuildShardsOptions): EmbShard[] {
   const { epoch, quantized, meta } = options;
   const rows = quantized.rows;
@@ -36,7 +40,7 @@ export function buildShards(options: BuildShardsOptions): EmbShard[] {
     shardRows = Math.max(shardRows, 1);
 
     while (shardRows > 1) {
-      const estimatedSize = estimateShardSize(dim, shardRows, Boolean(options.centroidIds));
+      const estimatedSize = estimateShardSize(dim, shardRows, Boolean(options.centroidIds)); // shrink until shard fits target budget
       if (estimatedSize <= targetBytes) {
         break;
       }
@@ -44,15 +48,15 @@ export function buildShards(options: BuildShardsOptions): EmbShard[] {
     }
 
     const end = start + shardRows;
-  const vectorSlice = quantized.vectors.subarray(start * dim, end * dim);
-  const scaleSlice = quantized.scales.subarray(start, end);
-  const centroidSlice = options.centroidIds ? options.centroidIds.subarray(start, end) : undefined;
+    const vectorSlice = quantized.vectors.subarray(start * dim, end * dim);
+    const scaleSlice = quantized.scales.subarray(start, end);
+    const centroidSlice = options.centroidIds ? options.centroidIds.subarray(start, end) : undefined;
 
-  const payload = encodeQ8Vectors({
-    vectors: new Int8Array(vectorSlice), // ensure slices have tight backing buffer
-    scales: new Float32Array(scaleSlice),
-    centroidIds: centroidSlice ? new Uint16Array(centroidSlice) : undefined,
-  });
+    const payload = encodeQ8Vectors({
+      vectors: new Int8Array(vectorSlice), // ensure slices have tight backing buffer
+      scales: new Float32Array(scaleSlice),
+      centroidIds: centroidSlice ? new Uint16Array(centroidSlice) : undefined,
+    });
 
     shards.push({
       epoch,

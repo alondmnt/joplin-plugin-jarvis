@@ -22,6 +22,10 @@ export interface PreparedUserData {
   shards: EmbShard[];
 }
 
+/**
+ * Prepare per-note metadata and shards for userData storage. Returns null when
+ * there are no blocks or the embedding dimension cannot be inferred.
+ */
 export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): Promise<PreparedUserData | null> {
   const { noteId, contentHash, blocks, model, settings, store } = params;
 
@@ -83,6 +87,10 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
   return { meta, shards };
 }
 
+/**
+ * Build history array by tacking the previous meta's current snapshot to the front
+ * and appending already-recorded history entries.
+ */
 function buildHistory(previousMeta: NoteEmbMeta | null | undefined): NoteEmbHistoryEntry[] | undefined {
   if (!previousMeta) {
     return undefined;
@@ -103,6 +111,9 @@ function buildHistory(previousMeta: NoteEmbMeta | null | undefined): NoteEmbHist
   return entries;
 }
 
+/**
+ * Hash the subset of settings that influence embedding content to detect drift.
+ */
 function computeSettingsHash(settings: JarvisSettings): string {
   const relevant = {
     embedTitle: settings.notes_embed_title,

@@ -92,6 +92,10 @@ export function shardKey(modelId: string, index: number): StoreKey {
   return `jarvis/v1/emb/${modelId}/live/${index}`;
 }
 
+/**
+ * Encode quantized vectors and scales back to base64 strings suitable for storage
+ * in userData. Accepts typed arrays and preserves tight slices to avoid copying.
+ */
 export function encodeQ8Vectors(data: Q8Vectors): Pick<EmbShard, 'vectorsB64' | 'scalesB64' | 'centroidIdsB64'> {
   const result: Pick<EmbShard, 'vectorsB64' | 'scalesB64' | 'centroidIdsB64'> = {
     vectorsB64: Buffer.from(data.vectors.buffer, data.vectors.byteOffset, data.vectors.byteLength).toString('base64'),
@@ -107,6 +111,10 @@ export function encodeQ8Vectors(data: Q8Vectors): Pick<EmbShard, 'vectorsB64' | 
   return result;
 }
 
+/**
+ * Decode a shard payload from base64 back into its typed array components for
+ * ranking. Returns Int8 vectors, Float32 scales, and optional Uint16 centroid ids.
+ */
 export function decodeQ8Vectors(shard: EmbShard): Q8Vectors {
   const vectors = Buffer.from(shard.vectorsB64, 'base64');
   const scales = Buffer.from(shard.scalesB64, 'base64');
@@ -162,6 +170,10 @@ const defaultClient: UserDataClient = {
   },
 };
 
+/**
+ * `EmbStore` backed by Joplin note-scoped userData. Handles LRU caching, history
+ * trimming, and cleaning up legacy shard slots on updates.
+ */
 export class UserDataEmbStore implements EmbStore {
   private readonly metaCache: Map<string, NoteEmbMeta>;
   private readonly maxCacheSize: number;
@@ -257,6 +269,10 @@ export class UserDataEmbStore implements EmbStore {
     }
   }
 
+  /**
+   * Drop stored shards/meta when the caller no longer wants this note/model/hash
+   * retained (e.g., flag disabled or content changed). No-ops when already clean.
+   */
   async gcOld(noteId: string, keepModelId: string, keepHash: string): Promise<void> {
     const meta = await this.getMeta(noteId);
     if (!meta) {
