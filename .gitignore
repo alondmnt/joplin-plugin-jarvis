@@ -1,6 +1,6 @@
-dist/
-node_modules/
-publish/
-notes/
+/dist/
+/node_modules/
+/publish/
+/notes/
 .DS_Store
 package-lock.json
