@@ -9,6 +9,7 @@ export interface ReadEmbeddingsOptions {
   noteIds: string[];
   maxRows?: number;
   allowedCentroidIds?: Set<number> | null;
+  onBlock?: (block: BlockEmbedding, noteId: string) => boolean | void;
 }
 
 export interface NoteEmbeddingsResult {
@@ -29,11 +30,13 @@ export interface NoteEmbeddingsResult {
  * `maxRows` cap applies across all notes in the request.
  */
 export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
-  const { store, noteIds, maxRows, allowedCentroidIds } = options;
+  const { store, noteIds, maxRows, allowedCentroidIds, onBlock } = options;
   const results: NoteEmbeddingsResult[] = [];
   const decoder = new ShardDecoder();
   const cache = new ShardLRUCache(4);
+  const useCallback = typeof onBlock === 'function';
   let remaining = typeof maxRows === 'number' ? Math.max(0, maxRows) : Number.POSITIVE_INFINITY;
+  let stopAll = false;
 
   for (const noteId of noteIds) {
     if (remaining <= 0) {
@@ -58,17 +61,23 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
       }
       if (!cached) {
         const decoded = decoder.decode(shard);
-        const prepared = {
-          key: cacheKey,
-          vectors: decoded.vectors.slice(),
-          scales: decoded.scales.slice(),
-          // Keep centroid assignments so IVF-aware ranking can filter without re-decoding.
-          centroidIds: decoded.centroidIds ? decoded.centroidIds.slice() : undefined,
-        };
-        if (!allowedCentroidIds) {
-          cache.set(prepared);
+        if (useCallback) {
+          cached = {
+            key: cacheKey,
+            vectors: decoded.vectors,
+            scales: decoded.scales,
+            centroidIds: decoded.centroidIds ?? undefined,
+          };
+        } else {
+          cached = {
+            key: cacheKey,
+            vectors: decoded.vectors.slice(),
+            scales: decoded.scales.slice(),
+            // Keep centroid assignments so IVF-aware ranking can filter without re-decoding.
+            centroidIds: decoded.centroidIds ? decoded.centroidIds.slice() : undefined,
+          };
+          cache.set(cached);
         }
-        cached = prepared;
       }
       const active = cached!;
       const decoded = {
@@ -87,11 +96,16 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
           continue;
         }
         const rowScale = decoded.scales[row] ?? 0; // Zero when vector is empty; clamp downstream.
+        const rowStart = row * meta.dim;
+        const vectorSlice = decoded.vectors.subarray(rowStart, rowStart + meta.dim); // shared view unless we force a copy
+        const q8Values = (useCallback || allowedCentroidIds)
+          ? Int8Array.from(vectorSlice)
+          : vectorSlice;
         const q8Row: QuantizedRowView = {
-          values: decoded.vectors.subarray(row * meta.dim, (row + 1) * meta.dim),
+          values: q8Values,
           scale: rowScale === 0 ? 1 : rowScale,
         };
-        blocks.push({
+        const block: BlockEmbedding = {
           id: metaRow.noteId,
           hash: metaRow.noteHash,
           line: metaRow.lineNumber,
@@ -99,28 +113,44 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
           length: metaRow.bodyLength,
           level: metaRow.headingLevel,
           title: metaRow.title,
-          embedding: extractRowVector(decoded.vectors, decoded.scales, meta.dim, row),
+          embedding: useCallback ? new Float32Array(0) : extractRowVector(decoded.vectors, decoded.scales, meta.dim, row),
           similarity: 0,
           q8: q8Row,
           centroidId, // Preserve IVF assignments for later filtering.
-        });
-        rowsRead += 1;
-        remaining -= 1;
-        if (remaining <= 0) {
-          break;
+        };
+        if (useCallback) {
+          const shouldStop = onBlock!(block, noteId);
+          rowsRead += 1;
+          remaining -= 1;
+          if (shouldStop) {
+            stopAll = true;
+            remaining = 0;
+            break;
+          }
+        } else {
+          blocks.push(block);
+          rowsRead += 1;
+          remaining -= 1;
+          if (remaining <= 0) {
+            break;
+          }
         }
       }
-      if (remaining <= 0) {
+      if (remaining <= 0 || stopAll) {
         break;
       }
     }
 
-    if (blocks.length > 0) {
+    if (!useCallback && blocks.length > 0) {
       results.push({
         noteId,
         hash: meta.current.contentHash,
         blocks,
       });
+    }
+
+    if (stopAll) {
+      break;
     }
   }
 

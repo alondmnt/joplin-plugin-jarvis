@@ -19,9 +19,12 @@ const userDataStore = new UserDataEmbStore();
 const log = getLogger();
 
 interface SearchTuning {
+  profile: 'desktop' | 'mobile';
   candidateLimit: number;
   minNprobe: number;
   smallSetNprobe: number;
+  maxRows: number;
+  timeBudgetMs: number;
 }
 
 /**
@@ -29,23 +32,80 @@ interface SearchTuning {
  */
 function resolveSearchTuning(settings: JarvisSettings): SearchTuning {
   const baseHits = Math.max(settings.notes_max_hits, 1);
-  const candidateLimitSetting = Number(settings.notes_ivf_candidate_limit ?? 0);
-  const candidateLimit = candidateLimitSetting > 0
-    ? Math.max(256, candidateLimitSetting)
-    : Math.max(512, baseHits * 32); // fall back to a heuristic tied to desired hits
-  const minNprobeSetting = Number(settings.notes_ivf_min_nprobe ?? 0);
-  const minNprobe = minNprobeSetting > 0
-    ? Math.max(1, minNprobeSetting)
+  const profileSetting = settings.notes_device_profile ?? 'auto';
+  const profile: 'desktop' | 'mobile' = profileSetting === 'mobile' ? 'mobile' : 'desktop';
+
+  const generalCandidateSetting = Number(settings.notes_ivf_candidate_limit ?? 0);
+  const generalCandidateLimit = generalCandidateSetting > 0
+    ? Math.max(256, generalCandidateSetting)
+    : Math.max(512, baseHits * 32);
+  const mobileCandidateSetting = Number(settings.notes_mobile_candidate_limit ?? 0);
+  const mobileCandidateLimit = mobileCandidateSetting > 0
+    ? Math.max(256, mobileCandidateSetting)
+    : Math.max(256, Math.floor(generalCandidateLimit / 2));
+  const candidateLimit = profile === 'mobile' ? mobileCandidateLimit : generalCandidateLimit;
+
+  const generalMinNprobeSetting = Number(settings.notes_ivf_min_nprobe ?? 0);
+  let minNprobe = generalMinNprobeSetting > 0
+    ? Math.max(1, generalMinNprobeSetting)
     : (baseHits >= 20 ? 12 : 8);
-  const smallSetSetting = Number(settings.notes_ivf_small_set_nprobe ?? 0);
-  const smallSetNprobe = smallSetSetting > 0
-    ? Math.max(1, Math.min(minNprobe, smallSetSetting))
-    : Math.max(4, Math.round(minNprobe / 2)); // avoid probing too many lists for small pools
+  const mobileMinNprobeSetting = Number(settings.notes_mobile_min_nprobe ?? 0);
+  if (profile === 'mobile' && mobileMinNprobeSetting > 0) {
+    minNprobe = Math.max(1, mobileMinNprobeSetting);
+  }
+
+  const generalSmallSetSetting = Number(settings.notes_ivf_small_set_nprobe ?? 0);
+  let smallSetNprobe = generalSmallSetSetting > 0
+    ? Math.max(1, Math.min(minNprobe, generalSmallSetSetting))
+    : Math.max(4, Math.round(minNprobe / 2));
+  const mobileSmallSetSetting = Number(settings.notes_mobile_small_set_nprobe ?? 0);
+  if (profile === 'mobile' && mobileSmallSetSetting > 0) {
+    smallSetNprobe = Math.max(1, Math.min(minNprobe, mobileSmallSetSetting));
+  }
+
+  const mobileMaxRowsSetting = Number(settings.notes_mobile_max_rows ?? 0);
+  const maxRows = profile === 'mobile'
+    ? (mobileMaxRowsSetting > 0 ? Math.max(1, mobileMaxRowsSetting) : candidateLimit)
+    : candidateLimit;
+
+  const generalTimeBudget = Number(settings.notes_ivf_time_budget_ms ?? 0);
+  let timeBudgetMs = generalTimeBudget > 0 ? generalTimeBudget : (profile === 'mobile' ? 150 : 300);
+  const mobileTimeBudget = Number(settings.notes_mobile_time_budget_ms ?? 0);
+  if (profile === 'mobile' && mobileTimeBudget > 0) {
+    timeBudgetMs = mobileTimeBudget;
+  }
+  const desktopTimeBudget = Number(settings.notes_desktop_time_budget_ms ?? 0);
+  if (profile === 'desktop' && desktopTimeBudget > 0) {
+    timeBudgetMs = desktopTimeBudget;
+  }
+
   return {
+    profile,
     candidateLimit,
     minNprobe,
     smallSetNprobe,
+    maxRows,
+    timeBudgetMs,
   };
+}
+
+function ensureFloatEmbedding(block: BlockEmbedding): Float32Array {
+  if (block.embedding && block.embedding.length > 0) {
+    return block.embedding;
+  }
+  const q8 = block.q8;
+  if (!q8) {
+    block.embedding = new Float32Array(0);
+    return block.embedding;
+  }
+  const dim = q8.values.length;
+  const floats = new Float32Array(dim);
+  const scale = q8.scale;
+  for (let i = 0; i < dim; i += 1) {
+    floats[i] = q8.values[i] * scale;
+  }
+  block.embedding = floats;
+  return block.embedding;
 }
 
 async function appendOcrTextToBody(note: any): Promise<void> {
@@ -689,6 +749,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   const tuning = resolveSearchTuning(settings);
 
+  const queryQ8 = quantizeVectorToQ8(rep_embedding);
+
   const computeAllowedCentroids = async (queryVector: Float32Array, candidateCount: number): Promise<Set<number> | null> => {
     if (!settings.experimental_userDataIndex || candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
       return null;
@@ -716,24 +778,52 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   if (settings.experimental_userDataIndex) {
     const candidateIds = new Set(combinedEmbeddings.map(embed => embed.id));
     candidateIds.add(current_id);
+    const replaceIds = new Set<string>();
+    const userBlocksHeap = new TopKHeap<BlockEmbedding>(tuning.candidateLimit, {
+      minScore: settings.notes_min_similarity,
+    });
+    const deadline = tuning.timeBudgetMs > 0 ? Date.now() + tuning.timeBudgetMs : Number.POSITIVE_INFINITY;
     try {
-      const userDataResults = await readUserDataEmbeddings({
+      await readUserDataEmbeddings({
         store: userDataStore,
         noteIds: Array.from(candidateIds),
-        // Limit how many rows we pull into memory for this query and skip non-probed lists.
-        maxRows: tuning.candidateLimit,
+        maxRows: tuning.maxRows,
         allowedCentroidIds: preloadAllowedCentroidIds,
+        onBlock: (block) => {
+          if (deadline !== Number.POSITIVE_INFINITY && Date.now() > deadline) {
+            return true;
+          }
+          if (block.length < settings.notes_min_length || block.id === current_id) {
+            return false;
+          }
+          const similarity = block.q8 && block.q8.values.length === queryQ8.values.length
+            ? cosineSimilarityQ8(block.q8, queryQ8)
+            : calc_similarity(rep_embedding, ensureFloatEmbedding(block));
+          if (similarity < settings.notes_min_similarity) {
+            return false;
+          }
+          block.similarity = similarity;
+          replaceIds.add(block.id);
+          userBlocksHeap.push(similarity, block);
+          return false;
+        },
       });
-      if (userDataResults.length > 0) {
-        const replaceIds = new Set(userDataResults.map(result => result.noteId));
-        const userBlocks = userDataResults.flatMap(result => result.blocks);
-        const legacyBlocks = combinedEmbeddings.filter(embed => !replaceIds.has(embed.id));
-        combinedEmbeddings = legacyBlocks.concat(userBlocks);
-        remove_note_embeddings(model.embeddings, Array.from(replaceIds));
-        model.embeddings.push(...userBlocks);
-      }
     } catch (error) {
       log.warn('Failed to load userData embeddings', error);
+    }
+
+    const userBlocks = userBlocksHeap.valuesDescending().map(entry => {
+      const block = entry.value;
+      ensureFloatEmbedding(block);
+      return block;
+    });
+
+    if (userBlocks.length > 0) {
+      const replaceIdsArray = Array.from(replaceIds);
+      const legacyBlocks = combinedEmbeddings.filter(embed => !replaceIds.has(embed.id));
+      combinedEmbeddings = legacyBlocks.concat(userBlocks);
+      remove_note_embeddings(model.embeddings, replaceIdsArray);
+      model.embeddings.push(...userBlocks);
     }
   }
 
@@ -755,7 +845,6 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     allowedCentroidIds = preloadAllowedCentroidIds;
   }
 
-  const queryQ8 = quantizeVectorToQ8(rep_embedding);
   const filtered: BlockEmbedding[] = [];
   for (const embed of combinedEmbeddings) {
     let similarity: number;
@@ -794,7 +883,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }];
   }
 
-  const heapCapacity = Math.max(settings.notes_max_hits * 8, 256); // Keep extra buffer so per-note grouping remains rich.
+  const heapCapacity = tuning.candidateLimit; // Keep buffer aligned with streaming candidate cap.
   const nearestSource = filtered.length <= heapCapacity
     ? filtered
     : new TopKHeap<BlockEmbedding>(heapCapacity, { minScore: settings.notes_min_similarity });

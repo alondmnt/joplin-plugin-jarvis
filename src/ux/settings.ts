@@ -68,10 +68,18 @@ export interface JarvisSettings {
   notes_abort_on_error: boolean;
   notes_embed_timeout: number;
   experimental_userDataIndex: boolean;
+  notes_device_profile: 'auto' | 'desktop' | 'mobile';
   notes_anchor_cache?: Record<string, string>;
   notes_ivf_candidate_limit?: number;
   notes_ivf_min_nprobe?: number;
   notes_ivf_small_set_nprobe?: number;
+  notes_ivf_time_budget_ms?: number;
+  notes_mobile_candidate_limit?: number;
+  notes_mobile_min_nprobe?: number;
+  notes_mobile_small_set_nprobe?: number;
+  notes_mobile_max_rows?: number;
+  notes_mobile_time_budget_ms?: number;
+  notes_desktop_time_budget_ms?: number;
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -288,9 +296,17 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
     experimental_userDataIndex: await joplin.settings.value('experimental.userDataIndex'),
+    notes_device_profile: (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile'),
     notes_ivf_candidate_limit: await joplin.settings.value('notes_ivf_candidate_limit'),
     notes_ivf_min_nprobe: await joplin.settings.value('notes_ivf_min_nprobe'),
     notes_ivf_small_set_nprobe: await joplin.settings.value('notes_ivf_small_set_nprobe'),
+    notes_ivf_time_budget_ms: await joplin.settings.value('notes_ivf_time_budget_ms'),
+    notes_mobile_candidate_limit: await joplin.settings.value('notes_mobile_candidate_limit'),
+    notes_mobile_min_nprobe: await joplin.settings.value('notes_mobile_min_nprobe'),
+    notes_mobile_small_set_nprobe: await joplin.settings.value('notes_mobile_small_set_nprobe'),
+    notes_mobile_max_rows: await joplin.settings.value('notes_mobile_max_rows'),
+    notes_mobile_time_budget_ms: await joplin.settings.value('notes_mobile_time_budget_ms'),
+    notes_desktop_time_budget_ms: await joplin.settings.value('notes_desktop_time_budget_ms'),
     notes_anchor_cache: safeParseAnchorCache(await joplin.settings.value('notes_anchor_cache')),
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
@@ -604,6 +620,21 @@ export async function register_settings() {
       label: 'Experimental: Per-note userData index',
       description: 'Enable the next-generation embeddings store that persists per note via userData. Defaults to disabled.',
     },
+    'notes_device_profile': {
+      value: 'auto',
+      type: SettingItemType.String,
+      isEnum: true,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: Device profile',
+      description: 'Hint whether this device should use desktop or mobile-friendly search tuning. Auto uses desktop defaults.',
+      options: {
+        'auto': 'Auto',
+        'desktop': 'Desktop',
+        'mobile': 'Mobile',
+      },
+    },
     'notes_ivf_candidate_limit': {
       value: 2048,
       type: SettingItemType.Int,
@@ -639,6 +670,90 @@ export async function register_settings() {
       advanced: true,
       label: 'Experimental: IVF nprobe for small sets',
       description: 'Number of IVF lists to probe when the candidate pool is small (prevents over-probing). Default: 4',
+    },
+    'notes_ivf_time_budget_ms': {
+      value: 0,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 2000,
+      step: 10,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: IVF time budget (ms)',
+      description: 'Global decode time budget in milliseconds. Set to 0 to use profile defaults (desktop 300ms, mobile 150ms).',
+    },
+    'notes_mobile_candidate_limit': {
+      value: 1024,
+      type: SettingItemType.Int,
+      minimum: 256,
+      maximum: 5000,
+      step: 32,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: Mobile IVF candidate cap',
+      description: 'Override candidate limit when device profile is Mobile. Default: 1024',
+    },
+    'notes_mobile_min_nprobe': {
+      value: 6,
+      type: SettingItemType.Int,
+      minimum: 1,
+      maximum: 128,
+      step: 1,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: Mobile minimum nprobe',
+      description: 'Minimum IVF lists to probe on mobile profile. Default: 6',
+    },
+    'notes_mobile_small_set_nprobe': {
+      value: 3,
+      type: SettingItemType.Int,
+      minimum: 1,
+      maximum: 64,
+      step: 1,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: Mobile small-set nprobe',
+      description: 'IVF lists to probe when the candidate pool is small on mobile profile. Default: 3',
+    },
+    'notes_mobile_max_rows': {
+      value: 1024,
+      type: SettingItemType.Int,
+      minimum: 128,
+      maximum: 5000,
+      step: 32,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: Mobile max rows',
+      description: 'Maximum number of rows streamed from userData on mobile profile. Default: 1024',
+    },
+    'notes_mobile_time_budget_ms': {
+      value: 180,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 2000,
+      step: 10,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: Mobile time budget (ms)',
+      description: 'Decode time budget override for mobile profile. Default: 180 ms',
+    },
+    'notes_desktop_time_budget_ms': {
+      value: 0,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 2000,
+      step: 10,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: Desktop time budget (ms)',
+      description: 'Decode time budget override for desktop profile. Default: 0 (use 300 ms)',
     },
     'notes_embed_title': {
       value: true,
