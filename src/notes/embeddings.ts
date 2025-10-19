@@ -10,7 +10,7 @@ import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../model
 import { search_keywords, ModelError, htmlToText } from '../utils';
 import { quantizeVectorToQ8, cosineSimilarityQ8, QuantizedRowView } from './q8';
 import { TopKHeap } from './topK';
-import { loadModelCentroids } from './centroidLoader';
+import { loadModelCentroids, loadParentMap } from './centroidLoader';
 import { chooseNprobe, selectTopCentroidIds, MIN_TOTAL_ROWS_FOR_IVF } from './centroids';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
@@ -25,6 +25,7 @@ interface SearchTuning {
   smallSetNprobe: number;
   maxRows: number;
   timeBudgetMs: number;
+  parentTargetSize: number;
 }
 
 /**
@@ -79,6 +80,8 @@ function resolveSearchTuning(settings: JarvisSettings): SearchTuning {
     timeBudgetMs = desktopTimeBudget;
   }
 
+  const parentTargetSize = profile === 'mobile' ? 256 : 0;
+
   return {
     profile,
     candidateLimit,
@@ -86,6 +89,7 @@ function resolveSearchTuning(settings: JarvisSettings): SearchTuning {
     smallSetNprobe,
     maxRows,
     timeBudgetMs,
+    parentTargetSize,
   };
 }
 
@@ -767,7 +771,35 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       return null;
     }
     const topIds = selectTopCentroidIds(queryVector, centroids, nprobe);
-    return topIds.length > 0 ? new Set(topIds) : null;
+    if (topIds.length === 0) {
+      return null;
+    }
+    if (tuning.profile === 'mobile' && tuning.parentTargetSize > 0) {
+      // On mobile devices try routing through the canonical parent map so we only probe
+      // a handful of coarse lists before expanding back to children.
+      const parentMap = await loadParentMap(model.id, tuning.parentTargetSize);
+      if (parentMap && parentMap.length === centroids.nlist) {
+        const selectedParents = new Set<number>();
+        for (const id of topIds) {
+          const parent = parentMap[id] ?? -1;
+          if (parent >= 0) {
+            selectedParents.add(parent);
+          }
+        }
+        if (selectedParents.size > 0) {
+          const expanded = new Set<number>();
+          for (let child = 0; child < parentMap.length; child += 1) {
+            if (selectedParents.has(parentMap[child])) {
+              expanded.add(child);
+            }
+          }
+          if (expanded.size > 0 && expanded.size <= tuning.candidateLimit * 4) {
+            return expanded;
+          }
+        }
+      }
+    }
+    return new Set(topIds);
   };
 
   let preloadAllowedCentroidIds: Set<number> | null = null;
