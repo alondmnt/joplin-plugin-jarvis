@@ -7,6 +7,7 @@
 import { Buffer } from 'buffer';
 import joplin from 'api';
 import { ModelType } from 'api/types';
+import { getLogger } from '../utils/logger';
 
 export type StoreKey = `jarvis/v1/emb/${string}/live/${number}`;
 
@@ -87,6 +88,7 @@ export interface UserDataClient {
 
 const NOTE_MODEL_TYPE = ModelType.Note;
 export const EMB_META_KEY = 'jarvis/v1/meta';
+const log = getLogger();
 
 export function shardKey(modelId: string, index: number): StoreKey {
   return `jarvis/v1/emb/${modelId}/live/${index}`;
@@ -227,6 +229,7 @@ export class UserDataEmbStore implements EmbStore {
     const value = await this.client.get<NoteEmbMeta>(noteId, EMB_META_KEY);
     if (value) {
       this.setCachedMeta(noteId, value);
+      log.debug(`userData meta cache miss resolved for note ${noteId}`);
     }
     return value;
   }
@@ -258,6 +261,7 @@ export class UserDataEmbStore implements EmbStore {
       await this.client.set<EmbShard>(noteId, key, shards[i]);
     }
     await this.client.set<NoteEmbMeta>(noteId, EMB_META_KEY, meta);
+    log.info(`userData shards updated`, { noteId, epoch: meta.current.epoch, shards: meta.current.shards });
     this.setCachedMeta(noteId, meta);
 
     const legacyModelId = previousMeta?.modelId ?? meta.modelId;
@@ -285,6 +289,7 @@ export class UserDataEmbStore implements EmbStore {
       for (let i = 0; i < total; i += 1) {
         await this.client.del(noteId, shardKey(meta.modelId, i));
       }
+      log.info('userData shards removed', { noteId, modelId: meta.modelId });
       this.setCachedMeta(noteId, null);
     }
   }

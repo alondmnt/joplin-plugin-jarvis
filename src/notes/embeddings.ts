@@ -5,12 +5,14 @@ import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { UserDataEmbStore } from './userDataStore';
 import { prepareUserDataEmbeddings } from './userDataIndexer';
 import { readUserDataEmbeddings } from './userDataReader';
+import { getLogger } from '../utils/logger';
 import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
 import { search_keywords, ModelError, htmlToText } from '../utils';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
 const noteOcrCache = new Map<string, string>();
 const userDataStore = new UserDataEmbStore();
+const log = getLogger();
 
 async function appendOcrTextToBody(note: any): Promise<void> {
   if (!note || typeof note !== 'object' || note[ocrMergedFlag]) {
@@ -43,7 +45,7 @@ async function appendOcrTextToBody(note: any): Promise<void> {
         }
       } while (resourcesPage?.has_more);
     } catch (error) {
-      console.debug(`Failed to retrieve OCR text for note ${noteId}:`, error);
+    log.debug(`Failed to retrieve OCR text for note ${noteId}:`, error);
     }
     ocrText = snippets.join('\n\n');
     noteOcrCache.set(noteId, ocrText);
@@ -90,7 +92,7 @@ export async function calc_note_embeddings(
     try {
       note.body = await htmlToText(note.body);
     } catch (error) {
-      console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
+      log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error);
       // Continue with original HTML content
     }
   }
@@ -259,7 +261,7 @@ async function update_note(note: any,
   if (note_tags.includes('exclude.from.jarvis') || 
       settings.notes_exclude_folders.has(note.parent_id) ||
       (note.deleted_time > 0)) {
-    console.debug(`Excluding note ${note.id} from Jarvis`);
+    log.debug(`Excluding note ${note.id} from Jarvis`);
     delete_note_and_embeddings(model.db, note.id);
     return [];
   }
@@ -269,7 +271,7 @@ async function update_note(note: any,
     try {
       note.body = await htmlToText(note.body);
     } catch (error) {
-      console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
+      log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error);
       // Continue with original HTML content
     }
   }
@@ -422,7 +424,7 @@ export async function update_embeddings(
         }
 
         if (action === 'skip') {
-          console.warn(`Skipping note ${note.id}: ${error.message}`, (error as any).cause ?? error);
+          log.warn(`Skipping note ${note.id}: ${error.message}`, (error as any).cause ?? error);
           return;
         }
       }
@@ -477,7 +479,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
     embd = embeddings[i];
     if (embd.body_idx < 0) {
       // unknown position in note (rare case)
-      console.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
+      log.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
       continue;
     }
 
@@ -488,12 +490,12 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
         try {
           note.body = await htmlToText(note.body);
         } catch (error) {
-          console.warn(`Failed to convert HTML to Markdown for note ${note.id}:`, error);
+          log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error);
         }
       }
       await appendOcrTextToBody(note);
     } catch (error) {
-      console.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
+      log.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
       continue;
     }
     const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
@@ -591,7 +593,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         model.embeddings.push(...userBlocks);
       }
     } catch (error) {
-      console.warn('Failed to load userData embeddings:', error);
+      log.warn('Failed to load userData embeddings', error);
     }
   }
 
@@ -600,7 +602,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     try {
       query = await htmlToText(query);
     } catch (error) {
-      console.warn(`Failed to convert HTML to Markdown for query:`, error);
+      log.warn('Failed to convert HTML to Markdown for query', error);
     }
   }
   // check if to re-calculate embedding of the query
@@ -643,7 +645,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         }
 
         if (action === 'skip' && hasCachedQueryEmbedding) {
-          console.warn(`Using cached embedding for note ${current_id}: ${error.message}`, (error as any).cause ?? error);
+          log.warn(`Using cached embedding for note ${current_id}: ${error.message}`, (error as any).cause ?? error);
           break;
         }
 
@@ -841,7 +843,7 @@ async function maybeWriteUserDataEmbeddings(
       try {
         await userDataStore.gcOld(note.id, '', '');
       } catch (error) {
-        console.warn(`Failed to clean userData embeddings for note ${note.id}:`, error);
+        log.warn(`Failed to clean userData embeddings for note ${note.id}`, error);
       }
     }
     return;
@@ -864,6 +866,6 @@ async function maybeWriteUserDataEmbeddings(
     }
     await userDataStore.put(noteId, prepared.meta, prepared.shards);
   } catch (error) {
-    console.warn(`Failed to persist userData embeddings for note ${noteId}:`, error);
+    log.warn(`Failed to persist userData embeddings for note ${noteId}`, error);
   }
 }
