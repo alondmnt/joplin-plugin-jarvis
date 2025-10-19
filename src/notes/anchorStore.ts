@@ -13,6 +13,9 @@ export interface AnchorMetadata {
   hash?: string;
   format?: string;
   updatedAt?: string;
+  rowCount?: number;
+  centroidUpdatedAt?: string;
+  centroidHash?: string;
 }
 
 export interface CentroidPayload {
