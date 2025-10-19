@@ -69,6 +69,9 @@ export interface JarvisSettings {
   notes_embed_timeout: number;
   experimental_userDataIndex: boolean;
   notes_anchor_cache?: Record<string, string>;
+  notes_ivf_candidate_limit?: number;
+  notes_ivf_min_nprobe?: number;
+  notes_ivf_small_set_nprobe?: number;
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -285,6 +288,9 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
     experimental_userDataIndex: await joplin.settings.value('experimental.userDataIndex'),
+    notes_ivf_candidate_limit: await joplin.settings.value('notes_ivf_candidate_limit'),
+    notes_ivf_min_nprobe: await joplin.settings.value('notes_ivf_min_nprobe'),
+    notes_ivf_small_set_nprobe: await joplin.settings.value('notes_ivf_small_set_nprobe'),
     notes_anchor_cache: safeParseAnchorCache(await joplin.settings.value('notes_anchor_cache')),
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
@@ -597,6 +603,42 @@ export async function register_settings() {
       advanced: true,
       label: 'Experimental: Per-note userData index',
       description: 'Enable the next-generation embeddings store that persists per note via userData. Defaults to disabled.',
+    },
+    'notes_ivf_candidate_limit': {
+      value: 2048,
+      type: SettingItemType.Int,
+      minimum: 256,
+      maximum: 10000,
+      step: 64,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: IVF candidate cap',
+      description: 'Maximum number of embedding rows fetched per query when the userData index is enabled. Default: 2048',
+    },
+    'notes_ivf_min_nprobe': {
+      value: 8,
+      type: SettingItemType.Int,
+      minimum: 1,
+      maximum: 256,
+      step: 1,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: IVF minimum nprobe',
+      description: 'Minimum number of IVF lists to probe per query when using centroids. Default: 8',
+    },
+    'notes_ivf_small_set_nprobe': {
+      value: 4,
+      type: SettingItemType.Int,
+      minimum: 1,
+      maximum: 128,
+      step: 1,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: IVF nprobe for small sets',
+      description: 'Number of IVF lists to probe when the candidate pool is small (prevents over-probing). Default: 4',
     },
     'notes_embed_title': {
       value: true,

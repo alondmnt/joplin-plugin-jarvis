@@ -18,6 +18,36 @@ const noteOcrCache = new Map<string, string>();
 const userDataStore = new UserDataEmbStore();
 const log = getLogger();
 
+interface SearchTuning {
+  candidateLimit: number;
+  minNprobe: number;
+  smallSetNprobe: number;
+}
+
+/**
+ * Derive conservative search knobs from settings so IVF probing stays within platform budgets.
+ */
+function resolveSearchTuning(settings: JarvisSettings): SearchTuning {
+  const baseHits = Math.max(settings.notes_max_hits, 1);
+  const candidateLimitSetting = Number(settings.notes_ivf_candidate_limit ?? 0);
+  const candidateLimit = candidateLimitSetting > 0
+    ? Math.max(256, candidateLimitSetting)
+    : Math.max(512, baseHits * 32); // fall back to a heuristic tied to desired hits
+  const minNprobeSetting = Number(settings.notes_ivf_min_nprobe ?? 0);
+  const minNprobe = minNprobeSetting > 0
+    ? Math.max(1, minNprobeSetting)
+    : (baseHits >= 20 ? 12 : 8);
+  const smallSetSetting = Number(settings.notes_ivf_small_set_nprobe ?? 0);
+  const smallSetNprobe = smallSetSetting > 0
+    ? Math.max(1, Math.min(minNprobe, smallSetSetting))
+    : Math.max(4, Math.round(minNprobe / 2)); // avoid probing too many lists for small pools
+  return {
+    candidateLimit,
+    minNprobe,
+    smallSetNprobe,
+  };
+}
+
 async function appendOcrTextToBody(note: any): Promise<void> {
   if (!note || typeof note !== 'object' || note[ocrMergedFlag]) {
     return;
@@ -644,6 +674,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   }
   let rep_embedding = calc_mean_embedding(query_embeddings);
 
+  const tuning = resolveSearchTuning(settings);
+
   const computeAllowedCentroids = async (queryVector: Float32Array, candidateCount: number): Promise<Set<number> | null> => {
     if (!settings.experimental_userDataIndex || candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
       return null;
@@ -652,7 +684,10 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     if (!centroids || centroids.dim !== queryVector.length || centroids.nlist <= 0) {
       return null;
     }
-    const nprobe = chooseNprobe(centroids.nlist, candidateCount);
+    const nprobe = chooseNprobe(centroids.nlist, candidateCount, {
+      min: tuning.minNprobe,
+      smallSet: tuning.smallSetNprobe,
+    });
     if (nprobe <= 0) {
       return null;
     }
@@ -672,6 +707,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       const userDataResults = await readUserDataEmbeddings({
         store: userDataStore,
         noteIds: Array.from(candidateIds),
+        // Limit how many rows we pull into memory for this query and skip non-probed lists.
+        maxRows: tuning.candidateLimit,
         allowedCentroidIds: preloadAllowedCentroidIds,
       });
       if (userDataResults.length > 0) {
@@ -685,6 +722,10 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     } catch (error) {
       log.warn('Failed to load userData embeddings', error);
     }
+  }
+
+  if (combinedEmbeddings.length > tuning.candidateLimit) {
+    combinedEmbeddings = combinedEmbeddings.slice(0, tuning.candidateLimit);
   }
 
   // include links in the representation of the query using the updated candidate pool

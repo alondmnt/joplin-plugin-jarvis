@@ -251,15 +251,22 @@ export function selectTopCentroidIds(
 
 /**
  * Heuristic to choose how many IVF lists to probe for a given candidate pool size.
+ * Callers may override the minimum probe count and the fallback used for smaller pools.
  */
-export function chooseNprobe(nlist: number, candidateCount: number): number {
+export function chooseNprobe(
+  nlist: number,
+  candidateCount: number,
+  options: { min?: number; smallSet?: number } = {},
+): number {
   if (nlist <= 0) {
     return 0;
   }
-  const base = Math.max(1, Math.round(nlist * 0.05));
-  let probes = Math.max(8, base);
+  const min = Math.max(1, options.min ?? 8);
+  const base = Math.max(min, Math.round(nlist * 0.05));
+  let probes = Math.max(min, base);
   if (candidateCount > 0 && candidateCount < 2000) {
-    probes = Math.max(4, Math.round(probes / 2));
+    const smallSet = Math.max(1, options.smallSet ?? Math.round(probes / 2));
+    probes = Math.max(smallSet, min);
   }
   return Math.min(nlist, probes);
 }
