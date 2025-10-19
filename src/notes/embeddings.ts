@@ -114,7 +114,16 @@ export interface NoteEmbedding {
   similarity: number;  // representative similarity to the query
 }
 
-// calculate the embeddings for a note
+/**
+ * Calculate embeddings for a note while preserving the legacy normalization pipeline.
+ *
+ * Normalization steps (must remain stable to keep hash compatibility):
+ * 1. When the note is HTML, convert it to Markdown via `htmlToText`.
+ * 2. Normalize newline characters to `\n` using `convert_newlines`.
+ * 3. Compute the content hash on the normalized text before chunking.
+ *
+ * Downstream tasks (hash comparisons, shard writes) rely on this exact ordering.
+ */
 export async function calc_note_embeddings(
     note: any,
     note_tags: string[],
@@ -200,6 +209,10 @@ export async function calc_note_embeddings(
   return Promise.all(blocks).then(blocks => [].concat(...blocks));
 }
 
+/**
+ * Segment blocks into sub-blocks that respect the model's `notes_max_tokens` budget.
+ * This mirrors the legacy behavior used by the SQLite pipeline so shard sizes stay within limits.
+ */
 function split_block_to_max_size(block: string,
     model: TextEmbeddingModel, max_size: number, is_code_block: boolean): string[] {
   if (is_code_block) {
@@ -934,6 +947,7 @@ function calc_hash(text: string): string {
   return createHash('md5').update(text).digest('hex');
 }
 
+/** Normalize newline characters so hashes remain stable across platforms. */
 function convert_newlines(str: string): string {
   return str.replace(/\r\n|\r/g, '\n');
 }

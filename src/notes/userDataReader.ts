@@ -25,15 +25,20 @@ export interface NoteEmbeddingsResult {
  * decoding stops once the cap is reached across all shards. A reusable decoder and
  * tiny LRU cache keep repeated lookups (chat follow-ups) cheap in both allocations
  * and base64 decode cost. When `allowedCentroidIds` is supplied, rows whose IVF list
- * is not in the set are skipped before converting back to Float32.
+ * is not in the set are skipped before converting back to Float32. The optional
+ * `maxRows` cap applies across all notes in the request.
  */
 export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
   const { store, noteIds, maxRows, allowedCentroidIds } = options;
   const results: NoteEmbeddingsResult[] = [];
   const decoder = new ShardDecoder();
   const cache = new ShardLRUCache(4);
+  let remaining = typeof maxRows === 'number' ? Math.max(0, maxRows) : Number.POSITIVE_INFINITY;
 
   for (const noteId of noteIds) {
+    if (remaining <= 0) {
+      break;
+    }
     const meta = await store.getMeta(noteId);
     if (!meta) {
       continue;
@@ -42,30 +47,38 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
     const blocks: BlockEmbedding[] = [];
     let rowsRead = 0;
     for (let i = 0; i < meta.current.shards; i += 1) {
-      if (maxRows && rowsRead >= maxRows) {
+      if (remaining <= 0) {
         break;
       }
       const cacheKey = `${noteId}:${meta.modelId}:${meta.current.epoch}:${i}`;
-      let cached = cache.get(cacheKey);
+      let cached = allowedCentroidIds ? undefined : cache.get(cacheKey);
       const shard = await store.getShard(noteId, i);
       if (!shard || shard.epoch !== meta.current.epoch) {
         continue;
       }
       if (!cached) {
         const decoded = decoder.decode(shard);
-        cached = {
+        const prepared = {
           key: cacheKey,
           vectors: decoded.vectors.slice(),
           scales: decoded.scales.slice(),
           // Keep centroid assignments so IVF-aware ranking can filter without re-decoding.
           centroidIds: decoded.centroidIds ? decoded.centroidIds.slice() : undefined,
         };
-        cache.set(cached);
+        if (!allowedCentroidIds) {
+          cache.set(prepared);
+        }
+        cached = prepared;
       }
-      const decoded = { vectors: cached.vectors, scales: cached.scales, centroids: cached.centroidIds };
+      const active = cached!;
+      const decoded = {
+        vectors: active.vectors,
+        scales: active.scales,
+        centroids: active.centroidIds,
+      };
       const shardRows = Math.min(decoded.vectors.length / meta.dim, shard.meta.length);
       for (let row = 0; row < shardRows; row += 1) {
-        if (maxRows && rowsRead >= maxRows) {
+        if (remaining <= 0) {
           break;
         }
         const metaRow = shard.meta[row];
@@ -92,6 +105,13 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
           centroidId, // Preserve IVF assignments for later filtering.
         });
         rowsRead += 1;
+        remaining -= 1;
+        if (remaining <= 0) {
+          break;
+        }
+      }
+      if (remaining <= 0) {
+        break;
       }
     }
 
