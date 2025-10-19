@@ -2,6 +2,7 @@ import joplin from 'api';
 import { ModelType } from 'api/types';
 import { getLogger } from '../utils/logger';
 import { writeAnchorMetadata, readAnchorMetadata } from './anchorStore';
+import { getCachedAnchor, setCachedAnchor, removeCachedAnchor } from './anchorCache';
 
 const log = getLogger();
 
@@ -52,22 +53,24 @@ export async function loadModelRegistry(catalogNoteId: string): Promise<ModelReg
 
 export async function resolveAnchorNoteId(catalogNoteId: string, modelId: string): Promise<string | null> {
   const registry = await loadModelRegistry(catalogNoteId);
-  const anchorId = registry[modelId];
-  if (!anchorId) {
-    log.debug('Anchor not registered for model', { modelId });
-    return null;
-  }
-  try {
-    const note = await joplin.data.get(['notes', anchorId], { fields: ['id'] });
-    if (!note?.id) {
-      log.warn('Registered anchor note missing', { modelId, anchorId });
-      return null;
+  const cached = await getCachedAnchor(modelId);
+  if (cached) {
+    const ok = await validateAnchor(cached, modelId, registry, catalogNoteId);
+    if (ok) {
+      return cached;
     }
-    return note.id;
-  } catch (error) {
-    log.error('Failed to load anchor note', { modelId, anchorId, error });
-    return null;
+    await removeCachedAnchor(modelId);
   }
+  const anchorId = registry[modelId];
+  if (anchorId) {
+    const ok = await validateAnchor(anchorId, modelId, registry, catalogNoteId);
+    if (ok) {
+      await setCachedAnchor(modelId, anchorId);
+      return anchorId;
+    }
+  }
+  const discovered = await discoverAnchorByScan(catalogNoteId, modelId, registry);
+  return discovered;
 }
 
 export async function ensureCatalogNote(): Promise<string> {
@@ -96,6 +99,7 @@ export async function ensureModelAnchor(catalogNoteId: string, modelId: string, 
   const existing = await resolveAnchorNoteId(catalogNoteId, modelId);
   if (existing) {
     await ensureAnchorMetadata(existing, modelId, modelVersion);
+    await setCachedAnchor(modelId, existing);
     return existing;
   }
   try {
@@ -106,6 +110,7 @@ export async function ensureModelAnchor(catalogNoteId: string, modelId: string, 
     await joplin.data.post(['notes', note.id, 'tags'], { id: await ensureTagId() });
     await updateRegistry(catalogNoteId, modelId, note.id);
     await writeAnchorMetadata(note.id, { modelId, version: modelVersion, dim: 0, updatedAt: new Date().toISOString() });
+    await setCachedAnchor(modelId, note.id);
     log.info('Created model anchor', { modelId, anchorId: note.id });
     return note.id;
   } catch (error) {
@@ -147,6 +152,75 @@ async function ensureAnchorMetadata(anchorId: string, modelId: string, modelVers
     updatedAt: new Date().toISOString(),
   });
   log.debug('Anchor metadata refreshed', { modelId, anchorId });
+}
+
+/**
+ * Validate anchor presence/metadata; prune registry entry if the note is missing or mismatched.
+ */
+async function validateAnchor(anchorId: string, modelId: string, registry: ModelRegistry, catalogNoteId: string): Promise<boolean> {
+  try {
+    const note = await joplin.data.get(['notes', anchorId], { fields: ['id'] });
+    if (!note?.id) {
+      log.warn('Registered anchor note missing', { modelId, anchorId });
+      delete registry[modelId];
+      await joplin.data.userDataSet(ModelType.Note, catalogNoteId, REGISTRY_KEY, registry);
+      await removeCachedAnchor(modelId);
+      return false;
+    }
+    const meta = await readAnchorMetadata(anchorId);
+    if (!meta || meta.modelId !== modelId) {
+      log.warn('Anchor metadata mismatch', { modelId, anchorId });
+      await removeCachedAnchor(modelId);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    log.error('Failed to validate anchor note', { modelId, anchorId, error });
+    return false;
+  }
+}
+
+/**
+ * Fallback scan: iterate `jarvis.system` notes and adopt the one whose metadata matches the model.
+ */
+async function discoverAnchorByScan(catalogNoteId: string, modelId: string, registry: ModelRegistry): Promise<string | null> {
+  let page = 1;
+  while (true) {
+    let search;
+    try {
+      search = await joplin.data.get(['search'], {
+        query: `tag:${CATALOG_TAG}`,
+        type: ModelType.Note,
+        fields: ['id', 'title'],
+        page,
+        limit: 50,
+      });
+    } catch (error) {
+      log.error('Failed to scan anchors', { modelId, error });
+      return null;
+    }
+    const items = search.items ?? [];
+    for (const item of items) {
+      const noteId = item.id;
+      if (!noteId || noteId === catalogNoteId) continue; // skip empty ids and the catalog note itself
+      const meta = await readAnchorMetadata(noteId);
+      if (meta?.modelId === modelId) {
+        registry[modelId] = noteId;
+        await joplin.data.userDataSet(ModelType.Note, catalogNoteId, REGISTRY_KEY, registry);
+        await updateCatalogBody(catalogNoteId, registry);
+        await ensureAnchorMetadata(noteId, modelId, meta.version ?? 'unknown');
+        await setCachedAnchor(modelId, noteId);
+        log.info('Discovered anchor via scan', { modelId, anchorId: noteId });
+        return noteId;
+      }
+    }
+    if (!search.has_more) {
+      break;
+    }
+    page += 1;
+  }
+  log.debug('Anchor not found during scan', { modelId });
+  return null;
 }
 
 async function ensureTagId(): Promise<string> {

@@ -68,6 +68,7 @@ export interface JarvisSettings {
   notes_abort_on_error: boolean;
   notes_embed_timeout: number;
   experimental_userDataIndex: boolean;
+  notes_anchor_cache?: Record<string, string>;
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -284,6 +285,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
     experimental_userDataIndex: await joplin.settings.value('experimental.userDataIndex'),
+    notes_anchor_cache: safeParseAnchorCache(await joplin.settings.value('notes_anchor_cache')),
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
@@ -1117,8 +1119,29 @@ export async function register_settings() {
       advanced: true,
       label: 'Notes: User CSS for notes panel',
       description: 'Custom CSS to apply to the notes panel.',
+    },
+    'notes_anchor_cache': {
+      value: '{}',
+      type: SettingItemType.String,
+      section: 'jarvis.notes',
+      public: false,
+      advanced: true,
+      label: 'Notes: Anchor cache (internal)',
+      description: 'Internal cache of modelId→anchorNoteId for quick lookup. Do not modify.',
     }
   });
+}
+
+function safeParseAnchorCache(raw: any): Record<string, string> {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return {};
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    console.warn('Failed to parse notes_anchor_cache; resetting');
+    return {};
+  }
 }
 
 export async function set_folders(exclude: boolean, folder_id: string, settings: JarvisSettings) {
