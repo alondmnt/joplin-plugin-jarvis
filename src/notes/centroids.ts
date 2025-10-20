@@ -79,7 +79,7 @@ export function decodeCentroids(payload: CentroidPayload | null | undefined): Lo
   }
   if (format === 'f16') {
     const u16 = new Uint16Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / Uint16Array.BYTES_PER_ELEMENT);
-    const data = float16ArrayToFloat32(u16);
+    const data = float16_array_to_float32(u16);
     const nlist = Math.floor(data.length / dim);
     return {
       data,
@@ -113,7 +113,7 @@ export function encodeCentroids(params: {
   const nlist = params.nlist ?? (centroids.length / dim);
   let payload: Buffer;
   if (format === 'f16') {
-    const asF16 = float32ArrayToFloat16(centroids);
+    const asF16 = float32_array_to_float16(centroids);
     payload = Buffer.from(asF16.buffer, asF16.byteOffset, asF16.byteLength);
   } else if (format === 'f32') {
     payload = Buffer.from(centroids.buffer, centroids.byteOffset, centroids.byteLength);
@@ -231,7 +231,7 @@ export function scoreCentroids(query: Float32Array, centroids: LoadedCentroids):
 /**
  * Pick the ids of the top-scoring centroids for a query.
  */
-export function selectTopCentroidIds(
+export function select_top_centroid_ids(
   query: Float32Array,
   centroids: LoadedCentroids,
   nprobe: number,
@@ -253,7 +253,7 @@ export function selectTopCentroidIds(
  * Heuristic to choose how many IVF lists to probe for a given candidate pool size.
  * Callers may override the minimum probe count and the fallback used for smaller pools.
  */
-export function chooseNprobe(
+export function choose_nprobe(
   nlist: number,
   candidateCount: number,
   options: { min?: number; smallSet?: number } = {},
@@ -285,7 +285,7 @@ export function trainCentroids(
     return null;
   }
   const rng = options.rng ?? Math.random;
-  const centroids = initializePlusPlus(samples, dim, requested, rng);
+  const centroids = initialize_plus_plus(samples, dim, requested, rng);
   const maxIterations = Math.max(options.maxIterations ?? DEFAULT_MAX_ITER, 1);
   const tolerance = Math.max(options.tolerance ?? DEFAULT_TOLERANCE, 0);
   const accum = new Float32Array(requested * dim);
@@ -296,7 +296,7 @@ export function trainCentroids(
     accum.fill(0);
 
     for (const vector of samples) {
-      const best = findNearestCentroid(vector, centroids, dim);
+      const best = find_nearest_centroid(vector, centroids, dim);
       counts[best] += 1;
       const base = best * dim;
       for (let d = 0; d < dim; d += 1) {
@@ -350,7 +350,7 @@ export function trainCentroids(
  * Compute reservoir sample limits given the requested nlist. Ensures we gather
  * enough examples per list while capping overall work.
  */
-export function deriveSampleLimit(nlist: number): number {
+export function derive_sample_limit(nlist: number): number {
   if (nlist <= 0) {
     return 0;
   }
@@ -358,7 +358,7 @@ export function deriveSampleLimit(nlist: number): number {
   return Math.min(DEFAULT_MAX_SAMPLE, Math.max(minimum, MIN_TOTAL_ROWS_FOR_IVF));
 }
 
-function initializePlusPlus(
+function initialize_plus_plus(
   samples: readonly Float32Array[],
   dim: number,
   k: number,
@@ -372,7 +372,7 @@ function initializePlusPlus(
   for (let c = 1; c < k; c += 1) {
     let distanceSum = 0;
     for (let i = 0; i < samples.length; i += 1) {
-      const dist = distanceToNearest(samples[i], centroids, dim, c);
+      const dist = distance_to_nearest(samples[i], centroids, dim, c);
       distances[i] = dist;
       distanceSum += dist;
     }
@@ -410,7 +410,7 @@ function initializePlusPlus(
   return centroids;
 }
 
-function findNearestCentroid(vector: Float32Array, centroids: Float32Array, dim: number): number {
+function find_nearest_centroid(vector: Float32Array, centroids: Float32Array, dim: number): number {
   let best = 0;
   let bestScore = -Infinity;
   const nlist = Math.floor(centroids.length / dim);
@@ -428,7 +428,7 @@ function findNearestCentroid(vector: Float32Array, centroids: Float32Array, dim:
   return best;
 }
 
-function distanceToNearest(vector: Float32Array, centroids: Float32Array, dim: number, count: number): number {
+function distance_to_nearest(vector: Float32Array, centroids: Float32Array, dim: number, count: number): number {
   let best = Infinity;
   const limit = Math.min(count, Math.floor(centroids.length / dim));
   for (let c = 0; c < limit; c += 1) {
@@ -445,23 +445,23 @@ function distanceToNearest(vector: Float32Array, centroids: Float32Array, dim: n
   return best;
 }
 
-function float32ArrayToFloat16(values: Float32Array): Uint16Array {
+function float32_array_to_float16(values: Float32Array): Uint16Array {
   const result = new Uint16Array(values.length);
   for (let i = 0; i < values.length; i += 1) {
-    result[i] = float32ToFloat16(values[i]);
+    result[i] = float32_to_float16(values[i]);
   }
   return result;
 }
 
-function float16ArrayToFloat32(values: Uint16Array): Float32Array {
+function float16_array_to_float32(values: Uint16Array): Float32Array {
   const result = new Float32Array(values.length);
   for (let i = 0; i < values.length; i += 1) {
-    result[i] = float16ToFloat32(values[i]);
+    result[i] = float16_to_float32(values[i]);
   }
   return result;
 }
 
-function float32ToFloat16(value: number): number {
+function float32_to_float16(value: number): number {
   const floatView = new Float32Array(1);
   const intView = new Uint32Array(floatView.buffer);
   floatView[0] = value;
@@ -500,7 +500,7 @@ function float32ToFloat16(value: number): number {
   return (sign << 15) | (newExp << 10) | ((roundedMantissa >> 13) & 0x3ff);
 }
 
-function float16ToFloat32(value: number): number {
+function float16_to_float32(value: number): number {
   const sign = (value >> 15) & 0x1;
   const exp = (value >> 10) & 0x1f;
   const mantissa = value & 0x3ff;

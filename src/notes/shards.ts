@@ -1,4 +1,4 @@
-import { EmbShard, BlockRowMeta, encodeQ8Vectors } from './userDataStore';
+import { EmbShard, BlockRowMeta, encode_q8_vectors } from './userDataStore';
 import { QuantizeResult } from './q8';
 
 export interface BuildShardsOptions {
@@ -15,7 +15,7 @@ const DEFAULT_TARGET_BYTES = 300_000; // stay under conservative sync limits (~3
  * Chunk quantized vectors + metadata into base64 shards sized for userData. Each
  * shard is encoded independently so readers can stream them on demand.
  */
-export function buildShards(options: BuildShardsOptions): EmbShard[] {
+export function build_shards(options: BuildShardsOptions): EmbShard[] {
   const { epoch, quantized, meta } = options;
   const rows = quantized.rows;
   if (rows !== meta.length) {
@@ -30,7 +30,7 @@ export function buildShards(options: BuildShardsOptions): EmbShard[] {
   const targetBytes = Math.max(options.targetBytes ?? DEFAULT_TARGET_BYTES, 1024);
   const shards: EmbShard[] = [];
 
-  const maxRowsEstimate = Math.max(1, Math.floor(targetBytes / approximateBytesPerRow(dim, Boolean(options.centroidIds))));
+  const maxRowsEstimate = Math.max(1, Math.floor(targetBytes / approximate_bytes_per_row(dim, Boolean(options.centroidIds))));
 
   let start = 0;
   let shardIndex = 0;
@@ -40,7 +40,7 @@ export function buildShards(options: BuildShardsOptions): EmbShard[] {
     shardRows = Math.max(shardRows, 1);
 
     while (shardRows > 1) {
-      const estimatedSize = estimateShardSize(dim, shardRows, Boolean(options.centroidIds)); // shrink until shard fits target budget
+      const estimatedSize = estimate_shard_size(dim, shardRows, Boolean(options.centroidIds)); // shrink until shard fits target budget
       if (estimatedSize <= targetBytes) {
         break;
       }
@@ -52,7 +52,7 @@ export function buildShards(options: BuildShardsOptions): EmbShard[] {
     const scaleSlice = quantized.scales.subarray(start, end);
     const centroidSlice = options.centroidIds ? options.centroidIds.subarray(start, end) : undefined;
 
-    const payload = encodeQ8Vectors({
+    const payload = encode_q8_vectors({
       vectors: new Int8Array(vectorSlice), // ensure slices have tight backing buffer
       scales: new Float32Array(scaleSlice),
       centroidIds: centroidSlice ? new Uint16Array(centroidSlice) : undefined,
@@ -76,21 +76,21 @@ export function buildShards(options: BuildShardsOptions): EmbShard[] {
   return shards;
 }
 
-function estimateShardSize(dim: number, rows: number, hasCentroids: boolean): number {
+function estimate_shard_size(dim: number, rows: number, hasCentroids: boolean): number {
   const vectorBytes = rows * dim;
-  const vectorB64 = base64Length(vectorBytes);
+  const vectorB64 = base64_length(vectorBytes);
   const scalesBytes = rows * Float32Array.BYTES_PER_ELEMENT;
-  const scalesB64 = base64Length(scalesBytes);
+  const scalesB64 = base64_length(scalesBytes);
   const centroidBytes = hasCentroids ? rows * Uint16Array.BYTES_PER_ELEMENT : 0;
-  const centroidB64 = hasCentroids ? base64Length(centroidBytes) : 0;
+  const centroidB64 = hasCentroids ? base64_length(centroidBytes) : 0;
   const metaBudget = rows * 220; // heuristic for JSON metadata footprint
   return vectorB64 + scalesB64 + centroidB64 + metaBudget;
 }
 
-function approximateBytesPerRow(dim: number, hasCentroids: boolean): number {
-  return estimateShardSize(dim, 1, hasCentroids);
+function approximate_bytes_per_row(dim: number, hasCentroids: boolean): number {
+  return estimate_shard_size(dim, 1, hasCentroids);
 }
 
-function base64Length(byteCount: number): number {
+function base64_length(byteCount: number): number {
   return Math.ceil(byteCount / 3) * 4;
 }

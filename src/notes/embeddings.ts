@@ -3,15 +3,15 @@ import { createHash } from 'crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { UserDataEmbStore } from './userDataStore';
-import { prepareUserDataEmbeddings } from './userDataIndexer';
-import { readUserDataEmbeddings } from './userDataReader';
+import { prepare_user_data_embeddings } from './userDataIndexer';
+import { read_user_data_embeddings } from './userDataReader';
 import { getLogger } from '../utils/logger';
 import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
 import { search_keywords, ModelError, htmlToText } from '../utils';
-import { quantizeVectorToQ8, cosineSimilarityQ8, QuantizedRowView } from './q8';
+import { quantize_vector_to_q8, cosine_similarity_q8, QuantizedRowView } from './q8';
 import { TopKHeap } from './topK';
-import { loadModelCentroids, loadParentMap } from './centroidLoader';
-import { chooseNprobe, selectTopCentroidIds, MIN_TOTAL_ROWS_FOR_IVF } from './centroids';
+import { load_model_centroids, load_parent_map } from './centroidLoader';
+import { choose_nprobe, select_top_centroid_ids, MIN_TOTAL_ROWS_FOR_IVF } from './centroids';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
 const noteOcrCache = new Map<string, string>();
@@ -31,7 +31,7 @@ interface SearchTuning {
 /**
  * Derive conservative search knobs from settings so IVF probing stays within platform budgets.
  */
-function resolveSearchTuning(settings: JarvisSettings): SearchTuning {
+function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
   const baseHits = Math.max(settings.notes_max_hits, 1);
   const profileSetting = settings.notes_device_profile ?? 'auto';
   const profile: 'desktop' | 'mobile' = profileSetting === 'mobile' ? 'mobile' : 'desktop';
@@ -93,7 +93,7 @@ function resolveSearchTuning(settings: JarvisSettings): SearchTuning {
   };
 }
 
-function ensureFloatEmbedding(block: BlockEmbedding): Float32Array {
+function ensure_float_embedding(block: BlockEmbedding): Float32Array {
   if (block.embedding && block.embedding.length > 0) {
     return block.embedding;
   }
@@ -112,7 +112,7 @@ function ensureFloatEmbedding(block: BlockEmbedding): Float32Array {
   return block.embedding;
 }
 
-async function appendOcrTextToBody(note: any): Promise<void> {
+async function append_ocr_text_to_body(note: any): Promise<void> {
   if (!note || typeof note !== 'object' || note[ocrMergedFlag]) {
     return;
   }
@@ -206,7 +206,7 @@ export async function calc_note_embeddings(
     }
   }
 
-  await appendOcrTextToBody(note);
+  await append_ocr_text_to_body(note);
 
   const hash = calc_hash(note.body);
   note.body = convert_newlines(note.body);
@@ -389,7 +389,7 @@ async function update_note(note: any,
     }
   }
 
-  await appendOcrTextToBody(note);
+  await append_ocr_text_to_body(note);
 
   const hash = calc_hash(note.body);
   const old_embd = model.embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
@@ -406,11 +406,11 @@ async function update_note(note: any,
     // insert new embeddings into DB
     await insert_note_embeddings(model.db, new_embd, model);
 
-    await maybeWriteUserDataEmbeddings(note, new_embd, model, settings, hash);
+    await maybe_write_user_data_embeddings(note, new_embd, model, settings, hash);
 
     return new_embd;
   } catch (error) {
-    throw ensureModelError(error, note);
+    throw ensure_model_error(error, note);
   }
 }
 
@@ -422,7 +422,7 @@ function formatNoteLabel(note: { id: string; title?: string }): string {
   return note.title ? `${note.id} (${note.title})` : note.id;
 }
 
-function ensureModelError(
+function ensure_model_error(
   rawError: unknown,
   context?: { id?: string; title?: string },
 ): ModelError {
@@ -510,7 +510,7 @@ export async function update_embeddings(
         successfulNotes.push({ note, embeddings });
         return;
       } catch (rawError) {
-        const error = ensureModelError(rawError, note);
+        const error = ensure_model_error(rawError, note);
 
         if (fatalError) {
           throw fatalError;
@@ -606,7 +606,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
           log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error);
         }
       }
-      await appendOcrTextToBody(note);
+      await append_ocr_text_to_body(note);
     } catch (error) {
       log.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
       continue;
@@ -723,7 +723,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         );
         break;
       } catch (rawError) {
-        const error = ensureModelError(rawError, { id: current_id, title: current_title });
+        const error = ensure_model_error(rawError, { id: current_id, title: current_title });
         const action = await promptEmbeddingError(settings, error, {
           attempt,
           maxAttempts: MAX_EMBEDDING_RETRIES,
@@ -751,33 +751,33 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   }
   let rep_embedding = calc_mean_embedding(query_embeddings);
 
-  const tuning = resolveSearchTuning(settings);
+  const tuning = resolve_search_tuning(settings);
 
-  const queryQ8 = quantizeVectorToQ8(rep_embedding);
+  const queryQ8 = quantize_vector_to_q8(rep_embedding);
 
   const computeAllowedCentroids = async (queryVector: Float32Array, candidateCount: number): Promise<Set<number> | null> => {
-    if (!settings.experimental_userDataIndex || candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
+    if (!settings.experimental_user_data_index || candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
       return null;
     }
-    const centroids = await loadModelCentroids(model.id);
+    const centroids = await load_model_centroids(model.id);
     if (!centroids || centroids.dim !== queryVector.length || centroids.nlist <= 0) {
       return null;
     }
-    const nprobe = chooseNprobe(centroids.nlist, candidateCount, {
+    const nprobe = choose_nprobe(centroids.nlist, candidateCount, {
       min: tuning.minNprobe,
       smallSet: tuning.smallSetNprobe,
     });
     if (nprobe <= 0) {
       return null;
     }
-    const topIds = selectTopCentroidIds(queryVector, centroids, nprobe);
+    const topIds = select_top_centroid_ids(queryVector, centroids, nprobe);
     if (topIds.length === 0) {
       return null;
     }
     if (tuning.profile === 'mobile' && tuning.parentTargetSize > 0) {
       // On mobile devices try routing through the canonical parent map so we only probe
       // a handful of coarse lists before expanding back to children.
-      const parentMap = await loadParentMap(model.id, tuning.parentTargetSize);
+      const parentMap = await load_parent_map(model.id, tuning.parentTargetSize);
       if (parentMap && parentMap.length === centroids.nlist) {
         const selectedParents = new Set<number>();
         for (const id of topIds) {
@@ -807,7 +807,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, combinedEmbeddings.length);
   }
 
-  if (settings.experimental_userDataIndex) {
+  if (settings.experimental_user_data_index) {
     const candidateIds = new Set(combinedEmbeddings.map(embed => embed.id));
     candidateIds.add(current_id);
     const replaceIds = new Set<string>();
@@ -816,7 +816,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     });
     const deadline = tuning.timeBudgetMs > 0 ? Date.now() + tuning.timeBudgetMs : Number.POSITIVE_INFINITY;
     try {
-      await readUserDataEmbeddings({
+      await read_user_data_embeddings({
         store: userDataStore,
         noteIds: Array.from(candidateIds),
         maxRows: tuning.maxRows,
@@ -829,8 +829,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
             return false;
           }
           const similarity = block.q8 && block.q8.values.length === queryQ8.values.length
-            ? cosineSimilarityQ8(block.q8, queryQ8)
-            : calc_similarity(rep_embedding, ensureFloatEmbedding(block));
+            ? cosine_similarity_q8(block.q8, queryQ8)
+            : calc_similarity(rep_embedding, ensure_float_embedding(block));
           if (similarity < settings.notes_min_similarity) {
             return false;
           }
@@ -846,7 +846,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
     const userBlocks = userBlocksHeap.valuesDescending().map(entry => {
       const block = entry.value;
-      ensureFloatEmbedding(block);
+      ensure_float_embedding(block);
       return block;
     });
 
@@ -881,7 +881,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   for (const embed of combinedEmbeddings) {
     let similarity: number;
     if (embed.q8 && embed.q8.values.length === queryQ8.values.length) {
-      similarity = cosineSimilarityQ8(embed.q8, queryQ8);
+      similarity = cosine_similarity_q8(embed.q8, queryQ8);
     } else {
       similarity = calc_similarity(rep_embedding, embed.embedding);
     }
@@ -1073,14 +1073,14 @@ function convert_newlines(str: string): string {
   return str.replace(/\r\n|\r/g, '\n');
 }
 
-async function maybeWriteUserDataEmbeddings(
+async function maybe_write_user_data_embeddings(
   note: any,
   blocks: BlockEmbedding[],
   model: TextEmbeddingModel,
   settings: JarvisSettings,
   contentHash: string,
 ): Promise<void> {
-  if (!settings.experimental_userDataIndex) {
+  if (!settings.experimental_user_data_index) {
     if (note?.id) {
       try {
         await userDataStore.gcOld(note.id, '', '');
@@ -1095,7 +1095,7 @@ async function maybeWriteUserDataEmbeddings(
     return;
   }
   try {
-    const prepared = await prepareUserDataEmbeddings({
+    const prepared = await prepare_user_data_embeddings({
       noteId,
       contentHash,
       blocks,

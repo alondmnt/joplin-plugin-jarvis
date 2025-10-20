@@ -98,7 +98,7 @@ export function shardKey(modelId: string, index: number): StoreKey {
  * Encode quantized vectors and scales back to base64 strings suitable for storage
  * in userData. Accepts typed arrays and preserves tight slices to avoid copying.
  */
-export function encodeQ8Vectors(data: Q8Vectors): Pick<EmbShard, 'vectorsB64' | 'scalesB64' | 'centroidIdsB64'> {
+export function encode_q8_vectors(data: Q8Vectors): Pick<EmbShard, 'vectorsB64' | 'scalesB64' | 'centroidIdsB64'> {
   const result: Pick<EmbShard, 'vectorsB64' | 'scalesB64' | 'centroidIdsB64'> = {
     vectorsB64: Buffer.from(data.vectors.buffer, data.vectors.byteOffset, data.vectors.byteLength).toString('base64'),
     scalesB64: Buffer.from(data.scales.buffer, data.scales.byteOffset, data.scales.byteLength).toString('base64'),
@@ -117,7 +117,7 @@ export function encodeQ8Vectors(data: Q8Vectors): Pick<EmbShard, 'vectorsB64' | 
  * Decode a shard payload from base64 back into its typed array components for
  * ranking. Returns Int8 vectors, Float32 scales, and optional Uint16 centroid ids.
  */
-export function decodeQ8Vectors(shard: EmbShard): Q8Vectors {
+export function decode_q8_vectors(shard: EmbShard): Q8Vectors {
   const vectors = Buffer.from(shard.vectorsB64, 'base64');
   const scales = Buffer.from(shard.scalesB64, 'base64');
   const centroidIds = shard.centroidIdsB64 ? Buffer.from(shard.centroidIdsB64, 'base64') : null;
@@ -135,7 +135,7 @@ export function decodeQ8Vectors(shard: EmbShard): Q8Vectors {
   };
 }
 
-function isNotFoundError(error: unknown): boolean {
+function is_not_found_error(error: unknown): boolean {
   if (!error) {
     return false;
   }
@@ -151,7 +151,7 @@ const defaultClient: UserDataClient = {
       const value = await joplin.data.userDataGet<T>(NOTE_MODEL_TYPE, noteId, key);
       return value ?? null;
     } catch (error) {
-      if (isNotFoundError(error)) {
+      if (is_not_found_error(error)) {
         return null;
       }
       throw error;
@@ -164,7 +164,7 @@ const defaultClient: UserDataClient = {
     try {
       await joplin.data.userDataDelete(NOTE_MODEL_TYPE, noteId, key);
     } catch (error) {
-      if (isNotFoundError(error)) {
+      if (is_not_found_error(error)) {
         return;
       }
       throw error;

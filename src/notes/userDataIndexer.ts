@@ -4,21 +4,21 @@ import { JarvisSettings } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
 import { EmbStore, NoteEmbMeta, NoteEmbHistoryEntry, EmbShard } from './userDataStore';
 import { buildBlockRowMeta } from './blockMeta';
-import { quantizePerRow } from './q8';
-import { buildShards } from './shards';
+import { quantize_per_row } from './q8';
+import { build_shards } from './shards';
 import {
   AnchorMetadata,
   CentroidPayload,
   readAnchorMetadata,
   readCentroids,
-  writeAnchorMetadata,
-  writeCentroids,
+  write_anchor_metadata,
+  write_centroids,
 } from './anchorStore';
-import { ensureCatalogNote, ensureModelAnchor } from './catalog';
+import { ensure_catalog_note, ensure_model_anchor } from './catalog';
 import {
   assignCentroidIds,
   decodeCentroids,
-  deriveSampleLimit,
+  derive_sample_limit,
   encodeCentroids,
   estimateNlist,
   reservoirSampleVectors,
@@ -48,7 +48,7 @@ export interface PreparedUserData {
  */
 const log = getLogger();
 
-export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): Promise<PreparedUserData | null> {
+export async function prepare_user_data_embeddings(params: PrepareUserDataParams): Promise<PreparedUserData | null> {
   const { noteId, contentHash, blocks, model, settings, store } = params;
 
   if (blocks.length === 0) {
@@ -64,11 +64,11 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
   const previousMeta = await store.getMeta(noteId);
   const epoch = (previousMeta?.current.epoch ?? 0) + 1;
   const updatedAt = new Date().toISOString();
-  const settingsHash = computeSettingsHash(settings);
+  const settingsHash = compute_settings_hash(settings);
 
   let centroidIds: Uint16Array | undefined;
 
-  const quantized = quantizePerRow(blockVectors);
+  const quantized = quantize_per_row(blockVectors);
 
   if (quantized.dim !== dim) {
     throw new Error(`Quantized dimension mismatch: expected ${dim}, got ${quantized.dim}`);
@@ -78,11 +78,11 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
     blockIdPrefix: noteId,
   });
 
-  if (settings.experimental_userDataIndex) {
+  if (settings.experimental_user_data_index) {
     try {
-      const catalogId = await ensureCatalogNote();
-      const anchorId = await ensureModelAnchor(catalogId, model.id, model.version ?? 'unknown');
-      const totalRows = countCorpusRows(model, noteId, blocks.length);
+      const catalogId = await ensure_catalog_note();
+      const anchorId = await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
+      const totalRows = count_corpus_rows(model, noteId, blocks.length);
       // Pick target list count using sqrt heuristic so IVF stays balanced as the corpus grows.
       const desiredNlist = estimateNlist(totalRows);
 
@@ -91,7 +91,7 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
       let loaded = decodeCentroids(centroidPayload);
       let centroids = loaded?.data ?? null;
 
-      if (shouldTrainCentroids({
+      if (should_train_centroids({
         totalRows,
         desiredNlist,
         dim,
@@ -103,9 +103,9 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
         // Bound sampling effort so we keep at least ~32 rows per list without exploding.
         const sampleLimit = Math.min(
           totalRows,
-          deriveSampleLimit(desiredNlist),
+          derive_sample_limit(desiredNlist),
         );
-        const samples = collectCentroidSamples(model, noteId, blocks, sampleLimit);
+        const samples = collect_centroid_samples(model, noteId, blocks, sampleLimit);
         const trained = trainCentroids(samples, dim, { nlist: desiredNlist });
         if (trained) {
           centroids = trained;
@@ -121,7 +121,7 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
               sampleCount: samples.length,
             },
           });
-          await writeCentroids(anchorId, centroidPayload);
+          await write_centroids(anchorId, centroidPayload);
           log.info('Rebuilt IVF centroids', {
             modelId: model.id,
             desiredNlist,
@@ -142,7 +142,7 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
         centroidIds = assignCentroidIds(centroids, dim, blockVectors);
       }
 
-      await writeAnchorMetadata(anchorId, {
+      await write_anchor_metadata(anchorId, {
         modelId: model.id,
         dim,
         version: model.version ?? 'unknown',
@@ -158,7 +158,7 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
     }
   }
 
-  const shards = buildShards({
+  const shards = build_shards({
     epoch,
     quantized,
     meta: metaRows,
@@ -166,7 +166,7 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
     targetBytes: params.targetBytes,
   });
 
-  const history = buildHistory(previousMeta);
+  const history = build_history(previousMeta);
 
   const meta: NoteEmbMeta = {
     modelId: model.id,
@@ -197,7 +197,7 @@ export async function prepareUserDataEmbeddings(params: PrepareUserDataParams): 
  * Build history array by tacking the previous meta's current snapshot to the front
  * and appending already-recorded history entries.
  */
-function buildHistory(previousMeta: NoteEmbMeta | null | undefined): NoteEmbHistoryEntry[] | undefined {
+function build_history(previousMeta: NoteEmbMeta | null | undefined): NoteEmbHistoryEntry[] | undefined {
   if (!previousMeta) {
     return undefined;
   }
@@ -220,7 +220,7 @@ function buildHistory(previousMeta: NoteEmbMeta | null | undefined): NoteEmbHist
 /**
  * Hash the subset of settings that influence embedding content to detect drift.
  */
-function computeSettingsHash(settings: JarvisSettings): string {
+function compute_settings_hash(settings: JarvisSettings): string {
   const relevant = {
     embedTitle: settings.notes_embed_title,
     embedPath: settings.notes_embed_path,
@@ -239,7 +239,7 @@ function computeSettingsHash(settings: JarvisSettings): string {
  * Count total rows participating in the corpus after substituting the current
  * note's new blocks. Old embeddings for the same note id are excluded.
  */
-function countCorpusRows(model: TextEmbeddingModel, excludeNoteId: string, newRows: number): number {
+function count_corpus_rows(model: TextEmbeddingModel, excludeNoteId: string, newRows: number): number {
   let total = Math.max(newRows, 0);
   for (const embedding of model.embeddings) {
     if (embedding.id === excludeNoteId) {
@@ -254,7 +254,7 @@ function countCorpusRows(model: TextEmbeddingModel, excludeNoteId: string, newRo
  * Reservoir-sample embeddings for centroid training without allocating the full
  * corpus. Existing rows for the note are ignored so we train against fresh data.
  */
-function collectCentroidSamples(
+function collect_centroid_samples(
   model: TextEmbeddingModel,
   excludeNoteId: string,
   blocks: BlockEmbedding[],
@@ -282,7 +282,7 @@ function collectCentroidSamples(
  * Decide whether IVF centroids need rebuilding based on corpus size, metadata,
  * and payload characteristics.
  */
-function shouldTrainCentroids(args: {
+function should_train_centroids(args: {
   totalRows: number;
   desiredNlist: number;
   dim: number;

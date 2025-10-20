@@ -37,7 +37,7 @@ const PARENT_MAP_PREFIX = 'jarvis/v1/aux/parentMap/';
  * Persist lightweight metadata about the model on its anchor note. Devices use
  * this to confirm anchor validity before consuming centroids.
  */
-export async function writeAnchorMetadata(noteId: string, metadata: AnchorMetadata): Promise<void> {
+export async function write_anchor_metadata(noteId: string, metadata: AnchorMetadata): Promise<void> {
   await joplin.data.userDataSet(ModelType.Note, noteId, METADATA_KEY, metadata);
   log.info('Anchor metadata updated', { noteId, modelId: metadata.modelId, version: metadata.version });
 }
@@ -55,7 +55,7 @@ export async function readAnchorMetadata(noteId: string): Promise<AnchorMetadata
 /**
  * Store IVF centroids (base64 payload) on the anchor note.
  */
-export async function writeCentroids(noteId: string, payload: CentroidPayload): Promise<void> {
+export async function write_centroids(noteId: string, payload: CentroidPayload): Promise<void> {
   await joplin.data.userDataSet(ModelType.Note, noteId, CENTROIDS_KEY, payload);
   log.info('Anchor centroids updated', { noteId, format: payload.format, dim: payload.dim, nlist: payload.nlist });
 }
@@ -70,14 +70,14 @@ export async function readCentroids(noteId: string): Promise<CentroidPayload | n
   }
 }
 
-export async function writeParentMap(noteId: string, size: number, data: Uint16Array): Promise<void> {
+export async function write_parent_map(noteId: string, size: number, data: Uint16Array): Promise<void> {
   const key = `${PARENT_MAP_PREFIX}${size}`;
   const b64 = Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('base64');
   await joplin.data.userDataSet(ModelType.Note, noteId, key, { b64, size });
   log.debug('Anchor parent map updated', { noteId, size });
 }
 
-export async function readParentMap(noteId: string, size: number): Promise<Uint16Array | null> {
+export async function read_parent_map(noteId: string, size: number): Promise<Uint16Array | null> {
   const key = `${PARENT_MAP_PREFIX}${size}`;
   try {
     const payload = await joplin.data.userDataGet<{ b64: string; size: number }>(ModelType.Note, noteId, key);

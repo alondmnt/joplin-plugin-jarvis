@@ -29,7 +29,7 @@ export interface NoteEmbeddingsResult {
  * is not in the set are skipped before converting back to Float32. The optional
  * `maxRows` cap applies across all notes in the request.
  */
-export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
+export async function read_user_data_embeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
   const { store, noteIds, maxRows, allowedCentroidIds, onBlock } = options;
   const results: NoteEmbeddingsResult[] = [];
   const decoder = new ShardDecoder();
@@ -113,7 +113,7 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
           length: metaRow.bodyLength,
           level: metaRow.headingLevel,
           title: metaRow.title,
-          embedding: useCallback ? new Float32Array(0) : extractRowVector(decoded.vectors, decoded.scales, meta.dim, row),
+          embedding: useCallback ? new Float32Array(0) : extract_row_vector(decoded.vectors, decoded.scales, meta.dim, row),
           similarity: 0,
           q8: q8Row,
           centroidId, // Preserve IVF assignments for later filtering.
@@ -161,7 +161,7 @@ export async function readUserDataEmbeddings(options: ReadEmbeddingsOptions): Pr
  * Convert a q8 row back to Float32 given the stored scale. The caller provides the
  * flat Int8 array and row index; this helper reconstructs a fresh Float32Array view.
  */
-function extractRowVector(vectors: Int8Array, scales: Float32Array, dim: number, row: number): Float32Array {
+function extract_row_vector(vectors: Int8Array, scales: Float32Array, dim: number, row: number): Float32Array {
   const start = row * dim;
   const result = new Float32Array(dim);
   const scale = scales[row] ?? 0;

@@ -1,6 +1,6 @@
 import { getLogger } from '../utils/logger';
-import { getCatalogNoteId, resolveAnchorNoteId } from './catalog';
-import { readCentroids, readParentMap } from './anchorStore';
+import { getCatalogNoteId, resolveAnchorNoteId as resolve_anchor_note_id } from './catalog';
+import { readCentroids, read_parent_map } from './anchorStore';
 import { decodeCentroids, LoadedCentroids } from './centroids';
 
 const log = getLogger();
@@ -12,13 +12,13 @@ const anchorCache = new Map<string, string | null>();
 /**
  * Load centroids for the given model if available, caching the result to avoid repeated userData hits.
  */
-export async function loadModelCentroids(modelId: string): Promise<LoadedCentroids | null> {
+export async function load_model_centroids(modelId: string): Promise<LoadedCentroids | null> {
   if (cache.has(modelId)) {
     return cache.get(modelId) ?? null;
   }
 
   try {
-    const anchorId = await resolveAnchor(modelId);
+    const anchorId = await resolve_anchor(modelId);
     if (!anchorId) {
       cache.set(modelId, null);
       return null;
@@ -51,7 +51,7 @@ export function clearCentroidCache(modelId?: string): void {
  * Load the child→parent centroid map for the requested target size. Used by mobile
  * devices to fall back to canonical parent lists when memory is tight.
  */
-export async function loadParentMap(modelId: string, size: number): Promise<Uint16Array | null> {
+export async function load_parent_map(modelId: string, size: number): Promise<Uint16Array | null> {
   let modelCache = parentCache.get(modelId);
   if (!modelCache) {
     modelCache = new Map();
@@ -61,12 +61,12 @@ export async function loadParentMap(modelId: string, size: number): Promise<Uint
     return modelCache.get(size) ?? null;
   }
   try {
-    const anchorId = await resolveAnchor(modelId);
+    const anchorId = await resolve_anchor(modelId);
     if (!anchorId) {
       modelCache.set(size, null);
       return null;
     }
-    const map = await readParentMap(anchorId, size);
+    const map = await read_parent_map(anchorId, size);
     modelCache.set(size, map ?? null);
     return map ?? null;
   } catch (error) {
@@ -76,7 +76,7 @@ export async function loadParentMap(modelId: string, size: number): Promise<Uint
   }
 }
 
-async function resolveAnchor(modelId: string): Promise<string | null> {
+async function resolve_anchor(modelId: string): Promise<string | null> {
   if (anchorCache.has(modelId)) {
     return anchorCache.get(modelId) ?? null;
   }
@@ -86,7 +86,7 @@ async function resolveAnchor(modelId: string): Promise<string | null> {
       anchorCache.set(modelId, null);
       return null;
     }
-    const anchorId = await resolveAnchorNoteId(catalogNoteId, modelId);
+    const anchorId = await resolve_anchor_note_id(catalogNoteId, modelId);
     anchorCache.set(modelId, anchorId ?? null);
     return anchorId ?? null;
   } catch (error) {

@@ -1,4 +1,4 @@
-import { decodeQ8Vectors, EmbShard } from './userDataStore';
+import { decode_q8_vectors, EmbShard } from './userDataStore';
 
 /**
  * Decoded shard payload exposing q8 vectors, per-row scales, and optional centroid ids.
@@ -19,7 +19,7 @@ export class ShardDecoder {
   private centroidBuffer: Uint16Array = new Uint16Array(0);
 
   decode(shard: EmbShard): DecodedShard {
-    const decoded = decodeQ8Vectors(shard);
+    const decoded = decode_q8_vectors(shard);
     if (decoded.vectors.byteLength > this.vectorBuffer.byteLength) {
       this.vectorBuffer = new Int8Array(decoded.vectors.byteLength);
     }

@@ -67,7 +67,7 @@ export interface JarvisSettings {
   notes_panel_user_style: string;
   notes_abort_on_error: boolean;
   notes_embed_timeout: number;
-  experimental_userDataIndex: boolean;
+  experimental_user_data_index: boolean;
   notes_device_profile: 'auto' | 'desktop' | 'mobile';
   notes_anchor_cache?: Record<string, string>;
   notes_ivf_candidate_limit?: number;
@@ -295,7 +295,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
-    experimental_userDataIndex: await joplin.settings.value('experimental.userDataIndex'),
+    experimental_user_data_index: await joplin.settings.value('experimental.userDataIndex'),
     notes_device_profile: (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile'),
     notes_ivf_candidate_limit: await joplin.settings.value('notes_ivf_candidate_limit'),
     notes_ivf_min_nprobe: await joplin.settings.value('notes_ivf_min_nprobe'),
