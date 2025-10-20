@@ -1,7 +1,7 @@
 import { getLogger } from '../utils/logger';
 import { getCatalogNoteId, resolveAnchorNoteId as resolve_anchor_note_id } from './catalog';
-import { readCentroids, read_parent_map } from './anchorStore';
-import { decodeCentroids, LoadedCentroids } from './centroids';
+import { read_centroids, read_parent_map } from './anchorStore';
+import { decode_centroids, LoadedCentroids } from './centroids';
 
 const log = getLogger();
 
@@ -23,8 +23,8 @@ export async function load_model_centroids(modelId: string): Promise<LoadedCentr
       cache.set(modelId, null);
       return null;
     }
-    const payload = await readCentroids(anchorId);
-    const decoded = decodeCentroids(payload);
+    const payload = await read_centroids(anchorId);
+    const decoded = decode_centroids(payload);
     cache.set(modelId, decoded);
     return decoded;
   } catch (error) {

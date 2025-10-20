@@ -41,7 +41,7 @@ const MIN_SAMPLES_PER_LIST = 32;
  * Estimate a suitable `nlist` based on total rows. Values are clamped to powers
  * of two to simplify downstream heuristics.
  */
-export function estimateNlist(totalRows: number, options: { min?: number; max?: number } = {}): number {
+export function estimate_nlist(totalRows: number, options: { min?: number; max?: number } = {}): number {
   if (!Number.isFinite(totalRows) || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
     return 0;
   }
@@ -58,7 +58,7 @@ export function estimateNlist(totalRows: number, options: { min?: number; max?: 
  * Decode the centroid payload stored on an anchor into Float32 centroids. The
  * caller receives `null` when the payload is missing or unsupported.
  */
-export function decodeCentroids(payload: CentroidPayload | null | undefined): LoadedCentroids | null {
+export function decode_centroids(payload: CentroidPayload | null | undefined): LoadedCentroids | null {
   if (!payload?.b64 || !payload.dim) {
     return null;
   }
@@ -98,7 +98,7 @@ export function decodeCentroids(payload: CentroidPayload | null | undefined): Lo
  * Convert Float32 centroids to a payload suitable for storage on the anchor.
  * The centroids array must be tightly packed with length `nlist * dim`.
  */
-export function encodeCentroids(params: {
+export function encode_centroids(params: {
   centroids: Float32Array;
   dim: number;
   format?: 'f32' | 'f16';
@@ -120,7 +120,7 @@ export function encodeCentroids(params: {
   } else {
     throw new Error(`Unsupported centroid format: ${format}`);
   }
-  const hash = params.hash ?? computeCentroidHash(centroids);
+  const hash = params.hash ?? compute_centroid_hash(centroids);
   return {
     format,
     dim,
@@ -136,7 +136,7 @@ export function encodeCentroids(params: {
 /**
  * Lightweight SHA-256 hash for centroid content so devices can detect drift.
  */
-export function computeCentroidHash(centroids: Float32Array): string {
+export function compute_centroid_hash(centroids: Float32Array): string {
   const view = new Uint8Array(centroids.buffer, centroids.byteOffset, centroids.byteLength);
   return `sha256:${createHash('sha256').update(view).digest('hex')}`;
 }
@@ -145,7 +145,7 @@ export function computeCentroidHash(centroids: Float32Array): string {
  * Assign each vector to its closest centroid (maximum cosine similarity). Both
  * centroids and vectors are expected to be L2-normalized.
  */
-export function assignCentroidIds(
+export function assign_centroid_ids(
   centroids: Float32Array,
   dim: number,
   vectors: readonly Float32Array[],
@@ -180,7 +180,7 @@ export function assignCentroidIds(
  * Reservoir sample a stream of vectors to a bounded array. Returns the sampled
  * references without cloning the underlying Float32Array rows.
  */
-export function reservoirSampleVectors(
+export function reservoir_sample_vectors(
   vectors: Iterable<Float32Array>,
   options: ReservoirSampleOptions,
 ): Float32Array[] {
@@ -211,7 +211,7 @@ export function reservoirSampleVectors(
 /**
  * Compute cosine scores between a normalized query vector and each centroid in the set.
  */
-export function scoreCentroids(query: Float32Array, centroids: LoadedCentroids): Float32Array {
+export function score_centroids(query: Float32Array, centroids: LoadedCentroids): Float32Array {
   if (query.length !== centroids.dim) {
     return new Float32Array(0);
   }
@@ -239,7 +239,7 @@ export function select_top_centroid_ids(
   if (nprobe <= 0 || centroids.nlist === 0) {
     return [];
   }
-  const scores = scoreCentroids(query, centroids);
+  const scores = score_centroids(query, centroids);
   if (scores.length === 0) {
     return [];
   }
@@ -275,7 +275,7 @@ export function choose_nprobe(
  * Train IVF centroids using k-means with cosine similarity. Returns null when
  * there are not enough samples to produce multiple lists.
  */
-export function trainCentroids(
+export function train_centroids(
   samples: readonly Float32Array[],
   dim: number,
   options: TrainCentroidsOptions,

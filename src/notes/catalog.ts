@@ -1,7 +1,7 @@
 import joplin from 'api';
 import { ModelType } from 'api/types';
 import { getLogger } from '../utils/logger';
-import { write_anchor_metadata, readAnchorMetadata } from './anchorStore';
+import { write_anchor_metadata, read_anchor_meta_data } from './anchorStore';
 import { get_cached_anchor, set_cached_anchor, remove_cached_anchor } from './anchorCache';
 
 const log = getLogger();
@@ -141,7 +141,7 @@ async function updateCatalogBody(catalogNoteId: string, registry: ModelRegistry)
  * rewriting it when missing or stale.
  */
 async function ensure_anchor_metadata(anchorId: string, modelId: string, modelVersion: string): Promise<void> {
-  const meta = await readAnchorMetadata(anchorId);
+  const meta = await read_anchor_meta_data(anchorId);
   if (meta?.modelId === modelId && meta.version === modelVersion) {
     return;
   }
@@ -167,7 +167,7 @@ async function validate_anchor(anchorId: string, modelId: string, registry: Mode
       await remove_cached_anchor(modelId);
       return false;
     }
-    const meta = await readAnchorMetadata(anchorId);
+    const meta = await read_anchor_meta_data(anchorId);
     if (!meta || meta.modelId !== modelId) {
       log.warn('Anchor metadata mismatch', { modelId, anchorId });
       await remove_cached_anchor(modelId);
@@ -203,7 +203,7 @@ async function discover_anchor_by_scan(catalogNoteId: string, modelId: string, r
     for (const item of items) {
       const noteId = item.id;
       if (!noteId || noteId === catalogNoteId) continue; // skip empty ids and the catalog note itself
-      const meta = await readAnchorMetadata(noteId);
+      const meta = await read_anchor_meta_data(noteId);
       if (meta?.modelId === modelId) {
         registry[modelId] = noteId;
         await joplin.data.userDataSet(ModelType.Note, catalogNoteId, REGISTRY_KEY, registry);

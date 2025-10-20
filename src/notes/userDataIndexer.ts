@@ -3,26 +3,26 @@ import { BlockEmbedding } from './embeddings';
 import { JarvisSettings } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
 import { EmbStore, NoteEmbMeta, NoteEmbHistoryEntry, EmbShard } from './userDataStore';
-import { buildBlockRowMeta } from './blockMeta';
+import { build_block_row_meta } from './blockMeta';
 import { quantize_per_row } from './q8';
 import { build_shards } from './shards';
 import {
   AnchorMetadata,
   CentroidPayload,
-  readAnchorMetadata,
-  readCentroids,
+  read_anchor_meta_data,
+  read_centroids,
   write_anchor_metadata,
   write_centroids,
 } from './anchorStore';
 import { ensure_catalog_note, ensure_model_anchor } from './catalog';
 import {
-  assignCentroidIds,
-  decodeCentroids,
+  assign_centroid_ids,
+  decode_centroids,
   derive_sample_limit,
-  encodeCentroids,
-  estimateNlist,
-  reservoirSampleVectors,
-  trainCentroids,
+  encode_centroids,
+  estimate_nlist,
+  reservoir_sample_vectors,
+  train_centroids,
   MIN_TOTAL_ROWS_FOR_IVF,
 } from './centroids';
 import { getLogger } from '../utils/logger';
@@ -74,7 +74,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
     throw new Error(`Quantized dimension mismatch: expected ${dim}, got ${quantized.dim}`);
   }
 
-  const metaRows = buildBlockRowMeta(blocks, {
+  const metaRows = build_block_row_meta(blocks, {
     blockIdPrefix: noteId,
   });
 
@@ -84,11 +84,11 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
       const anchorId = await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
       const totalRows = count_corpus_rows(model, noteId, blocks.length);
       // Pick target list count using sqrt heuristic so IVF stays balanced as the corpus grows.
-      const desiredNlist = estimateNlist(totalRows);
+      const desiredNlist = estimate_nlist(totalRows);
 
-      const anchorMeta = await readAnchorMetadata(anchorId);
-      let centroidPayload = await readCentroids(anchorId);
-      let loaded = decodeCentroids(centroidPayload);
+      const anchorMeta = await read_anchor_meta_data(anchorId);
+      let centroidPayload = await read_centroids(anchorId);
+      let loaded = decode_centroids(centroidPayload);
       let centroids = loaded?.data ?? null;
 
       if (should_train_centroids({
@@ -106,7 +106,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
           derive_sample_limit(desiredNlist),
         );
         const samples = collect_centroid_samples(model, noteId, blocks, sampleLimit);
-        const trained = trainCentroids(samples, dim, { nlist: desiredNlist });
+        const trained = train_centroids(samples, dim, { nlist: desiredNlist });
         if (trained) {
           let centroidStats: {
             emptyLists: number;
@@ -118,7 +118,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
             p90Rows: number;
           } | null = null;
           if (samples.length > 0 && desiredNlist > 0) {
-            const assignments = assignCentroidIds(trained, dim, samples);
+            const assignments = assign_centroid_ids(trained, dim, samples);
             const counts = new Array(desiredNlist).fill(0);
             for (const id of assignments) {
               if (id < counts.length) {
@@ -154,7 +154,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
             };
           }
           centroids = trained;
-          centroidPayload = encodeCentroids({
+          centroidPayload = encode_centroids({
             centroids: trained,
             dim,
             format: 'f32',
@@ -181,11 +181,11 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
             samples: samples.length,
           });
         }
-        loaded = decodeCentroids(centroidPayload);
+        loaded = decode_centroids(centroidPayload);
       }
 
       if (centroids && blockVectors.length > 0) {
-        centroidIds = assignCentroidIds(centroids, dim, blockVectors);
+        centroidIds = assign_centroid_ids(centroids, dim, blockVectors);
       }
 
       await write_anchor_metadata(anchorId, {
@@ -321,7 +321,7 @@ function collect_centroid_samples(
       yield block.embedding;
     }
   }
-  return reservoirSampleVectors(iterate(), { limit });
+  return reservoir_sample_vectors(iterate(), { limit });
 }
 
 /**

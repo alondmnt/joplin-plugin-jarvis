@@ -11,7 +11,7 @@ export interface BlockMetaOptions {
  * Convert runtime `BlockEmbedding` objects into the metadata rows stored alongside
  * q8 shards. Optional heading paths / tags can be supplied for richer context.
  */
-export function buildBlockRowMeta(blocks: BlockEmbedding[], options: BlockMetaOptions = {}): BlockRowMeta[] {
+export function build_block_row_meta(blocks: BlockEmbedding[], options: BlockMetaOptions = {}): BlockRowMeta[] {
   const { headingPaths = [], tagsPerBlock = [], blockIdPrefix } = options;
   return blocks.map((block, index) => {
     const headingPath = headingPaths[index] ?? (block.title ? [block.title] : []);

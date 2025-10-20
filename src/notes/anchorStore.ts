@@ -42,7 +42,7 @@ export async function write_anchor_metadata(noteId: string, metadata: AnchorMeta
   log.info('Anchor metadata updated', { noteId, modelId: metadata.modelId, version: metadata.version });
 }
 
-export async function readAnchorMetadata(noteId: string): Promise<AnchorMetadata | null> {
+export async function read_anchor_meta_data(noteId: string): Promise<AnchorMetadata | null> {
   try {
     const metadata = await joplin.data.userDataGet<AnchorMetadata>(ModelType.Note, noteId, METADATA_KEY);
     return metadata ?? null;
@@ -60,7 +60,7 @@ export async function write_centroids(noteId: string, payload: CentroidPayload):
   log.info('Anchor centroids updated', { noteId, format: payload.format, dim: payload.dim, nlist: payload.nlist });
 }
 
-export async function readCentroids(noteId: string): Promise<CentroidPayload | null> {
+export async function read_centroids(noteId: string): Promise<CentroidPayload | null> {
   try {
     const payload = await joplin.data.userDataGet<CentroidPayload>(ModelType.Note, noteId, CENTROIDS_KEY);
     return payload ?? null;
