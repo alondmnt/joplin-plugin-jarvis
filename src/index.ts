@@ -29,34 +29,62 @@ joplin.plugins.register({
     let model_embed = await load_embedding_model(settings);
     if (await skip_db_init_dialog(model_embed)) { delay_db_update = 0; }  // cancel auto update
 
-    // Add shared abortController
+    // Track in-progress updates so we can merge overlapping requests and avoid UI stalls.
     let updateAbortController: AbortController | null = null;
     let updateStartTime: number | null = null;
+    const pendingNoteIds = new Set<string>();  // deduplicated queue of notes awaiting rebuild
+    const noteChangeDebounceMs = 2000;
+
+    interface UpdateOptions {
+      force?: boolean;
+      noteIds?: string[];
+      silent?: boolean;
+    }
 
     // Helper function to check if update is in progress
-    function isUpdateInProgress(): boolean {
-      console.debug('isUpdateInProgress', updateAbortController, updateStartTime);
+    function is_update_in_progress(): boolean {
+      console.debug('is_update_in_progress', updateAbortController, updateStartTime);
       return updateAbortController !== null &&
         (updateStartTime !== null && (Date.now() - updateStartTime) < abort_timeout * 60 * 1000);
     }
 
-    // Helper function to safely start an update
-    async function startUpdate(model_embed: any, panel: string, force: boolean = false) {
-      console.debug('startUpdate', isUpdateInProgress(), force);
-      if (isUpdateInProgress() && !force) {
-        await joplin.views.dialogs.showMessageBox('Update already in progress');
+    /**
+     * Kick off an embedding rebuild, optionally scoped to a set of note IDs.
+     * Collapses concurrent callers, reusing the shared abort controller when forced.
+     * Note the legacy snake_case helpers (`update_note_db`, `find_notes`) this wraps.
+     */
+    async function start_update(model_embed: any, panel: string, options: UpdateOptions = {}) {
+      const { force = false, noteIds, silent = false } = options;
+      const targetIds = noteIds && noteIds.length > 0 ? Array.from(new Set(noteIds)) : undefined;
+      console.debug('start_update', is_update_in_progress(), force, targetIds?.length ?? 0);
+
+      if (targetIds && targetIds.length === 0 && !force) {
         return;
       }
 
-      if (updateAbortController !== null) {
-        // abort the previous update after timeout
+      if (is_update_in_progress()) {
+        if (!force) {
+          if (!silent) {
+            await joplin.views.dialogs.showMessageBox('Update already in progress');
+          }
+          return;
+        }
+        if (updateAbortController) {
+          updateAbortController.abort();
+        }
+      } else if (updateAbortController !== null) {
         updateAbortController.abort();
+      }
+
+      if (updateAbortController !== null) {
+        // ensure previous controller can't leak to new updates
+        updateAbortController = null;
       }
       updateAbortController = new AbortController();
       updateStartTime = Date.now();
 
       try {
-        await update_note_db(model_embed, panel, updateAbortController);
+        await update_note_db(model_embed, panel, updateAbortController, targetIds);
       } finally {
         updateAbortController = null;
         updateStartTime = null;
@@ -69,7 +97,7 @@ joplin.plugins.register({
     const find_notes_debounce = debounce(find_notes, delay_panel * 1000);
     if (model_embed.model) { find_notes_debounce(model_embed, panel) };
     let update_note_db_debounce = debounce(async (model_embed: any, panel: string) => {
-      await startUpdate(model_embed, panel);
+      await start_update(model_embed, panel);
     }, delay_db_update * 1000, {leading: true, trailing: false});
 
     let model_gen = await load_generation_model(settings);
@@ -182,7 +210,7 @@ joplin.plugins.register({
         if (model_embed.model === null) {
           await model_embed.initialize();
         }
-        await startUpdate(model_embed, panel);
+        await start_update(model_embed, panel);
       }
     });
 
@@ -299,6 +327,39 @@ joplin.plugins.register({
     joplin.views.menuItems.create('jarvis.context.utils.count_tokens', 'jarvis.utils.count_tokens', MenuItemLocation.EditorContextMenu);
     joplin.views.menuItems.create('jarvis.context.edit', 'jarvis.edit', MenuItemLocation.EditorContextMenu);
 
+    /**
+     * Debounced worker that drains pending note IDs into the background updater.
+     * Keeps compatibility with snake_case workhorses by calling `start_update`.
+     */
+    const flush_note_changes = debounce(async () => {
+      if (pendingNoteIds.size === 0) {
+        return;
+      }
+
+      if (is_update_in_progress()) {
+        flush_note_changes();
+        return;
+      }
+
+      if (model_embed.model === null) {
+        flush_note_changes();
+        return;
+      }
+
+      const noteIds = Array.from(pendingNoteIds);
+      pendingNoteIds.clear();
+      try {
+        // Silent mode avoids spurious dialogs when rapid edits trigger overlapping batches.
+        await start_update(model_embed, panel, { noteIds, silent: true });
+      } catch (error) {
+        // Requeue on failure so the next pass can retry after a transient error.
+        for (const id of noteIds) {
+          pendingNoteIds.add(id);
+        }
+        throw error;
+      }
+    }, noteChangeDebounceMs);
+
     await joplin.workspace.onNoteSelectionChange(async () => {
         if (model_embed.model === null) {
           await model_embed.initialize();
@@ -307,6 +368,15 @@ joplin.plugins.register({
         if (delay_db_update > 0) {
           await update_note_db_debounce(model_embed, panel);
         }
+    });
+
+    await joplin.workspace.onNoteChange(async (event: any) => {
+      const noteId = event?.id ?? event?.item?.id;
+      if (!noteId) {
+        return;
+      }
+      pendingNoteIds.add(noteId);
+      flush_note_changes();
     });
 
     await joplin.views.panels.onMessage(panel, async (message) => {
@@ -380,7 +450,7 @@ joplin.plugins.register({
 
         model_embed = await load_embedding_model(settings);
         if (model_embed.model) {
-          await startUpdate(model_embed, panel, true);
+          await start_update(model_embed, panel, { force: true });
         }
       }
       if (event.keys.includes('notes_scroll_delay')) {
@@ -394,7 +464,7 @@ joplin.plugins.register({
       if (event.keys.includes('notes_db_update_delay')) {
         delay_db_update = 60 * settings.notes_db_update_delay;
         update_note_db_debounce = debounce(async (model_embed: any, panel: string) => {
-          await startUpdate(model_embed, panel);
+          await start_update(model_embed, panel);
         }, delay_db_update * 1000, {leading: true, trailing: false});
       }
     });
