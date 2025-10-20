@@ -108,6 +108,51 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
         const samples = collect_centroid_samples(model, noteId, blocks, sampleLimit);
         const trained = trainCentroids(samples, dim, { nlist: desiredNlist });
         if (trained) {
+          let centroidStats: {
+            emptyLists: number;
+            minRows: number;
+            maxRows: number;
+            avgRows: number;
+            stdevRows: number;
+            p50Rows: number;
+            p90Rows: number;
+          } | null = null;
+          if (samples.length > 0 && desiredNlist > 0) {
+            const assignments = assignCentroidIds(trained, dim, samples);
+            const counts = new Array(desiredNlist).fill(0);
+            for (const id of assignments) {
+              if (id < counts.length) {
+                counts[id] += 1;
+              }
+            }
+            const totalAssigned = counts.reduce((sum, value) => sum + value, 0);
+            const nonEmptyCounts = counts.filter((value) => value > 0);
+            const emptyLists = counts.length - nonEmptyCounts.length;
+            const minRows = nonEmptyCounts.length > 0 ? Math.min(...nonEmptyCounts) : 0;
+            const maxRows = nonEmptyCounts.length > 0 ? Math.max(...nonEmptyCounts) : 0;
+            const avgRows = counts.length > 0 ? totalAssigned / counts.length : 0;
+            const variance = counts.length > 0
+              ? counts.reduce((acc, value) => acc + Math.pow(value - avgRows, 2), 0) / counts.length
+              : 0;
+            const stdevRows = Math.sqrt(variance);
+            const sortedCounts = [...counts].sort((a, b) => a - b);
+            const percentile = (arr: number[], pct: number): number => {
+              if (arr.length === 0) {
+                return 0;
+              }
+              const index = Math.min(arr.length - 1, Math.max(0, Math.round(pct * (arr.length - 1))));
+              return arr[index];
+            };
+            centroidStats = {
+              emptyLists,
+              minRows,
+              maxRows,
+              avgRows: Number(avgRows.toFixed(2)),
+              stdevRows: Number(stdevRows.toFixed(2)),
+              p50Rows: percentile(sortedCounts, 0.5),
+              p90Rows: percentile(sortedCounts, 0.9),
+            };
+          }
           centroids = trained;
           centroidPayload = encodeCentroids({
             centroids: trained,
@@ -127,6 +172,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
             desiredNlist,
             totalRows,
             samples: samples.length,
+            ...(centroidStats ?? {}),
           });
         } else if (!centroids) {
           log.debug('Skipped centroid training due to insufficient samples', {
