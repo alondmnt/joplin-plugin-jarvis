@@ -396,6 +396,33 @@ async function update_note(note: any,
 
   // if the note hasn't changed, return the old embeddings
   if ((old_embd.length > 0) && (old_embd[0].hash === hash)) {
+    // Backfill per-note userData on rebuild when the experimental index is enabled.
+    // This ensures a full "Update Jarvis note DB" populates userData even if the
+    // legacy embeddings already exist and the note content hasn't changed.
+    if (settings.experimental_user_data_index) {
+      try {
+        const existing = await userDataStore.getMeta(note.id);
+        const needsBackfill = !existing
+          || existing.modelId !== model.id
+          || existing.current?.contentHash !== hash;
+        let needsCompaction = false;
+        if (!needsBackfill && existing && existing.current?.shards > 0) {
+          try {
+            const first = await userDataStore.getShard(note.id, 0);
+            const row0 = first?.meta?.[0] as any;
+            // Detect legacy rows by presence of duplicated per-row fields or blockId
+            needsCompaction = Boolean(row0?.noteId || row0?.noteHash || row0?.blockId);
+          } catch (e) {
+            // Ignore shard read issues during compact check
+          }
+        }
+        if (needsBackfill || needsCompaction) {
+          await maybe_write_user_data_embeddings(note, old_embd, model, settings, hash);
+        }
+      } catch (error) {
+        log.warn(`Failed to ensure userData embeddings for unchanged note ${note.id}`, error);
+      }
+    }
     return old_embd;
   }
 
