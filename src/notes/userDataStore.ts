@@ -44,16 +44,16 @@ export interface NoteEmbMeta {
 }
 
 export interface BlockRowMeta {
-  blockId: string;
-  noteId: string;
-  noteHash: string;
   title: string;
   headingLevel: number;
-  headingPath: string[];
   bodyStart: number;
   bodyLength: number;
   lineNumber: number;
   tags?: string[];
+  // Optional fields to reduce per-row duplication; inferred by reader when absent
+  noteId?: string;
+  noteHash?: string;
+  headingPath?: string[];
 }
 
 export interface EmbShard {

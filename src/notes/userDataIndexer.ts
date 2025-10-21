@@ -74,9 +74,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
     throw new Error(`Quantized dimension mismatch: expected ${dim}, got ${quantized.dim}`);
   }
 
-  const metaRows = build_block_row_meta(blocks, {
-    blockIdPrefix: noteId,
-  });
+  const metaRows = build_block_row_meta(blocks);
 
   if (settings.experimental_user_data_index) {
     try {

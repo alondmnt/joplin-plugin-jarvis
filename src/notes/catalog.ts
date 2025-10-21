@@ -21,7 +21,8 @@ export async function getCatalogNoteId(): Promise<string | null> {
   try {
     const search = await joplin.data.get(['search'], {
       query: `"${CATALOG_NOTE_TITLE}" tag:${CATALOG_TAG}`,
-      type: ModelType.Note,
+      // Search API expects a model name string, not ModelType enum
+      type: 'note',
       fields: ['id'],
       limit: 1,
     });
@@ -79,11 +80,11 @@ export async function ensure_catalog_note(): Promise<string> {
     return existing;
   }
   try {
-    const note = await joplin.data.post(['notes'], {
+    const note = await joplin.data.post(['notes'], null, {
       title: CATALOG_NOTE_TITLE,
       body: catalog_body(),
     });
-    await joplin.data.post(['notes', note.id, 'tags'], { id: await ensure_tag_id() });
+    await joplin.data.post(['notes', note.id, 'tags'], null, { id: await ensure_tag_id() });
     log.info('Created catalog note', { noteId: note.id });
     return note.id;
   } catch (error) {
@@ -103,11 +104,11 @@ export async function ensure_model_anchor(catalogNoteId: string, modelId: string
     return existing;
   }
   try {
-    const note = await joplin.data.post(['notes'], {
+    const note = await joplin.data.post(['notes'], null, {
       title: anchor_title(modelId, modelVersion),
       body: anchor_body(modelId),
     });
-    await joplin.data.post(['notes', note.id, 'tags'], { id: await ensure_tag_id() });
+    await joplin.data.post(['notes', note.id, 'tags'], null, { id: await ensure_tag_id() });
     await update_registry(catalogNoteId, modelId, note.id);
     await write_anchor_metadata(note.id, { modelId, version: modelVersion, dim: 0, updatedAt: new Date().toISOString() });
     await set_cached_anchor(modelId, note.id);
@@ -190,7 +191,8 @@ async function discover_anchor_by_scan(catalogNoteId: string, modelId: string, r
     try {
       search = await joplin.data.get(['search'], {
         query: `tag:${CATALOG_TAG}`,
-        type: ModelType.Note,
+        // Search API expects a model name string, not ModelType enum
+        type: 'note',
         fields: ['id', 'title'],
         page,
         limit: 50,
@@ -233,7 +235,7 @@ async function ensure_tag_id(): Promise<string> {
   } catch (error) {
     log.warn('Failed to query catalog tag', error);
   }
-  const tag = await joplin.data.post(['tags'], { title: CATALOG_TAG });
+  const tag = await joplin.data.post(['tags'], null, { title: CATALOG_TAG });
   return tag.id;
 }
 

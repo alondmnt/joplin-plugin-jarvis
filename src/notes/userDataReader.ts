@@ -106,13 +106,15 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
           scale: rowScale === 0 ? 1 : rowScale,
         };
         const block: BlockEmbedding = {
-          id: metaRow.noteId,
-          hash: metaRow.noteHash,
+          id: metaRow.noteId ?? noteId,
+          hash: metaRow.noteHash ?? meta.current.contentHash,
           line: metaRow.lineNumber,
           body_idx: metaRow.bodyStart,
           length: metaRow.bodyLength,
           level: metaRow.headingLevel,
-          title: metaRow.title,
+          title: metaRow.title ?? ((metaRow.headingPath && metaRow.headingPath.length > 0)
+            ? metaRow.headingPath[metaRow.headingPath.length - 1]
+            : ''),
           embedding: useCallback ? new Float32Array(0) : extract_row_vector(decoded.vectors, decoded.scales, meta.dim, row),
           similarity: 0,
           q8: q8Row,
