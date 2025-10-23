@@ -9,8 +9,14 @@ const log = getLogger();
 const CATALOG_NOTE_TITLE = 'Jarvis Database Catalog';
 const CATALOG_TAG = 'jarvis.database';
 const REGISTRY_KEY = 'jarvis/v1/registry/models';
-let cached_tag_id: string | null = null;
-let inflight_tag_id: Promise<string> | null = null;
+const EXCLUDE_TAG = 'exclude.from.jarvis';
+
+type TagCacheEntry = {
+  id: string | null;
+  inflight: Promise<string> | null;
+};
+
+const tag_cache = new Map<string, TagCacheEntry>();
 
 // Prevent concurrent duplicate creations across parallel note updates
 let inFlightCatalogCreation: Promise<string> | null = null;
@@ -73,7 +79,7 @@ async function ensure_system_folder(): Promise<string> {
 }
 
 /**
- * Ensure the note carries the Jarvis catalog tag so it can be rediscovered later.
+ * Ensure the note carries the Jarvis catalog/exclusion tags so it can be rediscovered and skipped.
  *
  * @param noteId - Note identifier that should contain the catalog metadata.
  */
@@ -83,14 +89,16 @@ async function ensure_note_tag(noteId: string): Promise<void> {
     const titles = (existing?.items ?? [])
       .map((t: any) => (typeof t?.title === 'string' ? t.title : null))
       .filter((t: string | null): t is string => !!t);
-    if (titles.includes(CATALOG_TAG)) {
+    const already_has_required_tags = titles.includes(CATALOG_TAG) && titles.includes(EXCLUDE_TAG);
+    if (already_has_required_tags) {
       return;
     }
 
-    await ensure_tag_id(); // make sure the catalog tag exists
+    await ensure_tag_id(CATALOG_TAG);
+    await ensure_tag_id(EXCLUDE_TAG);
 
     // Deduplicate tag titles before pushing them back through the metadata update.
-    const next = Array.from(new Set([...titles, CATALOG_TAG]));
+    const next = Array.from(new Set([...titles, CATALOG_TAG, EXCLUDE_TAG]));
     await joplin.data.put(['notes', noteId], null, { tags: next.join(', ') });
   } catch (error) {
     log.warn('Failed to ensure note tag', { noteId, error });
@@ -119,9 +127,10 @@ async function ensure_note_placed(noteId: string): Promise<void> {
  */
 async function maybe_move_note_to_folder(noteId: string, folderId: string): Promise<void> {
   try {
-    const note = await joplin.data.get(['notes', noteId], { fields: ['id', 'parent_id'] });
-    const currentParent = note?.parent_id ?? '';
-    if (note?.id && currentParent !== folderId) {
+    const note = await joplin.data.get(['notes', noteId], { fields: ['id', 'parent_id', 'deleted_time'] });
+    const current_parent = note?.parent_id ?? '';
+    const is_deleted = typeof note?.deleted_time === 'number' && note.deleted_time > 0;
+    if (note?.id && !is_deleted && current_parent !== folderId) {
       await joplin.data.put(['notes', noteId], null, { parent_id: folderId });
       log.info('Moved note to system folder', { noteId, folderId });
     }
@@ -151,14 +160,15 @@ export async function get_catalog_note_id(): Promise<string | null> {
       const res = await joplin.data.get(['search'], {
         query: `tag:${CATALOG_TAG}`,
         type: 'note',
-        fields: ['id', 'title', 'created_time'],
+        fields: ['id', 'title', 'created_time', 'deleted_time'],
         page,
         limit: 50,
       });
       const items = res?.items ?? [];
       for (const it of items) {
         const id = it?.id as string | undefined;
-        if (!id) continue;
+        const deleted_time = typeof it?.deleted_time === 'number' ? it.deleted_time : 0;
+        if (!id || deleted_time > 0) continue;
         try {
           const reg = await joplin.data.userDataGet<any>(ModelType.Note, id, REGISTRY_KEY);
           if (reg && typeof reg === 'object') {
@@ -200,13 +210,14 @@ async function find_catalog_by_title(): Promise<string | null> {
       const res = await joplin.data.get(['search'], {
         query: `"${CATALOG_NOTE_TITLE}"`,
         type: 'note',
-        fields: ['id', 'title', 'created_time'],
+        fields: ['id', 'title', 'created_time', 'deleted_time'],
         page,
         limit: 50,
       });
       const items = res?.items ?? [];
       for (const it of items) {
-        if (it?.title === CATALOG_NOTE_TITLE) {
+        const deleted_time = typeof it?.deleted_time === 'number' ? it.deleted_time : 0;
+        if (it?.title === CATALOG_NOTE_TITLE && deleted_time === 0) {
           matches.push(it);
         }
       }
@@ -401,6 +412,12 @@ export async function ensure_model_anchor(catalogNoteId: string, modelId: string
  * @param anchorId - Anchor note identifier to adopt as canonical.
  */
 async function finalize_anchor(catalogNoteId: string, modelId: string, modelVersion: string, anchorId: string): Promise<void> {
+  const anchor_note = await joplin.data.get(['notes', anchorId], { fields: ['id', 'deleted_time'] });
+  const is_deleted = typeof anchor_note?.deleted_time === 'number' && anchor_note.deleted_time > 0;
+  if (!anchor_note?.id || is_deleted) {
+    throw new Error(`Anchor note ${anchorId} is deleted or missing`);
+  }
+
   await ensure_note_placed(anchorId);
   await ensure_note_tag(anchorId);
   await ensure_anchor_metadata(anchorId, modelId, modelVersion);
@@ -459,14 +476,15 @@ async function find_anchor_candidates(modelId: string): Promise<Array<{ id: stri
     const res = await joplin.data.get(['search'], {
       query: `tag:${CATALOG_TAG}`,
       type: 'note',
-      fields: ['id', 'title', 'created_time'],
+      fields: ['id', 'title', 'created_time', 'deleted_time'],
       page,
       limit: 50,
     });
     const items = res?.items ?? [];
     for (const it of items) {
       const id = it?.id as string | undefined;
-      if (!id || seen.has(id)) continue;
+      const deleted_time = typeof it?.deleted_time === 'number' ? it.deleted_time : 0;
+      if (!id || seen.has(id) || deleted_time > 0) continue;
       try {
         const meta = await read_anchor_meta_data(id);
         if (meta?.modelId === modelId) {
@@ -486,14 +504,15 @@ async function find_anchor_candidates(modelId: string): Promise<Array<{ id: stri
     const res = await joplin.data.get(['search'], {
       query: `"${titlePrefix}"`,
       type: 'note',
-      fields: ['id', 'title', 'created_time'],
+      fields: ['id', 'title', 'created_time', 'deleted_time'],
       page: titlePage,
       limit: 50,
     });
     const items = res?.items ?? [];
     for (const it of items) {
       const id = it?.id as string | undefined;
-      if (!id || seen.has(id)) continue;
+      const deleted_time = typeof it?.deleted_time === 'number' ? it.deleted_time : 0;
+      if (!id || seen.has(id) || deleted_time > 0) continue;
       const rawTitle = typeof it?.title === 'string' ? it.title : '';
       if (rawTitle.startsWith(`${titlePrefix} (`)) {
         matches.push({ id, created_time: it?.created_time });
@@ -568,9 +587,10 @@ async function ensure_anchor_metadata(anchorId: string, modelId: string, modelVe
  */
 async function validate_anchor(anchorId: string, modelId: string, registry: ModelRegistry, catalogNoteId: string): Promise<boolean> {
   try {
-    const note = await joplin.data.get(['notes', anchorId], { fields: ['id'] });
-    if (!note?.id) {
-      log.warn('Registered anchor note missing', { modelId, anchorId });
+    const note = await joplin.data.get(['notes', anchorId], { fields: ['id', 'deleted_time'] });
+    const is_deleted = typeof note?.deleted_time === 'number' && note.deleted_time > 0;
+    if (!note?.id || is_deleted) {
+      log.warn('Registered anchor note missing or deleted', { modelId, anchorId });
       delete registry[modelId];
       await joplin.data.userDataSet(ModelType.Note, catalogNoteId, REGISTRY_KEY, registry);
       await remove_cached_anchor(modelId);
@@ -605,7 +625,7 @@ async function discover_anchor_by_scan(catalogNoteId: string, modelId: string, r
       search = await joplin.data.get(['search'], {
         query: `tag:${CATALOG_TAG}`,
         type: 'note',
-        fields: ['id', 'title'],
+        fields: ['id', 'title', 'deleted_time'],
         page,
         limit: 50,
       });
@@ -616,7 +636,8 @@ async function discover_anchor_by_scan(catalogNoteId: string, modelId: string, r
     const items = search.items ?? [];
     for (const item of items) {
       const noteId = item.id;
-      if (!noteId || seen.has(noteId) || noteId === catalogNoteId) continue; // skip empty ids, catalog note, and duplicates
+      const deleted_time = typeof (item as any)?.deleted_time === 'number' ? (item as any).deleted_time : 0;
+      if (!noteId || seen.has(noteId) || noteId === catalogNoteId || deleted_time > 0) continue; // skip empty ids, catalog note, duplicates, and trashed notes
       seen.add(noteId);
       const meta = await read_anchor_meta_data(noteId);
       if (meta?.modelId === modelId) {
@@ -640,48 +661,57 @@ async function discover_anchor_by_scan(catalogNoteId: string, modelId: string, r
 }
 
 /**
- * Resolve the catalog tag identifier, creating it lazily when missing.
+ * Resolve the provided tag identifier, creating it lazily when missing.
  *
- * @returns Tag identifier associated with the Jarvis catalog.
+ * @param tag_title - Tag title that should exist.
+ * @returns Tag identifier associated with the requested title.
  */
-async function ensure_tag_id(): Promise<string> {
-  if (cached_tag_id) {
-    return cached_tag_id;
+async function ensure_tag_id(tag_title: string): Promise<string> {
+  let cache_entry = tag_cache.get(tag_title);
+  if (!cache_entry) {
+    cache_entry = { id: null, inflight: null };
+    tag_cache.set(tag_title, cache_entry);
   }
-  if (inflight_tag_id) {
-    return inflight_tag_id;
+  const entry = cache_entry;
+  if (entry.id) {
+    return entry.id;
   }
-  inflight_tag_id = (async () => {
+  if (entry.inflight) {
+    return entry.inflight;
+  }
+  entry.inflight = (async () => {
     try {
-      const tag_search = await joplin.data.get(['tags'], { query: CATALOG_TAG, fields: ['id', 'title'] });
-      const existing = tag_search.items?.find((t: any) => t.title === CATALOG_TAG);
+      const tag_search = await joplin.data.get(['tags'], { query: tag_title, fields: ['id', 'title'] });
+      const existing = tag_search.items?.find((t: any) => t.title === tag_title);
       if (existing?.id) {
-        cached_tag_id = existing.id;
+        entry.id = existing.id;
         return existing.id;
       }
     } catch (error) {
-      log.warn('Failed to query catalog tag', error);
+      log.warn('Failed to query tag', { tag: tag_title, error });
     }
     try {
-      const created = await joplin.data.post(['tags'], null, { title: CATALOG_TAG });
-      cached_tag_id = created.id;
+      const created = await joplin.data.post(['tags'], null, { title: tag_title });
+      entry.id = created.id;
       return created.id;
     } catch (error) {
-      log.warn('Failed to create catalog tag; retrying lookup', error);
-      const verify_search = await joplin.data.get(['tags'], { query: CATALOG_TAG, fields: ['id', 'title'] });
-      const fallback = verify_search.items?.find((t: any) => t.title === CATALOG_TAG)?.id;
+      log.warn('Failed to create tag; retrying lookup', { tag: tag_title, error });
+      const verify_search = await joplin.data.get(['tags'], { query: tag_title, fields: ['id', 'title'] });
+      const fallback = verify_search.items?.find((t: any) => t.title === tag_title)?.id;
       if (fallback) {
-        cached_tag_id = fallback;
+        entry.id = fallback;
         return fallback;
       }
       throw error;
     }
   })();
   try {
-    const id = await inflight_tag_id;
+    const id = await entry.inflight;
+    entry.inflight = null;
     return id;
-  } finally {
-    inflight_tag_id = null;
+  } catch (error) {
+    entry.inflight = null;
+    throw error;
   }
 }
 
