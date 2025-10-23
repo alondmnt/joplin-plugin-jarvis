@@ -105,39 +105,7 @@ async function ensure_note_tag(noteId: string): Promise<void> {
   }
 }
 
-/**
- * Place the note inside the system folder if it is stored elsewhere.
- *
- * @param noteId - Note identifier to move into the Jarvis system folder.
- */
-async function ensure_note_placed(noteId: string): Promise<void> {
-  try {
-    const folderId = await ensure_system_folder();
-    await maybe_move_note_to_folder(noteId, folderId);
-  } catch (error) {
-    log.warn('Failed to ensure note placement', { noteId, error });
-  }
-}
-
-/**
- * Move the target note into the designated folder when needed.
- *
- * @param noteId - Note to move.
- * @param folderId - Target folder identifier.
- */
-async function maybe_move_note_to_folder(noteId: string, folderId: string): Promise<void> {
-  try {
-    const note = await joplin.data.get(['notes', noteId], { fields: ['id', 'parent_id', 'deleted_time'] });
-    const current_parent = note?.parent_id ?? '';
-    const is_deleted = typeof note?.deleted_time === 'number' && note.deleted_time > 0;
-    if (note?.id && !is_deleted && current_parent !== folderId) {
-      await joplin.data.put(['notes', noteId], null, { parent_id: folderId });
-      log.info('Moved note to system folder', { noteId, folderId });
-    }
-  } catch (error) {
-    log.warn('Failed to move note to system folder', { noteId, folderId, error });
-  }
-}
+// We intentionally skip forcing catalog/anchor placement so users can reorganize notes manually.
 
 export interface ModelRegistry {
   [modelId: string]: string; // anchor note ID
@@ -290,7 +258,6 @@ export async function resolve_anchor_note_id(catalogNoteId: string, modelId: str
 export async function ensure_catalog_note(): Promise<string> {
   const found = await get_catalog_note_id();
   if (found) {
-    await ensure_note_placed(found);
     await ensure_note_tag(found);
     return found;
   }
@@ -301,7 +268,6 @@ export async function ensure_catalog_note(): Promise<string> {
     // Double-check inside the lock
     const again = await get_catalog_note_id();
     if (again) {
-      await ensure_note_placed(again);
       await ensure_note_tag(again);
       return again;
     }
@@ -339,7 +305,6 @@ export async function ensure_catalog_note(): Promise<string> {
             log.warn('Failed to seed registry on adopted catalog', { noteId: adoptId, error: e });
           }
         }
-        await ensure_note_placed(adoptId);
         log.info('Adopted existing catalog note by title', { noteId: adoptId });
         return adoptId;
       }
@@ -418,7 +383,6 @@ async function finalize_anchor(catalogNoteId: string, modelId: string, modelVers
     throw new Error(`Anchor note ${anchorId} is deleted or missing`);
   }
 
-  await ensure_note_placed(anchorId);
   await ensure_note_tag(anchorId);
   await ensure_anchor_metadata(anchorId, modelId, modelVersion);
   await set_cached_anchor(modelId, anchorId);
