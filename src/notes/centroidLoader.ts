@@ -1,5 +1,5 @@
 import { getLogger } from '../utils/logger';
-import { getCatalogNoteId, resolveAnchorNoteId as resolve_anchor_note_id } from './catalog';
+import { get_catalog_note_id, resolve_anchor_note_id } from './catalog';
 import { read_centroids, read_parent_map } from './anchorStore';
 import { decode_centroids, LoadedCentroids } from './centroids';
 
@@ -35,7 +35,8 @@ export async function load_model_centroids(modelId: string): Promise<LoadedCentr
 }
 
 /** Clear cached centroids, forcing the next call to reload from userData. */
-export function clearCentroidCache(modelId?: string): void {
+// Internal cache reset retained for potential future use; not exported
+function clear_centroid_cache(modelId?: string): void {
   if (modelId) {
     cache.delete(modelId);
     parentCache.delete(modelId);
@@ -81,7 +82,7 @@ async function resolve_anchor(modelId: string): Promise<string | null> {
     return anchorCache.get(modelId) ?? null;
   }
   try {
-    const catalogNoteId = await getCatalogNoteId();
+    const catalogNoteId = await get_catalog_note_id();
     if (!catalogNoteId) {
       anchorCache.set(modelId, null);
       return null;

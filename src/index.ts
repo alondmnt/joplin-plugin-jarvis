@@ -8,6 +8,7 @@ import { find_notes, update_note_db, skip_db_init_dialog } from './commands/note
 import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
 import { find_nearest_notes } from './notes/embeddings';
+import { ensure_catalog_note } from './notes/catalog';
 import { register_panel, update_panel } from './ux/panel';
 import { get_settings, register_settings, set_folders } from './ux/settings';
 import { auto_complete } from './commands/complete';
@@ -27,6 +28,20 @@ joplin.plugins.register({
 
     await new Promise(res => setTimeout(res, delay_startup * 1000));
     let model_embed = await load_embedding_model(settings);
+
+    // Proactively create the Jarvis Database catalog and model anchor when the
+    // experimental userData index is enabled to avoid first-run races during
+    // parallel updates.
+    if (settings.experimental_user_data_index) {
+      try {
+        await ensure_catalog_note();
+      } catch (error) {
+        const msg = String((error as any)?.message ?? error);
+        if (!/SQLITE_CONSTRAINT|UNIQUE constraint failed/i.test(msg)) {
+          console.debug('Jarvis: pre-init catalog deferred', msg);
+        }
+      }
+    }
     if (await skip_db_init_dialog(model_embed)) { delay_db_update = 0; }  // cancel auto update
 
     // Track in-progress updates so we can merge overlapping requests and avoid UI stalls.
@@ -435,6 +450,7 @@ joplin.plugins.register({
           event.keys.includes('hf_api_key') ||
           event.keys.includes('google_api_key') ||
           event.keys.includes('notes_model') ||
+          event.keys.includes('experimental.userDataIndex') ||
           event.keys.includes('notes_embed_title') ||
           event.keys.includes('notes_embed_path') ||
           event.keys.includes('notes_embed_heading') ||
@@ -449,6 +465,16 @@ joplin.plugins.register({
           event.keys.includes('notes_embed_timeout')) {
 
         model_embed = await load_embedding_model(settings);
+        if (settings.experimental_user_data_index) {
+          try {
+            await ensure_catalog_note();
+          } catch (error) {
+            const msg = String((error as any)?.message ?? error);
+            if (!/SQLITE_CONSTRAINT|UNIQUE constraint failed/i.test(msg)) {
+              console.debug('Jarvis: pre-init catalog deferred (settings change)', msg);
+            }
+          }
+        }
         if (model_embed.model) {
           await start_update(model_embed, panel, { force: true });
         }

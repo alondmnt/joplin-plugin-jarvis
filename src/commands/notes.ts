@@ -1,5 +1,6 @@
 import joplin from 'api';
 import { find_nearest_notes, update_embeddings } from '../notes/embeddings';
+import { ensure_catalog_note, ensure_model_anchor } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
@@ -20,6 +21,20 @@ export async function update_note_db(
   if (model.model === null) { return; }
 
   const settings = await get_settings();
+
+  // Ensure catalog and model anchor once before processing notes to prevent
+  // concurrent per-note creation races when the experimental userData index is enabled.
+  if (settings.experimental_user_data_index && model?.id) {
+    try {
+      const catalogId = await ensure_catalog_note();
+      await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
+    } catch (error) {
+      const msg = String((error as any)?.message ?? error);
+      if (!/SQLITE_CONSTRAINT|UNIQUE constraint failed/i.test(msg)) {
+        console.debug('Jarvis: deferred ensure anchor (update_note_db)', msg);
+      }
+    }
+  }
 
   const noteFields = ['id', 'title', 'body', 'is_conflict', 'parent_id', 'deleted_time', 'markup_language'];
   let total_notes = 0;
