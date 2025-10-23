@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { find_nearest_notes, update_embeddings } from '../notes/embeddings';
-import { ensure_catalog_note, ensure_model_anchor } from '../notes/catalog';
+import { ensure_catalog_note, ensure_model_anchor, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
@@ -138,23 +138,57 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
 }
 
 export async function skip_db_init_dialog(model: TextEmbeddingModel): Promise<boolean> {
-  if (model.embeddings.length > 0) { return false; }
+  // Check if database has been initialized before:
+  // 1. Legacy approach: embeddings loaded in memory
+  if (model.embeddings.length > 0) { 
+    return false; 
+  }
 
-  let calc_msg = `This database is calculated locally (offline) by running ${model.id}`;
+  // 2. New approach: catalog note exists (works on both desktop and mobile)
+  try {
+    const catalogId = await get_catalog_note_id();
+    if (catalogId) {
+      // Database previously initialized, don't show welcome dialog
+      return false;
+    }
+  } catch (error) {
+    console.debug('Jarvis: catalog check during init failed', error);
+  }
+
+  // No database found - show welcome dialog
+  const settings = await get_settings();
+  const storageMethod = settings.experimental_user_data_index 
+    ? 'stored as note attachments in your Joplin database (experimental)'
+    : 'stored in a local SQLite database file';
+  
+  let calc_msg = `Embeddings are calculated locally (offline) by running ${model.id}`;
   let compute = 'PC';
   if (model.online) {
-    calc_msg = `This database is calculated remotely (online) by sending requests to ${model.id}`;
+    calc_msg = `Embeddings are calculated remotely (online) by sending requests to ${model.id}`;
     compute = 'connection';
   }
+
   return (await joplin.views.dialogs.showMessageBox(
-    `Hi! Jarvis can build a database of your notes, that may be used to search for similar notes, or to chat with your notes.
-    
-    ${calc_msg}, and then stored in a local sqlite database.
-    
-    *If* you choose to chat with your notes, short excerpts from the database will be send to an online/offline model of your choosing.
-    
-    You can delete the database at any time by deleting the file. Initialization may take between a few minutes (fast ${compute}, ~500 notes collection) and a couple of hours.
-    
-    Press 'OK' to run it now in the background, or 'Cancel' to postpone it to a later time (e.g., overnight). You can start the process at any time from Tools-->Jarvis-->Update Jarvis note DB. You may delay it indefinitely by setting the 'Database update period' to 0.`
+    `Welcome to Jarvis Note Search!
+
+Jarvis can build a searchable database of your notes to help you:
+  • Find similar notes based on meaning, not just keywords
+  • Chat with your notes using AI that understands your content
+
+HOW IT WORKS:
+${calc_msg}, then ${storageMethod}. All data stays under your control.
+
+PRIVACY:
+When you chat with your notes, only relevant excerpts are sent to your chosen AI model. The database itself never leaves your device.
+
+SETUP TIME:
+Initial indexing takes ${compute === 'PC' ? '5-30 minutes' : '10-60 minutes'} for ~500 notes, depending on your ${compute}.
+
+───────────────────────────────
+
+Press OK to build the database now in the background.
+Press Cancel to postpone (you can start anytime from Tools → Jarvis → Update Jarvis note DB).
+
+Tip: You can disable automatic updates by setting 'Database update period' to 0 in settings.`
     ) == 1);
 }
