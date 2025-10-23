@@ -391,6 +391,48 @@ export async function register_settings() {
   });
 
   await joplin.settings.registerSettings({
+    'toolbar_show_chat': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.chat',
+      public: true,
+      label: 'Toolbar: Show Chat with Jarvis button',
+    },
+    'toolbar_show_notes_chat': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Toolbar: Show Chat with your notes button',
+    },
+    'toolbar_show_notes_find': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Toolbar: Show Find related notes button',
+    },
+    'toolbar_show_edit': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.chat',
+      public: true,
+      label: 'Toolbar: Show Edit with Jarvis button',
+    },
+    'toolbar_show_complete': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.annotate',
+      public: true,
+      label: 'Toolbar: Show Autocomplete with Jarvis button',
+    },
+    'toolbar_show_annotate': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.annotate',
+      public: true,
+      label: 'Toolbar: Show Annotate note button',
+    },
     'openai_api_key': {
       value: '',
       type: SettingItemType.String,

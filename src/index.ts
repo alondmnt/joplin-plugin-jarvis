@@ -218,6 +218,7 @@ joplin.plugins.register({
     joplin.commands.register({
       name: 'jarvis.complete',
       label: 'Auto-complete with Jarvis',
+      iconName: 'fas fa-magic',
       execute: async () => {
         auto_complete(model_gen, settings);
       }
@@ -386,10 +387,29 @@ joplin.plugins.register({
       ], MenuItemLocation.Tools
     );
 
-    joplin.views.toolbarButtons.create('jarvis.toolbar.notes.find', 'jarvis.notes.find', ToolbarButtonLocation.EditorToolbar);
-    joplin.views.toolbarButtons.create('jarvis.toolbar.edit', 'jarvis.edit', ToolbarButtonLocation.EditorToolbar);
-    joplin.views.toolbarButtons.create('jarvis.toolbar.chat', 'jarvis.chat', ToolbarButtonLocation.EditorToolbar);
-    joplin.views.toolbarButtons.create('jarvis.toolbar.annotate', 'jarvis.annotate.button', ToolbarButtonLocation.EditorToolbar);
+    const toolbarSettingKeys = [
+      'toolbar_show_chat',
+      'toolbar_show_notes_chat',
+      'toolbar_show_notes_find',
+      'toolbar_show_edit',
+      'toolbar_show_complete',
+      'toolbar_show_annotate',
+    ];
+    const toolbarSettings = await joplin.settings.values(toolbarSettingKeys);
+    const toolbarButtons = [
+      { id: 'jarvis.toolbar.chat', command: 'jarvis.chat', enabled: toolbarSettings.toolbar_show_chat },
+      { id: 'jarvis.toolbar.notes.chat', command: 'jarvis.notes.chat', enabled: toolbarSettings.toolbar_show_notes_chat },
+      { id: 'jarvis.toolbar.notes.find', command: 'jarvis.notes.find', enabled: toolbarSettings.toolbar_show_notes_find },
+      { id: 'jarvis.toolbar.edit', command: 'jarvis.edit', enabled: toolbarSettings.toolbar_show_edit },
+      { id: 'jarvis.toolbar.complete', command: 'jarvis.complete', enabled: toolbarSettings.toolbar_show_complete },
+      { id: 'jarvis.toolbar.annotate', command: 'jarvis.annotate.button', enabled: toolbarSettings.toolbar_show_annotate },
+    ];
+    for (const button of toolbarButtons) {
+      if (!button.enabled) {
+        continue;
+      }
+      await joplin.views.toolbarButtons.create(button.id, button.command, ToolbarButtonLocation.EditorToolbar);
+    }
 
     joplin.views.menuItems.create('jarvis.context.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
     joplin.views.menuItems.create('jarvis.context.utils.count_tokens', 'jarvis.utils.count_tokens', MenuItemLocation.EditorContextMenu);
