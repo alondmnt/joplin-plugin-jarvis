@@ -1,5 +1,5 @@
 import { Buffer } from 'buffer';
-import { createHash } from 'crypto';
+import { createHash } from '../utils/crypto';
 import { CentroidPayload } from './anchorStore';
 
 export interface LoadedCentroids {
@@ -134,11 +134,11 @@ export function encode_centroids(params: {
 }
 
 /**
- * Lightweight SHA-256 hash for centroid content so devices can detect drift.
+ * Lightweight MD5 hash for centroid content so devices can detect drift.
  */
 export function compute_centroid_hash(centroids: Float32Array): string {
   const view = new Uint8Array(centroids.buffer, centroids.byteOffset, centroids.byteLength);
-  return `sha256:${createHash('sha256').update(view).digest('hex')}`;
+  return `md5:${createHash('md5').update(view).digest('hex')}`;
 }
 
 /**

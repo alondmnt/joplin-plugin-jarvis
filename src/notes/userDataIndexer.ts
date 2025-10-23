@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash } from '../utils/crypto';
 import { BlockEmbedding } from './embeddings';
 import { JarvisSettings } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
@@ -275,8 +275,8 @@ function compute_settings_hash(settings: JarvisSettings): string {
     maxTokens: settings.notes_max_tokens,
   };
   const json = JSON.stringify(relevant);
-  const hash = createHash('sha256').update(json).digest('hex');
-  return `sha256:${hash}`;
+  const hash = createHash('md5').update(json).digest('hex');
+  return `md5:${hash}`;
 }
 
 /**

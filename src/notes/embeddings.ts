@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { createHash } from 'crypto';
+import { createHash } from '../utils/crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { UserDataEmbStore } from './userDataStore';
