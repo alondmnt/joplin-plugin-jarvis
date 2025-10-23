@@ -48,7 +48,6 @@ joplin.plugins.register({
     let updateAbortController: AbortController | null = null;
     let updateStartTime: number | null = null;
     const pendingNoteIds = new Set<string>();  // deduplicated queue of notes awaiting rebuild
-    const noteChangeDebounceMs = 2000;
 
     interface UpdateOptions {
       force?: boolean;
@@ -111,9 +110,63 @@ joplin.plugins.register({
 
     const find_notes_debounce = debounce(find_notes, delay_panel * 1000);
     if (model_embed.model) { find_notes_debounce(model_embed, panel) };
-    let update_note_db_debounce = debounce(async (model_embed: any, panel: string) => {
-      await start_update(model_embed, panel);
-    }, delay_db_update * 1000, {leading: true, trailing: false});
+
+    let fullSweepTimer: ReturnType<typeof setInterval> | null = null;
+    let initialSweepCompleted = false;
+
+    /**
+     * Cancel any in-flight periodic sweep so we can restart the cadence safely.
+     */
+    function cancel_full_sweep_timer() {
+      if (fullSweepTimer !== null) {
+        clearInterval(fullSweepTimer);
+        fullSweepTimer = null;
+      }
+    }
+
+    /**
+     * Schedule timed full-database sweeps that keep remote-sync changes fresh.
+     */
+    function schedule_full_sweep_timer() {
+      cancel_full_sweep_timer();
+      if (delay_db_update <= 0) {
+        return;
+      }
+
+      fullSweepTimer = setInterval(() => {
+        void (async () => {
+          if (model_embed.model === null) {
+            // Exit early until the embedding model has been initialised.
+            return;
+          }
+          if (is_update_in_progress()) {
+            // Respect ongoing work rather than stacking more load.
+            return;
+          }
+          try {
+            await start_update(model_embed, panel, { force: true, silent: true });
+            pendingNoteIds.clear();  // Periodic sweep subsumes any queued incremental work.
+            initialSweepCompleted = true;
+          } catch (error) {
+            console.warn('Jarvis: periodic note DB sweep failed', error);
+          }
+        })();
+      }, delay_db_update * 1000);
+    }
+
+    schedule_full_sweep_timer();
+
+    void (async () => {
+      if (delay_db_update > 0 && model_embed.model !== null) {
+        try {
+          await start_update(model_embed, panel, { force: true, silent: true });
+          pendingNoteIds.clear();  // Remove duplicates now that a fresh snapshot exists.
+          initialSweepCompleted = true;
+        } catch (error) {
+          console.warn('Jarvis: initial note DB sweep failed', error);
+        }
+      }
+    })();
 
     let model_gen = await load_generation_model(settings);
 
@@ -343,21 +396,22 @@ joplin.plugins.register({
     joplin.views.menuItems.create('jarvis.context.edit', 'jarvis.edit', MenuItemLocation.EditorContextMenu);
 
     /**
-     * Debounced worker that drains pending note IDs into the background updater.
+     * Flush pending note IDs into the background updater when it's safe to run.
      * Keeps compatibility with snake_case workhorses by calling `start_update`.
      */
-    const flush_note_changes = debounce(async () => {
+    /**
+     * Push queued incremental updates when the system is idle and the model is ready.
+     */
+    async function flush_note_changes(options: { silent?: boolean } = {}) {
       if (pendingNoteIds.size === 0) {
         return;
       }
 
       if (is_update_in_progress()) {
-        flush_note_changes();
         return;
       }
 
       if (model_embed.model === null) {
-        flush_note_changes();
         return;
       }
 
@@ -365,7 +419,7 @@ joplin.plugins.register({
       pendingNoteIds.clear();
       try {
         // Silent mode avoids spurious dialogs when rapid edits trigger overlapping batches.
-        await start_update(model_embed, panel, { noteIds, silent: true });
+        await start_update(model_embed, panel, { noteIds, silent: options.silent ?? true });
       } catch (error) {
         // Requeue on failure so the next pass can retry after a transient error.
         for (const id of noteIds) {
@@ -373,16 +427,32 @@ joplin.plugins.register({
         }
         throw error;
       }
-    }, noteChangeDebounceMs);
+    }
 
     await joplin.workspace.onNoteSelectionChange(async () => {
         if (model_embed.model === null) {
           await model_embed.initialize();
         }
-        await find_notes_debounce(model_embed, panel);
-        if (delay_db_update > 0) {
-          await update_note_db_debounce(model_embed, panel);
+        if (pendingNoteIds.size > 0) {
+          void flush_note_changes({ silent: true }).catch((error) => {
+            console.warn('Jarvis: incremental note update failed', error);
+          });
         }
+        if (!initialSweepCompleted && delay_db_update > 0 && model_embed.model !== null) {
+          void (async () => {
+            if (is_update_in_progress()) {
+              return;
+            }
+            try {
+              await start_update(model_embed, panel, { force: true, silent: true });
+              pendingNoteIds.clear();  // Clean up duplicates after the initial sweep runs.
+              initialSweepCompleted = true;
+            } catch (error) {
+              console.warn('Jarvis: initial note DB sweep retry failed', error);
+            }
+          })();
+        }
+        await find_notes_debounce(model_embed, panel);
     });
 
     await joplin.workspace.onNoteChange(async (event: any) => {
@@ -391,7 +461,6 @@ joplin.plugins.register({
         return;
       }
       pendingNoteIds.add(noteId);
-      flush_note_changes();
     });
 
     await joplin.views.panels.onMessage(panel, async (message) => {
@@ -476,7 +545,13 @@ joplin.plugins.register({
           }
         }
         if (model_embed.model) {
-          await start_update(model_embed, panel, { force: true });
+          try {
+            await start_update(model_embed, panel, { force: true, silent: true });
+            pendingNoteIds.clear();
+            initialSweepCompleted = true;
+          } catch (error) {
+            console.warn('Jarvis: settings-triggered note DB rebuild failed', error);
+          }
         }
       }
       if (event.keys.includes('notes_scroll_delay')) {
@@ -489,9 +564,21 @@ joplin.plugins.register({
       // update db refresh interval
       if (event.keys.includes('notes_db_update_delay')) {
         delay_db_update = 60 * settings.notes_db_update_delay;
-        update_note_db_debounce = debounce(async (model_embed: any, panel: string) => {
-          await start_update(model_embed, panel);
-        }, delay_db_update * 1000, {leading: true, trailing: false});
+        schedule_full_sweep_timer();
+        if (delay_db_update > 0 && model_embed.model !== null) {
+          void (async () => {
+            if (is_update_in_progress()) {
+              return;
+            }
+            try {
+              await start_update(model_embed, panel, { force: true, silent: true });
+              pendingNoteIds.clear();
+              initialSweepCompleted = true;
+            } catch (error) {
+              console.warn('Jarvis: note DB sweep failed after delay change', error);
+            }
+          })();
+        }
       }
     });
 	},
