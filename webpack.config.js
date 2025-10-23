@@ -195,6 +195,9 @@ const pluginConfig = Object.assign({}, baseConfig, {
 		// JSON files can also be required from scripts so we include this.
 		// https://github.com/joplin/plugin-bibtex/pull/2
 		extensions: ['.js', '.tsx', '.ts', '.json'],
+		fallback: {
+			"crypto": require.resolve("crypto-browserify"),
+		},
 	},
 	output: {
 		filename: 'index.js',
@@ -259,7 +262,10 @@ const extraScriptConfig = {
 		alias: {
 			api: path.resolve(__dirname, 'api'),
 		},
-		fallback: moduleFallback,
+		fallback: {
+			...moduleFallback,
+			"crypto": require.resolve("crypto-browserify"),
+		},
 		extensions: ['.js', '.tsx', '.ts', '.json'],
 	},
 

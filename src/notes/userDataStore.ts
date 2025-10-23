@@ -4,10 +4,10 @@
  * and are intentionally decoupled from any concrete storage implementation.
  */
 
-import { Buffer } from 'buffer';
 import joplin from 'api';
 import { ModelType } from 'api/types';
 import { getLogger } from '../utils/logger';
+import { base64ToUint8Array, typedArrayToBase64 } from '../utils/base64';
 
 export type StoreKey = `jarvis/v1/emb/${string}/live/${number}`;
 
@@ -100,15 +100,11 @@ export function shardKey(modelId: string, index: number): StoreKey {
  */
 export function encode_q8_vectors(data: Q8Vectors): Pick<EmbShard, 'vectorsB64' | 'scalesB64' | 'centroidIdsB64'> {
   const result: Pick<EmbShard, 'vectorsB64' | 'scalesB64' | 'centroidIdsB64'> = {
-    vectorsB64: Buffer.from(data.vectors.buffer, data.vectors.byteOffset, data.vectors.byteLength).toString('base64'),
-    scalesB64: Buffer.from(data.scales.buffer, data.scales.byteOffset, data.scales.byteLength).toString('base64'),
+    vectorsB64: typedArrayToBase64(data.vectors as any),
+    scalesB64: typedArrayToBase64(data.scales as any),
   };
   if (data.centroidIds) {
-    result.centroidIdsB64 = Buffer.from(
-      data.centroidIds.buffer,
-      data.centroidIds.byteOffset,
-      data.centroidIds.byteLength,
-    ).toString('base64');
+    result.centroidIdsB64 = typedArrayToBase64(data.centroidIds as any);
   }
   return result;
 }
@@ -118,9 +114,9 @@ export function encode_q8_vectors(data: Q8Vectors): Pick<EmbShard, 'vectorsB64' 
  * ranking. Returns Int8 vectors, Float32 scales, and optional Uint16 centroid ids.
  */
 export function decode_q8_vectors(shard: EmbShard): Q8Vectors {
-  const vectors = Buffer.from(shard.vectorsB64, 'base64');
-  const scales = Buffer.from(shard.scalesB64, 'base64');
-  const centroidIds = shard.centroidIdsB64 ? Buffer.from(shard.centroidIdsB64, 'base64') : null;
+  const vectors = base64ToUint8Array(shard.vectorsB64);
+  const scales = base64ToUint8Array(shard.scalesB64);
+  const centroidIds = shard.centroidIdsB64 ? base64ToUint8Array(shard.centroidIdsB64) : null;
 
   return {
     vectors: new Int8Array(vectors.buffer, vectors.byteOffset, vectors.byteLength / Int8Array.BYTES_PER_ELEMENT),

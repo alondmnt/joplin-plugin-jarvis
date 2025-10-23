@@ -285,7 +285,9 @@ export async function insert_note_embeddings(db: any, embeds: BlockEmbedding[], 
           // insert the new embeddings
           const stmt = db.prepare(`INSERT INTO embeddings (note_idx, line, body_idx, length, level, title, embedding, model_idx) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
           for (let embd of embeddings) {
-            stmt.run([new_row_id, embd.line, embd.body_idx, embd.length, embd.level, embd.title, Buffer.from(embd.embedding.buffer), model.db_idx]);
+            // Create Uint8Array view for SQLite blob
+            const blob = new Uint8Array(embd.embedding.buffer, embd.embedding.byteOffset, embd.embedding.byteLength);
+            stmt.run([new_row_id, embd.line, embd.body_idx, embd.length, embd.level, embd.title, blob, model.db_idx]);
           }
           stmt.finalize();
           resolve();

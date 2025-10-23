@@ -1,7 +1,7 @@
 import joplin from 'api';
 import { ModelType } from 'api/types';
-import { Buffer } from 'buffer';
 import { getLogger } from '../utils/logger';
+import { base64ToUint8Array, typedArrayToBase64 } from '../utils/base64';
 
 const log = getLogger();
 
@@ -72,7 +72,7 @@ export async function read_centroids(noteId: string): Promise<CentroidPayload | 
 
 export async function write_parent_map(noteId: string, size: number, data: Uint16Array): Promise<void> {
   const key = `${PARENT_MAP_PREFIX}${size}`;
-  const b64 = Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('base64');
+  const b64 = typedArrayToBase64(data as any);
   await joplin.data.userDataSet(ModelType.Note, noteId, key, { b64, size });
   log.debug('Anchor parent map updated', { noteId, size });
 }
@@ -84,7 +84,7 @@ export async function read_parent_map(noteId: string, size: number): Promise<Uin
     if (!payload?.b64) {
       return null;
     }
-    const buf = Buffer.from(payload.b64, 'base64');
+    const buf = base64ToUint8Array(payload.b64);
     return new Uint16Array(buf.buffer, buf.byteOffset, buf.byteLength / Uint16Array.BYTES_PER_ELEMENT);
   } catch (error) {
     log.warn('Failed to read parent map', { noteId, size, error });

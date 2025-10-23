@@ -1,5 +1,5 @@
-import { Buffer } from 'buffer';
 import { createHash } from '../utils/crypto';
+import { base64ToUint8Array, typedArrayToBase64 } from '../utils/base64';
 import { CentroidPayload } from './anchorStore';
 
 export interface LoadedCentroids {
@@ -62,7 +62,7 @@ export function decode_centroids(payload: CentroidPayload | null | undefined): L
   if (!payload?.b64 || !payload.dim) {
     return null;
   }
-  const buffer = Buffer.from(payload.b64, 'base64');
+  const buffer = base64ToUint8Array(payload.b64);
   const { format = 'f32', dim } = payload;
   if (format === 'f32') {
     const data = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / Float32Array.BYTES_PER_ELEMENT);
@@ -111,12 +111,12 @@ export function encode_centroids(params: {
   const { centroids, dim } = params;
   const format = params.format ?? 'f32';
   const nlist = params.nlist ?? (centroids.length / dim);
-  let payload: Buffer;
+  let b64: string;
   if (format === 'f16') {
     const asF16 = float32_array_to_float16(centroids);
-    payload = Buffer.from(asF16.buffer, asF16.byteOffset, asF16.byteLength);
+    b64 = typedArrayToBase64(asF16);
   } else if (format === 'f32') {
-    payload = Buffer.from(centroids.buffer, centroids.byteOffset, centroids.byteLength);
+    b64 = typedArrayToBase64(centroids);
   } else {
     throw new Error(`Unsupported centroid format: ${format}`);
   }
@@ -126,7 +126,7 @@ export function encode_centroids(params: {
     dim,
     nlist,
     version: params.version,
-    b64: payload.toString('base64'),
+    b64,
     updatedAt: params.updatedAt,
     trainedOn: params.trainedOn,
     hash,
