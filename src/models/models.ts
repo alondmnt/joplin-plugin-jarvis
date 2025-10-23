@@ -683,7 +683,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    let vec = new Float32Array();
+    let vec: Float32Array;
     try {
       vec = await this.query(text);
     } catch (e) {

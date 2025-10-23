@@ -199,8 +199,8 @@ export async function get_all_embeddings(db: any): Promise<BlockEmbedding[]> {
         } else {
           resolve(rows.map((row) => {
             // convert the embedding from a blob to a Float32Array
-            const buffer = Buffer.from(row.embedding);
-            const embedding = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / Float32Array.BYTES_PER_ELEMENT);
+            // row.embedding is already a Buffer, no need for Buffer.from()
+            const embedding = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / Float32Array.BYTES_PER_ELEMENT);
             return {
               id: row.note_id,
               hash: row.hash,
