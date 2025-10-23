@@ -28,49 +28,91 @@ interface SearchTuning {
   parentTargetSize: number;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  if (min > max) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, value));
+}
+
 /**
  * Derive conservative search knobs from settings so IVF probing stays within platform budgets.
  */
 function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
   const baseHits = Math.max(settings.notes_max_hits, 1);
-  const profileSetting = settings.notes_device_profile ?? 'auto';
-  const profile: 'desktop' | 'mobile' = profileSetting === 'mobile' ? 'mobile' : 'desktop';
+  const requestedProfile = settings.notes_device_profile_effective
+    ?? (settings.notes_device_profile === 'mobile' ? 'mobile' : 'desktop');
+  const profile: 'desktop' | 'mobile' = requestedProfile === 'mobile' ? 'mobile' : 'desktop';
 
   const generalCandidateSetting = Number(settings.notes_ivf_candidate_limit ?? 0);
-  const generalCandidateLimit = generalCandidateSetting > 0
-    ? Math.max(256, generalCandidateSetting)
-    : Math.max(512, baseHits * 32);
   const mobileCandidateSetting = Number(settings.notes_mobile_candidate_limit ?? 0);
-  const mobileCandidateLimit = mobileCandidateSetting > 0
-    ? Math.max(256, mobileCandidateSetting)
-    : Math.max(256, Math.floor(generalCandidateLimit / 2));
-  const candidateLimit = profile === 'mobile' ? mobileCandidateLimit : generalCandidateLimit;
+  const candidateFloor = profile === 'mobile' ? 320 : 1024;
+  const candidateCeil = profile === 'mobile' ? 960 : 8192;
+  const candidateOverrideCap = profile === 'mobile' ? 4000 : 20000;
+  const candidateMultiplier = profile === 'mobile' ? 24 : 64;
+  const computedCandidate = baseHits * candidateMultiplier;
+  const defaultCandidate = clamp(computedCandidate, candidateFloor, candidateCeil);
+  let candidateLimit = defaultCandidate;
+  if (profile === 'mobile') {
+    if (mobileCandidateSetting > 0) {
+      candidateLimit = clamp(mobileCandidateSetting, candidateFloor, candidateOverrideCap);
+    } else if (generalCandidateSetting > 0) {
+      candidateLimit = clamp(generalCandidateSetting, candidateFloor, candidateOverrideCap);
+    }
+  } else if (generalCandidateSetting > 0) {
+    candidateLimit = clamp(generalCandidateSetting, candidateFloor, candidateOverrideCap);
+  }
 
+  const defaultMinNprobe = profile === 'mobile'
+    ? (baseHits >= 20 ? 14 : 12)
+    : (baseHits >= 20 ? 20 : 16);
   const generalMinNprobeSetting = Number(settings.notes_ivf_min_nprobe ?? 0);
-  let minNprobe = generalMinNprobeSetting > 0
-    ? Math.max(1, generalMinNprobeSetting)
-    : (baseHits >= 20 ? 12 : 8);
   const mobileMinNprobeSetting = Number(settings.notes_mobile_min_nprobe ?? 0);
-  if (profile === 'mobile' && mobileMinNprobeSetting > 0) {
-    minNprobe = Math.max(1, mobileMinNprobeSetting);
+  let minNprobe = defaultMinNprobe;
+  if (profile === 'mobile') {
+    if (mobileMinNprobeSetting > 0) {
+      minNprobe = Math.max(1, mobileMinNprobeSetting);
+    } else if (generalMinNprobeSetting > 0) {
+      minNprobe = Math.max(1, generalMinNprobeSetting);
+    }
+  } else if (generalMinNprobeSetting > 0) {
+    minNprobe = Math.max(1, generalMinNprobeSetting);
   }
 
+  const defaultSmallSet = Math.max(4, Math.round(minNprobe / 2));
   const generalSmallSetSetting = Number(settings.notes_ivf_small_set_nprobe ?? 0);
-  let smallSetNprobe = generalSmallSetSetting > 0
-    ? Math.max(1, Math.min(minNprobe, generalSmallSetSetting))
-    : Math.max(4, Math.round(minNprobe / 2));
   const mobileSmallSetSetting = Number(settings.notes_mobile_small_set_nprobe ?? 0);
-  if (profile === 'mobile' && mobileSmallSetSetting > 0) {
-    smallSetNprobe = Math.max(1, Math.min(minNprobe, mobileSmallSetSetting));
+  let smallSetNprobe = defaultSmallSet;
+  if (profile === 'mobile') {
+    if (mobileSmallSetSetting > 0) {
+      smallSetNprobe = Math.max(1, mobileSmallSetSetting);
+    } else if (generalSmallSetSetting > 0) {
+      smallSetNprobe = Math.max(1, generalSmallSetSetting);
+    }
+  } else if (generalSmallSetSetting > 0) {
+    smallSetNprobe = Math.max(1, generalSmallSetSetting);
   }
+  smallSetNprobe = clamp(smallSetNprobe, 1, minNprobe);
 
   const mobileMaxRowsSetting = Number(settings.notes_mobile_max_rows ?? 0);
-  const maxRows = profile === 'mobile'
-    ? (mobileMaxRowsSetting > 0 ? Math.max(1, mobileMaxRowsSetting) : candidateLimit)
-    : candidateLimit;
+  const maxRowsCap = profile === 'mobile' ? 4000 : 20000;
+  const defaultMaxRowsTarget = profile === 'mobile'
+    ? Math.max(candidateLimit * 3, 1200)
+    : Math.max(candidateLimit * 4, 6000);
+  const maxRowsClampHigh = clamp(candidateLimit * (profile === 'mobile' ? 4 : 6), candidateLimit, maxRowsCap);
+  let maxRows = clamp(defaultMaxRowsTarget, candidateLimit, maxRowsClampHigh);
+  if (profile === 'mobile' && mobileMaxRowsSetting > 0) {
+    maxRows = clamp(mobileMaxRowsSetting, candidateLimit, maxRowsCap);
+  } else if (profile === 'desktop') {
+    maxRows = clamp(maxRows, candidateLimit, maxRowsCap);
+  }
 
   const generalTimeBudget = Number(settings.notes_ivf_time_budget_ms ?? 0);
-  let timeBudgetMs = generalTimeBudget > 0 ? generalTimeBudget : (profile === 'mobile' ? 150 : 300);
+  const defaultTimeBudget = profile === 'mobile' ? 150 : 350;
+  let timeBudgetMs = generalTimeBudget > 0 ? generalTimeBudget : defaultTimeBudget;
   const mobileTimeBudget = Number(settings.notes_mobile_time_budget_ms ?? 0);
   if (profile === 'mobile' && mobileTimeBudget > 0) {
     timeBudgetMs = mobileTimeBudget;
@@ -81,6 +123,12 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
   }
 
   const parentTargetSize = profile === 'mobile' ? 256 : 0;
+
+  candidateLimit = Math.max(1, Math.round(candidateLimit));
+  minNprobe = Math.max(1, Math.round(minNprobe));
+  smallSetNprobe = Math.max(1, Math.round(smallSetNprobe));
+  maxRows = Math.max(1, Math.round(maxRows));
+  timeBudgetMs = Math.max(0, Math.round(timeBudgetMs));
 
   return {
     profile,

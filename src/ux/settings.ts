@@ -69,6 +69,8 @@ export interface JarvisSettings {
   notes_embed_timeout: number;
   experimental_user_data_index: boolean;
   notes_device_profile: 'auto' | 'desktop' | 'mobile';
+  notes_device_profile_effective: 'desktop' | 'mobile';
+  notes_device_platform?: string;
   notes_anchor_cache?: Record<string, string>;
   notes_ivf_candidate_limit?: number;
   notes_ivf_min_nprobe?: number;
@@ -203,6 +205,11 @@ async function parse_dropdown_setting(name: string): Promise<string> {
   }
 }
 
+function infer_device_profile(platform: string | undefined): 'desktop' | 'mobile' {
+  const normalized = (platform ?? '').toLowerCase();
+  return normalized === 'mobile' ? 'mobile' : 'desktop';
+}
+
 export async function get_settings(): Promise<JarvisSettings> {
   let model_id = await joplin.settings.value('model');
   if (model_id == 'openai-custom') {
@@ -226,6 +233,23 @@ export async function get_settings(): Promise<JarvisSettings> {
   const scopus_api_key = await joplin.settings.value('scopus_api_key');
   const springer_api_key = await joplin.settings.value('springer_api_key');
   const pubmed_api_key = await joplin.settings.value('pubmed_api_key');
+
+  const rawProfileSetting = (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile');
+  let detectedPlatform = 'unknown';
+  let inferredProfile: 'desktop' | 'mobile' = 'desktop';
+  try {
+    const info = await joplin.versionInfo();
+    if (info && typeof info === 'object' && typeof (info as any).platform === 'string') {
+      detectedPlatform = (info as any).platform;
+      // Per Joplin docs the platform string is either 'mobile' or 'desktop'.
+      inferredProfile = infer_device_profile((info as any).platform);
+    }
+  } catch (error) {
+    detectedPlatform = 'unknown';
+  }
+  const effectiveProfile = rawProfileSetting === 'auto'
+    ? inferredProfile
+    : (rawProfileSetting === 'mobile' ? 'mobile' : 'desktop');
 
   const weight_relevance_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_relevance')) || 0);
   const weight_citations_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_citations')) || 0);
@@ -296,7 +320,9 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
     experimental_user_data_index: await joplin.settings.value('experimental.userDataIndex'),
-    notes_device_profile: (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile'),
+    notes_device_profile: rawProfileSetting,
+    notes_device_profile_effective: effectiveProfile,
+    notes_device_platform: detectedPlatform,
     notes_ivf_candidate_limit: await joplin.settings.value('notes_ivf_candidate_limit'),
     notes_ivf_min_nprobe: await joplin.settings.value('notes_ivf_min_nprobe'),
     notes_ivf_small_set_nprobe: await joplin.settings.value('notes_ivf_small_set_nprobe'),
@@ -628,7 +654,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Experimental: Device profile',
-      description: 'Hint whether this device should use desktop or mobile-friendly search tuning. Auto uses desktop defaults.',
+      description: 'Hint whether this device should use desktop or mobile-friendly search tuning. Auto detects the platform at runtime.',
       options: {
         'auto': 'Auto',
         'desktop': 'Desktop',
@@ -636,40 +662,40 @@ export async function register_settings() {
       },
     },
     'notes_ivf_candidate_limit': {
-      value: 2048,
+      value: 0,
       type: SettingItemType.Int,
-      minimum: 256,
+      minimum: 0,
       maximum: 10000,
       step: 64,
       section: 'jarvis.notes',
       public: true,
       advanced: true,
       label: 'Experimental: IVF candidate cap',
-      description: 'Maximum number of embedding rows fetched per query when the userData index is enabled. Default: 2048',
+      description: 'Maximum number of embedding rows fetched per query when the userData index is enabled. Set to 0 to use profile defaults.',
     },
     'notes_ivf_min_nprobe': {
-      value: 8,
+      value: 0,
       type: SettingItemType.Int,
-      minimum: 1,
+      minimum: 0,
       maximum: 256,
       step: 1,
       section: 'jarvis.notes',
       public: true,
       advanced: true,
       label: 'Experimental: IVF minimum nprobe',
-      description: 'Minimum number of IVF lists to probe per query when using centroids. Default: 8',
+      description: 'Minimum number of IVF lists to probe per query when using centroids. Set to 0 to use profile defaults.',
     },
     'notes_ivf_small_set_nprobe': {
-      value: 4,
+      value: 0,
       type: SettingItemType.Int,
-      minimum: 1,
+      minimum: 0,
       maximum: 128,
       step: 1,
       section: 'jarvis.notes',
       public: true,
       advanced: true,
       label: 'Experimental: IVF nprobe for small sets',
-      description: 'Number of IVF lists to probe when the candidate pool is small (prevents over-probing). Default: 4',
+      description: 'Number of IVF lists to probe when the candidate pool is small (prevents over-probing). Set to 0 to use profile defaults.',
     },
     'notes_ivf_time_budget_ms': {
       value: 0,
@@ -681,58 +707,58 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Experimental: IVF time budget (ms)',
-      description: 'Global decode time budget in milliseconds. Set to 0 to use profile defaults (desktop 300ms, mobile 150ms).',
+      description: 'Global decode time budget in milliseconds. Set to 0 to use profile defaults (desktop 350ms, mobile 150ms).',
     },
     'notes_mobile_candidate_limit': {
-      value: 1024,
+      value: 0,
       type: SettingItemType.Int,
-      minimum: 256,
+      minimum: 0,
       maximum: 5000,
       step: 32,
       section: 'jarvis.notes',
       public: true,
       advanced: true,
       label: 'Experimental: Mobile IVF candidate cap',
-      description: 'Override candidate limit when device profile is Mobile. Default: 1024',
+      description: 'Override candidate limit when device profile is Mobile. Set to 0 to keep profile defaults.',
     },
     'notes_mobile_min_nprobe': {
-      value: 6,
+      value: 0,
       type: SettingItemType.Int,
-      minimum: 1,
+      minimum: 0,
       maximum: 128,
       step: 1,
       section: 'jarvis.notes',
       public: true,
       advanced: true,
       label: 'Experimental: Mobile minimum nprobe',
-      description: 'Minimum IVF lists to probe on mobile profile. Default: 6',
+      description: 'Minimum IVF lists to probe on mobile profile. Set to 0 to keep profile defaults.',
     },
     'notes_mobile_small_set_nprobe': {
-      value: 3,
+      value: 0,
       type: SettingItemType.Int,
-      minimum: 1,
+      minimum: 0,
       maximum: 64,
       step: 1,
       section: 'jarvis.notes',
       public: true,
       advanced: true,
       label: 'Experimental: Mobile small-set nprobe',
-      description: 'IVF lists to probe when the candidate pool is small on mobile profile. Default: 3',
+      description: 'IVF lists to probe when the candidate pool is small on mobile profile. Set to 0 to keep profile defaults.',
     },
     'notes_mobile_max_rows': {
-      value: 1024,
+      value: 0,
       type: SettingItemType.Int,
-      minimum: 128,
+      minimum: 0,
       maximum: 5000,
       step: 32,
       section: 'jarvis.notes',
       public: true,
       advanced: true,
       label: 'Experimental: Mobile max rows',
-      description: 'Maximum number of rows streamed from userData on mobile profile. Default: 1024',
+      description: 'Maximum number of rows streamed from userData on mobile profile. Set to 0 to keep profile defaults.',
     },
     'notes_mobile_time_budget_ms': {
-      value: 180,
+      value: 0,
       type: SettingItemType.Int,
       minimum: 0,
       maximum: 2000,
@@ -741,7 +767,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Experimental: Mobile time budget (ms)',
-      description: 'Decode time budget override for mobile profile. Default: 180 ms',
+      description: 'Decode time budget override for mobile profile. Set to 0 to keep profile defaults (150 ms).',
     },
     'notes_desktop_time_budget_ms': {
       value: 0,
@@ -753,7 +779,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Experimental: Desktop time budget (ms)',
-      description: 'Decode time budget override for desktop profile. Default: 0 (use 300 ms)',
+      description: 'Decode time budget override for desktop profile. Set to 0 to keep profile defaults (350 ms).',
     },
     'notes_embed_title': {
       value: true,
