@@ -1,5 +1,12 @@
 import joplin from 'api';
-const fs = require('fs');
+let nodeFs: typeof import('fs') | null = null;
+function requireNodeFs(): typeof import('fs') {
+  if (!nodeFs) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    nodeFs = require('fs');
+  }
+  return nodeFs;
+}
 import * as tf from '@tensorflow/tfjs';
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -305,6 +312,13 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
   if (!settings.notes_embed_heading) { model.version += 'h'; }
   if (!settings.notes_embed_tags) { model.version += 't'; }
 
+  if (model) {
+    const isMobile = settings.notes_device_profile_effective === 'mobile';
+    model.allowFsCache = !isMobile;
+    model.disableDbLoad = isMobile;
+    model.disableModelLoad = isMobile && !settings.experimental_user_data_index;
+  }
+
   await model.initialize();
   return model
 }
@@ -314,6 +328,10 @@ export class TextEmbeddingModel {
   public embeddings: BlockEmbedding[] = [];  // in-memory
   public db: any = null;  // file system
   public embedding_version: number = 3;
+  public disableModelLoad = false;
+  public disableDbLoad = false;
+  public allowFsCache = true;
+  public initialized = false;
 
   // model
   public id: string = null;
@@ -441,8 +459,16 @@ export class TextEmbeddingModel {
 
   // parent method
   async initialize() {
-    await this._load_model();  // model-specific initialization
-    await this._load_db();  // post-model initialization
+    if (this.initialized) {
+      return;
+    }
+    if (!this.disableModelLoad) {
+      await this._load_model();  // model-specific initialization
+    }
+    if (!this.disableDbLoad) {
+      await this._load_db();  // post-model initialization
+    }
+    this.initialized = true;
   }
 
   // parent method with rate limiter
@@ -515,6 +541,7 @@ export class TextEmbeddingModel {
 
   // load embedding database
   async _load_db() {
+    if (this.disableDbLoad) { return; }
     if ( this.model == null ) { return; }
 
     this.db = await connect_to_db(this);
@@ -556,15 +583,17 @@ class USEEmbedding extends TextEmbeddingModel {
         this.model = await use.load();
         console.log('USEEmbedding loaded from web');
 
-        try {
-          this.model.model.save('indexeddb://jarvisUSEModel');
-          console.log('USEEmbedding saved to cache');
-          const vocabString = JSON.stringify(this.model.tokenizer.vocabulary);
-          fs.writeFileSync(data_dir + '/use_vocab.json', vocabString);
-          console.log('USEEmbedding vocabulary saved to cache');
-
-        } catch (e) {
-          console.log(`USEEmbedding failed to save to cache: ${e}`);
+        if (this.allowFsCache) {
+          try {
+            this.model.model.save('indexeddb://jarvisUSEModel');
+            console.log('USEEmbedding saved to cache');
+            const vocabString = JSON.stringify(this.model.tokenizer.vocabulary);
+            const fs = requireNodeFs();
+            fs.writeFileSync(data_dir + '/use_vocab.json', vocabString);
+            console.log('USEEmbedding vocabulary saved to cache');
+          } catch (e) {
+            console.log(`USEEmbedding failed to save to cache: ${e}`);
+          }
         }
       }
 

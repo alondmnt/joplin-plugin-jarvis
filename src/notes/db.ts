@@ -1,11 +1,27 @@
 import joplin from 'api';
 import { BlockEmbedding } from './embeddings';
-const sqlite3 = joplin.require('sqlite3');
-const fs = joplin.require('fs-extra');
+
+let sqlite3Module: any | null = null;
+let fsExtraModule: any | null = null;
+
+function requireSqlite(): any {
+  if (!sqlite3Module) {
+    sqlite3Module = joplin.require('sqlite3');
+  }
+  return sqlite3Module;
+}
+
+function requireFsExtra(): any {
+  if (!fsExtraModule) {
+    fsExtraModule = joplin.require('fs-extra');
+  }
+  return fsExtraModule;
+}
 
 // connect to the database
 export async function connect_to_db(model: any): Promise<any> {
   await migrate_db();  // migrate the database if necessary
+  const sqlite3 = requireSqlite();
   const plugin_dir = await joplin.plugins.dataDir();
   const db_fname = model.id.replace(/[/\\?%*:|"<>]/g, '_');
   const db = await new sqlite3.Database(plugin_dir + `/${db_fname}.sqlite`);
@@ -26,7 +42,7 @@ export async function connect_to_db(model: any): Promise<any> {
   if (choice === 0) {
     // OK (rebuild)
     db.close();
-    await fs.remove(plugin_dir + `/${db_fname}.sqlite`);
+    await requireFsExtra().remove(plugin_dir + `/${db_fname}.sqlite`);
     return await connect_to_db(model);
 
   } else if (choice === 1) {
@@ -239,6 +255,9 @@ export async function insert_note(db: any, note_id: string, hash: string): Promi
 // if the hash changed, delete all the embeddings for that note and insert the new ones.
 // if the note has no embeddings, insert the new ones.
 export async function insert_note_embeddings(db: any, embeds: BlockEmbedding[], model: any): Promise<void> {
+  if (!db) {
+    return;
+  }
   const embeddings = embeds;
   // check that embeddings contain a single note_id
   if (embeddings.length === 0) {
@@ -298,6 +317,9 @@ export async function get_note_status(db: any, note_id: string, hash: string): P
 
 // delete a note and its embeddings from the database.
 export async function delete_note_and_embeddings(db: any, note_id: string): Promise<void> {
+  if (!db) {
+    return;
+  }
   const note_status = await get_note_status(db, note_id, '');
   return new Promise((resolve, reject) => {
     db.serialize(() => {
@@ -320,6 +342,9 @@ export async function delete_note_and_embeddings(db: any, note_id: string): Prom
 
 export async function clear_deleted_notes(embeddings: BlockEmbedding[], db: any):
     Promise<BlockEmbedding[]> {
+  if (!db) {
+    return embeddings;
+  }
   // get all existing note ids
   let page = 0;
   let notes: any;
@@ -355,6 +380,8 @@ export async function clear_deleted_notes(embeddings: BlockEmbedding[], db: any)
 
 // migrate the database to the latest version.
 async function migrate_db(): Promise<void> {
+  const fs = requireFsExtra();
+  const sqlite3 = requireSqlite();
   const plugin_dir = await joplin.plugins.dataDir();
   const db_path_old = plugin_dir + '/embeddings.sqlite';
   if (!fs.existsSync(db_path_old)) { return; }
