@@ -43,20 +43,26 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
       break;
     }
     const meta = await store.getMeta(noteId);
-    if (!meta) {
+    if (!meta || !meta.activeModelId) {
+      continue;
+    }
+    
+    // Get active model metadata from multi-model structure
+    const modelMeta = meta.models[meta.activeModelId];
+    if (!modelMeta) {
       continue;
     }
 
     const blocks: BlockEmbedding[] = [];
     let rowsRead = 0;
-    for (let i = 0; i < meta.current.shards; i += 1) {
+    for (let i = 0; i < modelMeta.current.shards; i += 1) {
       if (remaining <= 0) {
         break;
       }
-      const cacheKey = `${noteId}:${meta.modelId}:${meta.current.epoch}:${i}`;
+      const cacheKey = `${noteId}:${meta.activeModelId}:${modelMeta.current.epoch}:${i}`;
       let cached = allowedCentroidIds ? undefined : cache.get(cacheKey);
       const shard = await store.getShard(noteId, i);
-      if (!shard || shard.epoch !== meta.current.epoch) {
+      if (!shard || shard.epoch !== modelMeta.current.epoch) {
         continue;
       }
       if (!cached) {
@@ -85,7 +91,7 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
         scales: active.scales,
         centroids: active.centroidIds,
       };
-      const shardRows = Math.min(decoded.vectors.length / meta.dim, shard.meta.length);
+      const shardRows = Math.min(decoded.vectors.length / modelMeta.dim, shard.meta.length);
       for (let row = 0; row < shardRows; row += 1) {
         if (remaining <= 0) {
           break;
@@ -96,8 +102,8 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
           continue;
         }
         const rowScale = decoded.scales[row] ?? 0; // Zero when vector is empty; clamp downstream.
-        const rowStart = row * meta.dim;
-        const vectorSlice = decoded.vectors.subarray(rowStart, rowStart + meta.dim); // shared view unless we force a copy
+        const rowStart = row * modelMeta.dim;
+        const vectorSlice = decoded.vectors.subarray(rowStart, rowStart + modelMeta.dim); // shared view unless we force a copy
         const q8Values = (useCallback || allowedCentroidIds)
           ? Int8Array.from(vectorSlice)
           : vectorSlice;
@@ -106,8 +112,8 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
           scale: rowScale === 0 ? 1 : rowScale,
         };
         const block: BlockEmbedding = {
-          id: metaRow.noteId ?? noteId,
-          hash: metaRow.noteHash ?? meta.current.contentHash,
+          id: noteId,
+          hash: modelMeta.current.contentHash,
           line: metaRow.lineNumber,
           body_idx: metaRow.bodyStart,
           length: metaRow.bodyLength,
@@ -115,7 +121,7 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
           title: metaRow.title ?? ((metaRow.headingPath && metaRow.headingPath.length > 0)
             ? metaRow.headingPath[metaRow.headingPath.length - 1]
             : ''),
-          embedding: useCallback ? new Float32Array(0) : extract_row_vector(decoded.vectors, decoded.scales, meta.dim, row),
+          embedding: useCallback ? new Float32Array(0) : extract_row_vector(decoded.vectors, decoded.scales, modelMeta.dim, row),
           similarity: 0,
           q8: q8Row,
           centroidId, // Preserve IVF assignments for later filtering.
@@ -146,7 +152,7 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
     if (!useCallback && blocks.length > 0) {
       results.push({
         noteId,
-        hash: meta.current.contentHash,
+        hash: modelMeta.current.contentHash,
         blocks,
       });
     }
