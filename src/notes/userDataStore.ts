@@ -224,12 +224,29 @@ export class UserDataEmbStore implements EmbStore {
     if (cached) {
       return cached;
     }
-    const value = await this.client.get<NoteEmbMeta>(noteId, EMB_META_KEY);
-    if (value) {
+    
+    // Robust format-agnostic metadata handling: wrap in try-catch for graceful migration
+    try {
+      const value = await this.client.get<NoteEmbMeta>(noteId, EMB_META_KEY);
+      if (!value) {
+        return null;
+      }
+      
+      // Basic sanity check: ensure it has the minimum required structure
+      // If not, treat as no embeddings and it will be rebuilt on next update
+      if (!value.activeModelId || !value.models || typeof value.models !== 'object') {
+        log.warn(`Metadata for note ${noteId} has unexpected structure, treating as no embeddings. Will rebuild on next update.`);
+        return null;
+      }
+      
       this.setCachedMeta(noteId, value);
       log.debug(`userData meta cache miss resolved for note ${noteId}`);
+      return value;
+    } catch (error) {
+      // Parse failures (corrupt JSON, wrong types, etc.) - treat as no embeddings
+      log.warn(`Failed to parse metadata for note ${noteId}, treating as no embeddings. Will rebuild on next update.`, error);
+      return null;
     }
-    return value;
   }
 
   async getShard(noteId: string, index: number): Promise<EmbShard | null> {
