@@ -2,6 +2,7 @@ import joplin from 'api';
 import { ModelType } from 'api/types';
 import { getLogger } from '../utils/logger';
 import { base64ToUint8Array, typedArrayToBase64 } from '../utils/base64';
+import { EmbeddingSettings } from './userDataStore';
 
 const log = getLogger();
 
@@ -10,7 +11,7 @@ export interface AnchorMetadata {
   dim: number;
   nlist?: number;
   version?: string;
-  hash?: string;
+  settings?: EmbeddingSettings; // Replaced hash with explicit settings
   format?: string;
   updatedAt?: string;
   rowCount?: number;

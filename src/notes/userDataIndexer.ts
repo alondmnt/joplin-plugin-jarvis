@@ -2,7 +2,7 @@ import { createHash } from '../utils/crypto';
 import { BlockEmbedding } from './embeddings';
 import { JarvisSettings } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
-import { EmbStore, NoteEmbMeta, NoteEmbHistoryEntry, EmbShard } from './userDataStore';
+import { EmbStore, NoteEmbMeta, EmbeddingSettings, EmbShard, ModelMetadata } from './userDataStore';
 import { build_block_row_meta } from './blockMeta';
 import { quantize_per_row } from './q8';
 import { build_shards } from './shards';
@@ -43,6 +43,36 @@ export interface PreparedUserData {
 }
 
 /**
+ * Extract the relevant embedding settings from JarvisSettings
+ */
+function extract_embedding_settings(settings: JarvisSettings): EmbeddingSettings {
+  return {
+    embedTitle: settings.notes_embed_title,
+    embedPath: settings.notes_embed_path,
+    embedHeading: settings.notes_embed_heading,
+    embedTags: settings.notes_embed_tags,
+    includeCode: settings.notes_include_code,
+    minLength: settings.notes_min_length,
+    maxTokens: settings.notes_max_tokens,
+  };
+}
+
+/**
+ * Compare two EmbeddingSettings objects for equality
+ */
+function settings_equal(a: EmbeddingSettings, b: EmbeddingSettings): boolean {
+  return (
+    a.embedTitle === b.embedTitle &&
+    a.embedPath === b.embedPath &&
+    a.embedHeading === b.embedHeading &&
+    a.embedTags === b.embedTags &&
+    a.includeCode === b.includeCode &&
+    a.minLength === b.minLength &&
+    a.maxTokens === b.maxTokens
+  );
+}
+
+/**
  * Prepare per-note metadata and shards for userData storage. Returns null when
  * there are no blocks or the embedding dimension cannot be inferred.
  */
@@ -62,9 +92,12 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
 
   const blockVectors = blocks.map(block => block.embedding);
   const previousMeta = await store.getMeta(noteId);
-  const epoch = (previousMeta?.current.epoch ?? 0) + 1;
+  const embeddingSettings = extract_embedding_settings(settings);
+  
+  // Determine epoch for this model
+  const previousModelMeta = previousMeta?.models?.[model.id];
+  const epoch = (previousModelMeta?.current.epoch ?? 0) + 1;
   const updatedAt = new Date().toISOString();
-  const settingsHash = compute_settings_hash(settings);
 
   let centroidIds: Uint16Array | undefined;
 
@@ -76,12 +109,12 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
 
   const metaRows = build_block_row_meta(blocks);
 
+  // Handle IVF centroids if enabled
   if (settings.experimental_user_data_index) {
     try {
       const catalogId = await ensure_catalog_note();
       const anchorId = await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
       const totalRows = count_corpus_rows(model, noteId, blocks.length);
-      // Pick target list count using sqrt heuristic so IVF stays balanced as the corpus grows.
       const desiredNlist = estimate_nlist(totalRows);
 
       const anchorMeta = await read_anchor_meta_data(anchorId);
@@ -89,16 +122,21 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
       let loaded = decode_centroids(centroidPayload);
       let centroids = loaded?.data ?? null;
 
+      // Use settings object for comparison instead of hash
+      const settingsMatch = anchorMeta?.settings 
+        ? settings_equal(anchorMeta.settings, embeddingSettings)
+        : false;
+
       if (should_train_centroids({
         totalRows,
         desiredNlist,
         dim,
-        settingsHash,
+        embeddingSettings,
+        settingsMatch,
         embeddingVersion: model.embedding_version ?? 0,
         anchorMeta,
         payload: centroidPayload,
       })) {
-        // Bound sampling effort so we keep at least ~32 rows per list without exploding.
         const sampleLimit = Math.min(
           totalRows,
           derive_sample_limit(desiredNlist),
@@ -190,7 +228,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
         modelId: model.id,
         dim,
         version: model.version ?? 'unknown',
-        hash: settingsHash,
+        settings: embeddingSettings, // Store actual settings instead of hash
         updatedAt,
         rowCount: totalRows,
         nlist: (loaded?.nlist ?? desiredNlist) > 0 ? (loaded?.nlist ?? desiredNlist) : undefined,
@@ -210,16 +248,21 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
     targetBytes: params.targetBytes,
   });
 
-  const history = build_history(previousMeta);
-
-  const meta: NoteEmbMeta = {
-    modelId: model.id,
+  // Build the new multi-model metadata structure
+  const models: { [modelId: string]: ModelMetadata } = {};
+  
+  // Preserve existing models' metadata from previous version
+  if (previousMeta?.models) {
+    Object.assign(models, previousMeta.models);
+  }
+  
+  // Update or add the current model's metadata
+  models[model.id] = {
     dim,
-    metric: 'cosine',
     modelVersion: model.version ?? 'unknown',
     embeddingVersion: model.embedding_version ?? 0,
     maxBlockSize: model.max_block_size ?? settings.notes_max_tokens ?? 0,
-    settingsHash,
+    settings: embeddingSettings,
     current: {
       epoch,
       contentHash,
@@ -231,52 +274,72 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
       },
       updatedAt,
     },
-    history,
+  };
+
+  const meta: NoteEmbMeta = {
+    activeModelId: model.id,
+    metric: 'cosine',
+    models,
   };
 
   return { meta, shards };
 }
 
 /**
- * Build history array by tacking the previous meta's current snapshot to the front
- * and appending already-recorded history entries.
+ * Decide whether IVF centroids need rebuilding based on corpus size, metadata,
+ * and payload characteristics.
  */
-function build_history(previousMeta: NoteEmbMeta | null | undefined): NoteEmbHistoryEntry[] | undefined {
-  if (!previousMeta) {
-    return undefined;
-  }
-  const entries: NoteEmbHistoryEntry[] = [];
-  if (previousMeta.current) {
-    entries.push({
-      epoch: previousMeta.current.epoch,
-      contentHash: previousMeta.current.contentHash,
-      shards: previousMeta.current.shards,
-      rows: previousMeta.current.rows,
-      updatedAt: previousMeta.current.updatedAt,
-    });
-  }
-  if (previousMeta.history) {
-    entries.push(...previousMeta.history);
-  }
-  return entries;
-}
+function should_train_centroids(args: {
+  totalRows: number;
+  desiredNlist: number;
+  dim: number;
+  embeddingSettings: EmbeddingSettings;
+  settingsMatch: boolean;
+  embeddingVersion: number | string;
+  anchorMeta: AnchorMetadata | null;
+  payload: CentroidPayload | null;
+}): boolean {
+  const {
+    totalRows,
+    desiredNlist,
+    dim,
+    embeddingSettings,
+    settingsMatch,
+    embeddingVersion,
+    anchorMeta,
+    payload,
+  } = args;
 
-/**
- * Hash the subset of settings that influence embedding content to detect drift.
- */
-function compute_settings_hash(settings: JarvisSettings): string {
-  const relevant = {
-    embedTitle: settings.notes_embed_title,
-    embedPath: settings.notes_embed_path,
-    embedHeading: settings.notes_embed_heading,
-    embedTags: settings.notes_embed_tags,
-    includeCode: settings.notes_include_code,
-    minLength: settings.notes_min_length,
-    maxTokens: settings.notes_max_tokens,
-  };
-  const json = JSON.stringify(relevant);
-  const hash = createHash('md5').update(json).digest('hex');
-  return `md5:${hash}`;
+  if (desiredNlist < 2 || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
+    return false;
+  }
+  if (!payload?.b64) {
+    return true;
+  }
+  if (!payload.dim || payload.dim !== dim) {
+    return true;
+  }
+  const payloadNlist = payload.nlist ?? 0;
+  if (payloadNlist !== desiredNlist) {
+    return true;
+  }
+  const payloadVersion = payload.version ?? '';
+  if (String(payloadVersion) !== String(embeddingVersion ?? '')) {
+    return true;
+  }
+  // Use settings comparison instead of hash
+  if (!settingsMatch) {
+    return true;
+  }
+  const previousRows = anchorMeta?.rowCount ?? 0;
+  if (!previousRows) {
+    return true;
+  }
+  // Retrain when corpus drifts beyond ±30% to keep list load balanced.
+  if (totalRows > previousRows * 1.3 || totalRows < previousRows * 0.7) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -320,58 +383,4 @@ function collect_centroid_samples(
     }
   }
   return reservoir_sample_vectors(iterate(), { limit });
-}
-
-/**
- * Decide whether IVF centroids need rebuilding based on corpus size, metadata,
- * and payload characteristics.
- */
-function should_train_centroids(args: {
-  totalRows: number;
-  desiredNlist: number;
-  dim: number;
-  settingsHash: string;
-  embeddingVersion: number | string;
-  anchorMeta: AnchorMetadata | null;
-  payload: CentroidPayload | null;
-}): boolean {
-  const {
-    totalRows,
-    desiredNlist,
-    dim,
-    settingsHash,
-    embeddingVersion,
-    anchorMeta,
-    payload,
-  } = args;
-
-  if (desiredNlist < 2 || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
-    return false;
-  }
-  if (!payload?.b64) {
-    return true;
-  }
-  if (!payload.dim || payload.dim !== dim) {
-    return true;
-  }
-  const payloadNlist = payload.nlist ?? 0;
-  if (payloadNlist !== desiredNlist) {
-    return true;
-  }
-  const payloadVersion = payload.version ?? '';
-  if (String(payloadVersion) !== String(embeddingVersion ?? '')) {
-    return true;
-  }
-  if ((anchorMeta?.hash ?? '') !== settingsHash) {
-    return true;
-  }
-  const previousRows = anchorMeta?.rowCount ?? 0;
-  if (!previousRows) {
-    return true;
-  }
-          // Retrain when corpus drifts beyond ±30% to keep list load balanced.
-          if (totalRows > previousRows * 1.3 || totalRows < previousRows * 0.7) {
-            return true;
-          }
-  return false;
 }

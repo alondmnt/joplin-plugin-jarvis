@@ -11,12 +11,14 @@ import { base64ToUint8Array, typedArrayToBase64 } from '../utils/base64';
 
 export type StoreKey = `jarvis/v1/emb/${string}/live/${number}`;
 
-export interface NoteEmbHistoryEntry {
-  epoch: number;
-  contentHash: string;
-  shards: number;
-  rows?: number;
-  updatedAt?: string;
+export interface EmbeddingSettings {
+  embedTitle: boolean;
+  embedPath: boolean;
+  embedHeading: boolean;
+  embedTags: boolean;
+  includeCode: boolean;
+  minLength: number;
+  maxTokens: number;
 }
 
 export interface NoteEmbMetaCurrent {
@@ -31,16 +33,20 @@ export interface NoteEmbMetaCurrent {
   updatedAt: string;
 }
 
-export interface NoteEmbMeta {
-  modelId: string;
+export interface ModelMetadata {
   dim: number;
-  metric: 'cosine' | 'l2';
   modelVersion: string;
   embeddingVersion: number;
   maxBlockSize: number;
-  settingsHash: string;
+  settings: EmbeddingSettings;
   current: NoteEmbMetaCurrent;
-  history?: NoteEmbHistoryEntry[];
+}
+
+export interface NoteEmbMeta {
+  activeModelId: string;
+  // L2 distance not yet supported, reserved for future use
+  metric: 'cosine' | 'l2';
+  models: { [modelId: string]: ModelMetadata };
 }
 
 export interface BlockRowMeta {
@@ -49,10 +55,6 @@ export interface BlockRowMeta {
   bodyStart: number;
   bodyLength: number;
   lineNumber: number;
-  tags?: string[];
-  // Optional fields to reduce per-row duplication; inferred by reader when absent
-  noteId?: string;
-  noteHash?: string;
   headingPath?: string[];
 }
 
@@ -232,39 +234,55 @@ export class UserDataEmbStore implements EmbStore {
 
   async getShard(noteId: string, index: number): Promise<EmbShard | null> {
     const meta = await this.getMeta(noteId);
-    if (!meta) {
+    if (!meta || !meta.activeModelId) {
       return null;
     }
-    if (index < 0 || index >= meta.current.shards) {
+    const modelMeta = meta.models[meta.activeModelId];
+    if (!modelMeta) {
       return null;
     }
-    const key = shardKey(meta.modelId, index);
+    if (index < 0 || index >= modelMeta.current.shards) {
+      return null;
+    }
+    const key = shardKey(meta.activeModelId, index);
     return this.client.get<EmbShard>(noteId, key);
   }
 
   async put(noteId: string, meta: NoteEmbMeta, shards: EmbShard[]): Promise<void> {
     const previousMeta = await this.getMeta(noteId);
+    const activeModelId = meta.activeModelId;
 
-    if (this.historyLimit > 0 && meta.history && meta.history.length > this.historyLimit) {
-      meta.history = meta.history.slice(0, this.historyLimit);
+    if (!activeModelId) {
+      throw new Error('activeModelId is required in metadata');
     }
 
-    if (shards.length !== meta.current.shards) {
-      throw new Error(`Shard count mismatch: meta expects ${meta.current.shards}, got ${shards.length}`);
+    const modelMeta = meta.models[activeModelId];
+    if (!modelMeta) {
+      throw new Error(`No model metadata found for activeModelId: ${activeModelId}`);
     }
+
+    if (shards.length !== modelMeta.current.shards) {
+      throw new Error(`Shard count mismatch: meta expects ${modelMeta.current.shards}, got ${shards.length}`);
+    }
+
+    // Write shards for the active model (single shard per note per model, always at index 0)
     for (let i = 0; i < shards.length; i += 1) {
-      const key = shardKey(meta.modelId, i);
+      const key = shardKey(activeModelId, i);
       await this.client.set<EmbShard>(noteId, key, shards[i]);
     }
+
     await this.client.set<NoteEmbMeta>(noteId, EMB_META_KEY, meta);
-    log.info(`userData shards updated`, { noteId, epoch: meta.current.epoch, shards: meta.current.shards });
+    log.info(`userData shards updated`, { noteId, modelId: activeModelId, epoch: modelMeta.current.epoch, shards: modelMeta.current.shards });
     this.setCachedMeta(noteId, meta);
 
-    const legacyModelId = previousMeta?.modelId ?? meta.modelId;
-    const legacyShardCount = previousMeta?.current.shards ?? 0;
-    if (legacyShardCount > meta.current.shards) {
-      for (let i = meta.current.shards; i < legacyShardCount; i += 1) {
-        await this.client.del(noteId, shardKey(legacyModelId, i));
+    // Cleanup: if we previously had more shards for this model, delete the excess
+    // (This handles the migration case where we had multi-shard before single-shard enforcement)
+    if (previousMeta?.models?.[activeModelId]) {
+      const legacyShardCount = previousMeta.models[activeModelId].current.shards ?? 0;
+      if (legacyShardCount > modelMeta.current.shards) {
+        for (let i = modelMeta.current.shards; i < legacyShardCount; i += 1) {
+          await this.client.del(noteId, shardKey(activeModelId, i));
+        }
       }
     }
   }
@@ -278,14 +296,19 @@ export class UserDataEmbStore implements EmbStore {
     if (!meta) {
       return;
     }
-    if (meta.modelId !== keepModelId || meta.current.contentHash !== keepHash) {
+    const modelMeta = meta.models[keepModelId];
+    if (!modelMeta || modelMeta.current.contentHash !== keepHash) {
+      // Delete all shards for all models and the metadata
       await this.client.del(noteId, EMB_META_KEY);
-      const historyShards = meta.history?.map((entry) => entry.shards ?? 0) ?? [];
-      const total = Math.max(meta.current.shards, ...historyShards, 0);
-      for (let i = 0; i < total; i += 1) {
-        await this.client.del(noteId, shardKey(meta.modelId, i));
+      
+      // Clean up shards for all models
+      for (const modelId of Object.keys(meta.models)) {
+        const shardCount = meta.models[modelId].current.shards;
+        for (let i = 0; i < shardCount; i += 1) {
+          await this.client.del(noteId, shardKey(modelId, i));
+        }
       }
-      log.info('userData shards removed', { noteId, modelId: meta.modelId });
+      log.info('userData shards removed', { noteId, models: Object.keys(meta.models) });
       this.setCachedMeta(noteId, null);
     }
   }
