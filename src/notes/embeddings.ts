@@ -417,9 +417,10 @@ async function update_note(note: any,
     note_tags = (await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] }))
       .items.map((t: any) => t.title);
   } catch (error) {
-    note_tags = ['exclude.from.jarvis'];
+    note_tags = ['jarvis-exclude'];
   }
-  if (note_tags.includes('exclude.from.jarvis') || 
+  // Support both new tag (jarvis-exclude) and old tag (exclude.from.jarvis) for backward compatibility
+  if (note_tags.includes('jarvis-exclude') || note_tags.includes('exclude.from.jarvis') ||
       settings.notes_exclude_folders.has(note.parent_id) ||
       (note.deleted_time > 0)) {
     log.debug(`Excluding note ${note.id} from Jarvis`);
@@ -450,11 +451,12 @@ async function update_note(note: any,
     if (settings.experimental_user_data_index) {
       try {
         const existing = await userDataStore.getMeta(note.id);
+        const modelMeta = existing?.models?.[model.id];
         const needsBackfill = !existing
-          || existing.modelId !== model.id
-          || existing.current?.contentHash !== hash;
+          || !modelMeta
+          || modelMeta.current?.contentHash !== hash;
         let needsCompaction = false;
-        if (!needsBackfill && existing && existing.current?.shards > 0) {
+        if (!needsBackfill && existing && modelMeta && modelMeta.current?.shards > 0) {
           try {
             const first = await userDataStore.getShard(note.id, 0);
             const row0 = first?.meta?.[0] as any;

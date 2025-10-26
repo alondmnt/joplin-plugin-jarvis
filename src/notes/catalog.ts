@@ -7,9 +7,10 @@ import { get_cached_anchor, set_cached_anchor, remove_cached_anchor } from './an
 const log = getLogger();
 
 const CATALOG_NOTE_TITLE = 'Jarvis Database Catalog';
-const CATALOG_TAG = 'jarvis.database';
+const CATALOG_TAG = 'jarvis-database';
 const REGISTRY_KEY = 'jarvis/v1/registry/models';
-const EXCLUDE_TAG = 'exclude.from.jarvis';
+const EXCLUDE_TAG = 'jarvis-exclude';
+const LEGACY_EXCLUDE_TAG = 'exclude.from.jarvis'; // Backward compatibility
 
 type TagCacheEntry = {
   id: string | null;
