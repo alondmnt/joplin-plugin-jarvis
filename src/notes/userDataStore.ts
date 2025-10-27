@@ -266,7 +266,6 @@ export class UserDataEmbStore implements EmbStore {
   }
 
   async put(noteId: string, meta: NoteEmbMeta, shards: EmbShard[]): Promise<void> {
-    const previousMeta = await this.getMeta(noteId);
     const activeModelId = meta.activeModelId;
 
     if (!activeModelId) {
@@ -283,25 +282,18 @@ export class UserDataEmbStore implements EmbStore {
     }
 
     // Write shards for the active model (single shard per note per model, always at index 0)
+    // With single-shard constraint, we simply overwrite jarvis/v1/emb/<modelId>/live/0
+    // Legacy multi-shards (if they exist) are harmless and don't need explicit cleanup
     for (let i = 0; i < shards.length; i += 1) {
       const key = shardKey(activeModelId, i);
       await this.client.set<EmbShard>(noteId, key, shards[i]);
     }
 
+    // Write metadata last (two-phase commit: shards first, then meta)
+    // Other models' shards remain untouched to support multi-model coexistence
     await this.client.set<NoteEmbMeta>(noteId, EMB_META_KEY, meta);
     log.info(`userData shards updated`, { noteId, modelId: activeModelId, epoch: modelMeta.current.epoch, shards: modelMeta.current.shards });
     this.setCachedMeta(noteId, meta);
-
-    // Cleanup: if we previously had more shards for this model, delete the excess
-    // (This handles the migration case where we had multi-shard before single-shard enforcement)
-    if (previousMeta?.models?.[activeModelId]) {
-      const legacyShardCount = previousMeta.models[activeModelId].current.shards ?? 0;
-      if (legacyShardCount > modelMeta.current.shards) {
-        for (let i = modelMeta.current.shards; i < legacyShardCount; i += 1) {
-          await this.client.del(noteId, shardKey(activeModelId, i));
-        }
-      }
-    }
   }
 
   /**
