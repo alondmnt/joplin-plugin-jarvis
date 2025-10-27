@@ -5,6 +5,7 @@ import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { UserDataEmbStore } from './userDataStore';
 import { prepare_user_data_embeddings } from './userDataIndexer';
 import { read_user_data_embeddings } from './userDataReader';
+import { globalValidationTracker, extract_embedding_settings_for_validation } from './validator';
 import { getLogger } from '../utils/logger';
 import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
 import { search_keywords, ModelError, htmlToText } from '../utils';
@@ -759,6 +760,41 @@ export async function add_note_title(embeddings: BlockEmbedding[]): Promise<Bloc
   }));
 }
 
+/**
+ * Show validation dialog when mismatched embeddings are detected
+ * Offers user choice to rebuild affected notes or continue with mismatched embeddings
+ */
+async function show_validation_dialog(
+  mismatchSummary: string,
+  mismatchedNoteIds: string[],
+  model: TextEmbeddingModel,
+  settings: JarvisSettings
+): Promise<void> {
+  // Mark dialog as shown for this session (prevents repeated dialogs)
+  globalValidationTracker.mark_dialog_shown();
+  
+  const message = `Some notes have mismatched embeddings: ${mismatchSummary}. Rebuild affected notes?`;
+  
+  const choice = await joplin.views.dialogs.showMessageBox(message);
+  
+  if (choice === 0) {
+    // User chose "Rebuild Now"
+    log.info(`User chose to rebuild ${mismatchedNoteIds.length} mismatched notes`);
+    
+    // Trigger rebuild for mismatched notes only
+    // This will be handled by calling startUpdate with force=true and specific noteIds
+    // Note: startUpdate is defined in index.ts, so we'll need to coordinate this
+    // For now, log the action - the actual rebuild integration will be added in the next step
+    log.info(`Queuing rebuild for mismatched notes: ${mismatchedNoteIds.join(', ')}`);
+    
+    // TODO: Call startUpdate(model_embed, panel, { force: true, noteIds: mismatchedNoteIds })
+    // This will be integrated when we implement smart rebuild logic (next part of the task)
+  } else {
+    // User chose "Use Anyway" or closed dialog
+    log.info(`User declined validation rebuild, using ${mismatchedNoteIds.length} mismatched embeddings`);
+  }
+}
+
 // given a list of embeddings, find the nearest ones to the query
 export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, markup_language: number, current_title: string, query: string,
     model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true):
@@ -892,12 +928,20 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       minScore: settings.notes_min_similarity,
     });
     const deadline = tuning.timeBudgetMs > 0 ? Date.now() + tuning.timeBudgetMs : Number.POSITIVE_INFINITY;
+    
+    // Extract current settings for validation
+    const currentSettings = extract_embedding_settings_for_validation(settings);
+    
     try {
       await read_user_data_embeddings({
         store: userDataStore,
         noteIds: Array.from(candidateIds),
         maxRows: tuning.maxRows,
         allowedCentroidIds: preloadAllowedCentroidIds,
+        // Enable validation: track mismatches but include mismatched notes in results
+        currentModel: model,
+        currentSettings,
+        validationTracker: globalValidationTracker,
         onBlock: (block) => {
           if (deadline !== Number.POSITIVE_INFINITY && Date.now() > deadline) {
             return true;
@@ -933,6 +977,18 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       combinedEmbeddings = legacyBlocks.concat(userBlocks);
       remove_note_embeddings(model.embeddings, replaceIdsArray);
       model.embeddings.push(...userBlocks);
+    }
+    
+    // After search completes, check if validation dialog should be shown
+    // Dialog shown once per session if mismatches detected
+    if (globalValidationTracker.should_show_dialog()) {
+      const mismatchSummary = globalValidationTracker.format_mismatches_for_dialog();
+      const mismatchedNoteIds = Array.from(
+        new Set(globalValidationTracker.get_mismatches().map(m => m.noteId))
+      );
+      
+      // Show dialog with human-readable diffs
+      await show_validation_dialog(mismatchSummary, mismatchedNoteIds, model, settings);
     }
   }
 

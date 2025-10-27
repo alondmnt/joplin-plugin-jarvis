@@ -1,7 +1,9 @@
-import { EmbStore } from './userDataStore';
+import { EmbStore, EmbeddingSettings, NoteEmbMeta } from './userDataStore';
 import { BlockEmbedding } from './embeddings';
 import { ShardDecoder } from './shardDecoder';
 import { ShardLRUCache } from './userDataCache';
+import { ValidationTracker } from './validator';
+import { TextEmbeddingModel } from '../models/models';
 import type { QuantizedRowView } from './q8';
 
 export interface ReadEmbeddingsOptions {
@@ -10,6 +12,10 @@ export interface ReadEmbeddingsOptions {
   maxRows?: number;
   allowedCentroidIds?: Set<number> | null;
   onBlock?: (block: BlockEmbedding, noteId: string) => boolean | void;
+  // Optional validation parameters
+  currentModel?: TextEmbeddingModel;
+  currentSettings?: EmbeddingSettings;
+  validationTracker?: ValidationTracker;
 }
 
 export interface NoteEmbeddingsResult {
@@ -28,15 +34,24 @@ export interface NoteEmbeddingsResult {
  * and base64 decode cost. When `allowedCentroidIds` is supplied, rows whose IVF list
  * is not in the set are skipped before converting back to Float32. The optional
  * `maxRows` cap applies across all notes in the request.
+ * 
+ * If `currentModel`, `currentSettings`, and `validationTracker` are provided, performs
+ * lazy validation during search: checks each note's metadata against current configuration,
+ * tracks mismatches, but includes mismatched notes in results anyway (use embeddings despite
+ * mismatch). Caller can then show dialog after search completes with human-readable diffs.
  */
 export async function read_user_data_embeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
-  const { store, noteIds, maxRows, allowedCentroidIds, onBlock } = options;
+  const { store, noteIds, maxRows, allowedCentroidIds, onBlock, currentModel, currentSettings, validationTracker } = options;
   const results: NoteEmbeddingsResult[] = [];
   const decoder = new ShardDecoder();
   const cache = new ShardLRUCache(4);
   const useCallback = typeof onBlock === 'function';
   let remaining = typeof maxRows === 'number' ? Math.max(0, maxRows) : Number.POSITIVE_INFINITY;
   let stopAll = false;
+  
+  // Collect metadata for validation if validation is enabled
+  const notesMetaForValidation: Array<{ noteId: string; meta: NoteEmbMeta }> = [];
+  const shouldValidate = currentModel && currentSettings && validationTracker;
 
   for (const noteId of noteIds) {
     if (remaining <= 0) {
@@ -51,6 +66,11 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
     const modelMeta = meta.models[meta.activeModelId];
     if (!modelMeta) {
       continue;
+    }
+    
+    // Collect for validation (but continue processing regardless of validation result)
+    if (shouldValidate) {
+      notesMetaForValidation.push({ noteId, meta });
     }
 
     const blocks: BlockEmbedding[] = [];
@@ -160,6 +180,11 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
     if (stopAll) {
       break;
     }
+  }
+  
+  // Perform validation after loading embeddings (lazy validation approach)
+  if (shouldValidate && notesMetaForValidation.length > 0) {
+    validationTracker.validate_notes(notesMetaForValidation, currentModel, currentSettings);
   }
 
   return results;
