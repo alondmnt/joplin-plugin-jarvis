@@ -75,97 +75,91 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
 
     const blocks: BlockEmbedding[] = [];
     let rowsRead = 0;
-    for (let i = 0; i < modelMeta.current.shards; i += 1) {
+    
+    // Single-shard constraint: always fetch shard 0 (one shard per note per model)
+    const cacheKey = `${noteId}:${meta.activeModelId}:${modelMeta.current.epoch}:0`;
+    let cached = allowedCentroidIds ? undefined : cache.get(cacheKey);
+    const shard = await store.getShard(noteId, 0);
+    if (!shard || shard.epoch !== modelMeta.current.epoch) {
+      continue;
+    }
+    if (!cached) {
+      const decoded = decoder.decode(shard);
+      if (useCallback) {
+        cached = {
+          key: cacheKey,
+          vectors: decoded.vectors,
+          scales: decoded.scales,
+          centroidIds: decoded.centroidIds ?? undefined,
+        };
+      } else {
+        cached = {
+          key: cacheKey,
+          vectors: decoded.vectors.slice(),
+          scales: decoded.scales.slice(),
+          // Keep centroid assignments so IVF-aware ranking can filter without re-decoding.
+          centroidIds: decoded.centroidIds ? decoded.centroidIds.slice() : undefined,
+        };
+        cache.set(cached);
+      }
+    }
+    const active = cached!;
+    const decoded = {
+      vectors: active.vectors,
+      scales: active.scales,
+      centroids: active.centroidIds,
+    };
+    const shardRows = Math.min(decoded.vectors.length / modelMeta.dim, shard.meta.length);
+    for (let row = 0; row < shardRows; row += 1) {
       if (remaining <= 0) {
         break;
       }
-      const cacheKey = `${noteId}:${meta.activeModelId}:${modelMeta.current.epoch}:${i}`;
-      let cached = allowedCentroidIds ? undefined : cache.get(cacheKey);
-      const shard = await store.getShard(noteId, i);
-      if (!shard || shard.epoch !== modelMeta.current.epoch) {
+      const metaRow = shard.meta[row];
+      const centroidId = decoded.centroids ? decoded.centroids[row] : undefined;
+      if (allowedCentroidIds && centroidId !== undefined && !allowedCentroidIds.has(centroidId)) {
         continue;
       }
-      if (!cached) {
-        const decoded = decoder.decode(shard);
-        if (useCallback) {
-          cached = {
-            key: cacheKey,
-            vectors: decoded.vectors,
-            scales: decoded.scales,
-            centroidIds: decoded.centroidIds ?? undefined,
-          };
-        } else {
-          cached = {
-            key: cacheKey,
-            vectors: decoded.vectors.slice(),
-            scales: decoded.scales.slice(),
-            // Keep centroid assignments so IVF-aware ranking can filter without re-decoding.
-            centroidIds: decoded.centroidIds ? decoded.centroidIds.slice() : undefined,
-          };
-          cache.set(cached);
-        }
-      }
-      const active = cached!;
-      const decoded = {
-        vectors: active.vectors,
-        scales: active.scales,
-        centroids: active.centroidIds,
+      const rowScale = decoded.scales[row] ?? 0; // Zero when vector is empty; clamp downstream.
+      const rowStart = row * modelMeta.dim;
+      const vectorSlice = decoded.vectors.subarray(rowStart, rowStart + modelMeta.dim); // shared view unless we force a copy
+      const q8Values = (useCallback || allowedCentroidIds)
+        ? Int8Array.from(vectorSlice)
+          : vectorSlice;
+      const q8Row: QuantizedRowView = {
+        values: q8Values,
+        scale: rowScale === 0 ? 1 : rowScale,
       };
-      const shardRows = Math.min(decoded.vectors.length / modelMeta.dim, shard.meta.length);
-      for (let row = 0; row < shardRows; row += 1) {
+      const block: BlockEmbedding = {
+        id: noteId,
+        hash: modelMeta.current.contentHash,
+        line: metaRow.lineNumber,
+        body_idx: metaRow.bodyStart,
+        length: metaRow.bodyLength,
+        level: metaRow.headingLevel,
+        title: metaRow.title ?? ((metaRow.headingPath && metaRow.headingPath.length > 0)
+          ? metaRow.headingPath[metaRow.headingPath.length - 1]
+          : ''),
+        embedding: useCallback ? new Float32Array(0) : extract_row_vector(decoded.vectors, decoded.scales, modelMeta.dim, row),
+        similarity: 0,
+        q8: q8Row,
+        centroidId, // Preserve IVF assignments for later filtering.
+      };
+      if (useCallback) {
+        const shouldStop = onBlock!(block, noteId);
+        rowsRead += 1;
+        remaining -= 1;
+        if (shouldStop) {
+          stopAll = true;
+          remaining = 0;
+          break;
+        }
+      } else {
+        blocks.push(block);
+        rowsRead += 1;
+        remaining -= 1;
         if (remaining <= 0) {
           break;
         }
-        const metaRow = shard.meta[row];
-        const centroidId = decoded.centroids ? decoded.centroids[row] : undefined;
-        if (allowedCentroidIds && centroidId !== undefined && !allowedCentroidIds.has(centroidId)) {
-          continue;
-        }
-        const rowScale = decoded.scales[row] ?? 0; // Zero when vector is empty; clamp downstream.
-        const rowStart = row * modelMeta.dim;
-        const vectorSlice = decoded.vectors.subarray(rowStart, rowStart + modelMeta.dim); // shared view unless we force a copy
-        const q8Values = (useCallback || allowedCentroidIds)
-          ? Int8Array.from(vectorSlice)
-          : vectorSlice;
-        const q8Row: QuantizedRowView = {
-          values: q8Values,
-          scale: rowScale === 0 ? 1 : rowScale,
-        };
-        const block: BlockEmbedding = {
-          id: noteId,
-          hash: modelMeta.current.contentHash,
-          line: metaRow.lineNumber,
-          body_idx: metaRow.bodyStart,
-          length: metaRow.bodyLength,
-          level: metaRow.headingLevel,
-          title: metaRow.title ?? ((metaRow.headingPath && metaRow.headingPath.length > 0)
-            ? metaRow.headingPath[metaRow.headingPath.length - 1]
-            : ''),
-          embedding: useCallback ? new Float32Array(0) : extract_row_vector(decoded.vectors, decoded.scales, modelMeta.dim, row),
-          similarity: 0,
-          q8: q8Row,
-          centroidId, // Preserve IVF assignments for later filtering.
-        };
-        if (useCallback) {
-          const shouldStop = onBlock!(block, noteId);
-          rowsRead += 1;
-          remaining -= 1;
-          if (shouldStop) {
-            stopAll = true;
-            remaining = 0;
-            break;
-          }
-        } else {
-          blocks.push(block);
-          rowsRead += 1;
-          remaining -= 1;
-          if (remaining <= 0) {
-            break;
-          }
-        }
-      }
-      if (remaining <= 0 || stopAll) {
-        break;
       }
     }
 

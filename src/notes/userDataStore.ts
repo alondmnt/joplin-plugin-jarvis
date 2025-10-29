@@ -258,7 +258,8 @@ export class UserDataEmbStore implements EmbStore {
     if (!modelMeta) {
       return null;
     }
-    if (index < 0 || index >= modelMeta.current.shards) {
+    // Single-shard constraint: only shard 0 is valid
+    if (index !== 0) {
       return null;
     }
     const key = shardKey(meta.activeModelId, index);

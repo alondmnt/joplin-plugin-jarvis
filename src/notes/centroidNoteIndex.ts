@@ -102,31 +102,29 @@ export class CentroidNoteIndex {
         return; // No metadata for active model
       }
 
-      // Read shard(s) and extract centroid IDs
+      // Read single shard and extract centroid IDs (single-shard constraint)
       const centroids = new Set<number>();
       const decoder = new ShardDecoder();
 
-      for (let shardIdx = 0; shardIdx < modelMeta.current.shards; shardIdx++) {
-        const shard = await this.store.getShard(noteId, shardIdx);
-        if (!shard || shard.epoch !== modelMeta.current.epoch) {
-          continue; // Stale or missing shard
-        }
+      const shard = await this.store.getShard(noteId, 0);
+      if (!shard || shard.epoch !== modelMeta.current.epoch) {
+        return; // Stale or missing shard
+      }
 
-        const decoded = decoder.decode(shard);
-        if (decoded.centroidIds) {
-          // Collect unique centroid IDs from this shard
-          for (let i = 0; i < decoded.centroidIds.length; i++) {
-            const centroidId = decoded.centroidIds[i];
-            centroids.add(centroidId);
+      const decoded = decoder.decode(shard);
+      if (decoded.centroidIds) {
+        // Collect unique centroid IDs from the shard
+        for (let i = 0; i < decoded.centroidIds.length; i++) {
+          const centroidId = decoded.centroidIds[i];
+          centroids.add(centroidId);
 
-            // Add note to this centroid's posting list
-            let noteSet = this.index.get(centroidId);
-            if (!noteSet) {
-              noteSet = new Set();
-              this.index.set(centroidId, noteSet);
-            }
-            noteSet.add(noteId);
+          // Add note to this centroid's posting list
+          let noteSet = this.index.get(centroidId);
+          if (!noteSet) {
+            noteSet = new Set();
+            this.index.set(centroidId, noteSet);
           }
+          noteSet.add(noteId);
         }
       }
 
