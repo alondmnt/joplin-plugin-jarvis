@@ -12,9 +12,11 @@ import { ensure_catalog_note } from './notes/catalog';
 import { register_panel, update_panel } from './ux/panel';
 import { get_settings, register_settings, set_folders } from './ux/settings';
 import { auto_complete } from './commands/complete';
+import { getLogger } from './utils/logger';
 
 joplin.plugins.register({
 	onStart: async function() {
+    const log = getLogger();
     await register_settings();
     let settings = await get_settings();
 
@@ -160,7 +162,7 @@ joplin.plugins.register({
             return;
           }
           try {
-            await start_update(model_embed, panel, { force: true, silent: true });
+            await start_update(model_embed, panel, { force: false, silent: true });
             pendingNoteIds.clear();  // Periodic sweep subsumes any queued incremental work.
             initialSweepCompleted = true;
           } catch (error) {
@@ -175,7 +177,7 @@ joplin.plugins.register({
     void (async () => {
       if (delay_db_update > 0 && model_embed.model !== null) {
         try {
-          await start_update(model_embed, panel, { force: true, silent: true });
+          await start_update(model_embed, panel, { force: false, silent: true });
           pendingNoteIds.clear();  // Remove duplicates now that a fresh snapshot exists.
           initialSweepCompleted = true;
         } catch (error) {
@@ -295,8 +297,35 @@ joplin.plugins.register({
         if (model_embed.model === null) {
           await model_embed.initialize();
         }
-        await start_update(model_embed, panel);
+        // Manual "Update DB" uses force=true to check settings/model matches,
+        // not just content hash. This enables smart rebuilds that skip already-updated notes.
+        await start_update(model_embed, panel, { force: true });
       }
+    });
+
+    joplin.commands.register({
+      name: 'jarvis.notes.db.updateSubset',
+      execute: async (args?: any) => {
+        const noteIds: string[] = Array.isArray(args)
+          ? args
+          : Array.isArray(args?.noteIds)
+            ? args.noteIds
+            : [];
+
+        if (!noteIds || noteIds.length === 0) {
+          log.info('Validation rebuild requested with no note IDs, skipping');
+          return;
+        }
+
+        const uniqueIds = Array.from(new Set(noteIds));
+
+        if (model_embed.model === null) {
+          await model_embed.initialize();
+        }
+
+        log.info(`Validation subset rebuild triggered for ${uniqueIds.length} notes`);
+        await start_update(model_embed, panel, { force: true, noteIds: uniqueIds });
+      },
     });
 
     joplin.commands.register({
@@ -480,7 +509,7 @@ joplin.plugins.register({
               return;
             }
             try {
-              await start_update(model_embed, panel, { force: true, silent: true });
+              await start_update(model_embed, panel, { force: false, silent: true });
               pendingNoteIds.clear();  // Clean up duplicates after the initial sweep runs.
               initialSweepCompleted = true;
             } catch (error) {
@@ -582,11 +611,11 @@ joplin.plugins.register({
         }
         if (model_embed.model) {
           try {
-            await start_update(model_embed, panel, { force: true, silent: true });
+            await start_update(model_embed, panel, { force: false, silent: true });
             pendingNoteIds.clear();
             initialSweepCompleted = true;
           } catch (error) {
-            console.warn('Jarvis: settings-triggered note DB rebuild failed', error);
+            console.warn('Jarvis: settings-triggered note DB sweep failed', error);
           }
         }
       }
@@ -607,7 +636,7 @@ joplin.plugins.register({
               return;
             }
             try {
-              await start_update(model_embed, panel, { force: true, silent: true });
+              await start_update(model_embed, panel, { force: false, silent: true });
               pendingNoteIds.clear();
               initialSweepCompleted = true;
             } catch (error) {

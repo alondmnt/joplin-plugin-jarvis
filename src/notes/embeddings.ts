@@ -948,13 +948,17 @@ async function show_validation_dialog(
     log.info(`User chose to rebuild ${mismatchedNoteIds.length} mismatched notes`);
     
     // Trigger rebuild for mismatched notes only
-    // This will be handled by calling startUpdate with force=true and specific noteIds
-    // Note: startUpdate is defined in index.ts, so we'll need to coordinate this
-    // For now, log the action - the actual rebuild integration will be added in the next step
-    log.info(`Queuing rebuild for mismatched notes: ${mismatchedNoteIds.join(', ')}`);
-    
-    // TODO: Call startUpdate(model_embed, panel, { force: true, noteIds: mismatchedNoteIds })
-    // This will be integrated when we implement smart rebuild logic (next part of the task)
+    const uniqueNoteIds = Array.from(new Set(mismatchedNoteIds));
+    try {
+      await joplin.commands.execute('jarvis.notes.db.updateSubset', uniqueNoteIds);
+      // Reset validation tracker so future searches re-validate against fresh metadata
+      globalValidationTracker.reset();
+    } catch (error) {
+      log.warn('Failed to trigger validation rebuild via command', error);
+      await joplin.views.dialogs.showMessageBox(
+        'Failed to start rebuild. Please try the "Update Jarvis note DB" command from the Tools menu.'
+      );
+    }
   } else {
     // User chose "Use Anyway" or closed dialog
     log.info(`User declined validation rebuild, using ${mismatchedNoteIds.length} mismatched embeddings`);
