@@ -1208,10 +1208,6 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }
   }
 
-  if (combinedEmbeddings.length > tuning.candidateLimit) {
-    combinedEmbeddings = combinedEmbeddings.slice(0, tuning.candidateLimit);
-  }
-
   // include links in the representation of the query using the updated candidate pool
   if (settings.notes_include_links) {
     const links_embedding = calc_links_embedding(query, combinedEmbeddings);
