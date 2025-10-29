@@ -4,6 +4,24 @@ import { getLogger } from '../utils/logger';
 import { base64ToUint8Array, typedArrayToBase64 } from '../utils/base64';
 import { EmbeddingSettings } from './userDataStore';
 
+export type CentroidRefreshReason =
+  | 'bootstrap'
+  | 'missingPayload'
+  | 'dimMismatch'
+  | 'nlistMismatch'
+  | 'versionMismatch'
+  | 'settingsChanged'
+  | 'rowGrowth'
+  | 'rowShrink';
+
+export interface AnchorRefreshState {
+  status: 'pending' | 'in_progress';
+  reason: CentroidRefreshReason;
+  requestedAt: string;
+  requestedBy?: string;
+  lastAttemptAt?: string;
+}
+
 const log = getLogger();
 
 export interface AnchorMetadata {
@@ -17,6 +35,7 @@ export interface AnchorMetadata {
   rowCount?: number;
   centroidUpdatedAt?: string;
   centroidHash?: string;
+  refresh?: AnchorRefreshState;
 }
 
 export interface CentroidPayload {

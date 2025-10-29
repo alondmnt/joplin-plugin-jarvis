@@ -8,7 +8,9 @@ import { quantize_per_row } from './q8';
 import { build_shards } from './shards';
 import {
   AnchorMetadata,
+  AnchorRefreshState,
   CentroidPayload,
+  CentroidRefreshReason,
   read_anchor_meta_data,
   read_centroids,
   write_anchor_metadata,
@@ -122,12 +124,12 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
       let loaded = decode_centroids(centroidPayload);
       let centroids = loaded?.data ?? null;
 
-      // Use settings object for comparison instead of hash
-      const settingsMatch = anchorMeta?.settings 
+      const settingsMatch = anchorMeta?.settings
         ? settings_equal(anchorMeta.settings, embeddingSettings)
         : false;
 
-      if (should_train_centroids({
+      let refreshState: AnchorRefreshState | undefined = anchorMeta?.refresh;
+      const refreshDecision = evaluate_centroid_refresh({
         totalRows,
         desiredNlist,
         dim,
@@ -136,95 +138,122 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
         embeddingVersion: model.embedding_version ?? 0,
         anchorMeta,
         payload: centroidPayload,
-      })) {
-        const sampleLimit = Math.min(
-          totalRows,
-          derive_sample_limit(desiredNlist),
-        );
-        const samples = collect_centroid_samples(model, noteId, blocks, sampleLimit);
-        const trained = train_centroids(samples, dim, { nlist: desiredNlist });
-        if (trained) {
-          let centroidStats: {
-            emptyLists: number;
-            minRows: number;
-            maxRows: number;
-            avgRows: number;
-            stdevRows: number;
-            p50Rows: number;
-            p90Rows: number;
-          } | null = null;
-          if (samples.length > 0 && desiredNlist > 0) {
-            const assignments = assign_centroid_ids(trained, dim, samples);
-            const counts = new Array(desiredNlist).fill(0);
-            for (const id of assignments) {
-              if (id < counts.length) {
-                counts[id] += 1;
+      });
+
+      if (refreshDecision) {
+        const reason = refreshDecision.reason;
+        const nowIso = new Date().toISOString();
+        const deviceLabel = `${settings.notes_device_platform ?? 'unknown'}:${settings.notes_device_profile_effective}`;
+        const canTrainLocally = settings.notes_device_profile_effective !== 'mobile';
+
+        if (canTrainLocally) {
+          const sampleLimit = Math.min(totalRows, derive_sample_limit(desiredNlist));
+          const samples = collect_centroid_samples(model, noteId, blocks, sampleLimit);
+          const trained = train_centroids(samples, dim, { nlist: desiredNlist });
+          if (trained) {
+            let centroidStats: {
+              emptyLists: number;
+              minRows: number;
+              maxRows: number;
+              avgRows: number;
+              stdevRows: number;
+              p50Rows: number;
+              p90Rows: number;
+            } | null = null;
+            if (samples.length > 0 && desiredNlist > 0) {
+              const assignments = assign_centroid_ids(trained, dim, samples);
+              const counts = new Array(desiredNlist).fill(0);
+              for (const id of assignments) {
+                if (id < counts.length) {
+                  counts[id] += 1;
+                }
               }
+              const totalAssigned = counts.reduce((sum, value) => sum + value, 0);
+              const nonEmptyCounts = counts.filter((value) => value > 0);
+              const emptyLists = counts.length - nonEmptyCounts.length;
+              const minRows = nonEmptyCounts.length > 0 ? Math.min(...nonEmptyCounts) : 0;
+              const maxRows = nonEmptyCounts.length > 0 ? Math.max(...nonEmptyCounts) : 0;
+              const avgRows = counts.length > 0 ? totalAssigned / counts.length : 0;
+              const variance = counts.length > 0
+                ? counts.reduce((acc, value) => acc + Math.pow(value - avgRows, 2), 0) / counts.length
+                : 0;
+              const stdevRows = Math.sqrt(variance);
+              const sortedCounts = [...counts].sort((a, b) => a - b);
+              const percentile = (arr: number[], pct: number): number => {
+                if (arr.length === 0) {
+                  return 0;
+                }
+                const index = Math.min(arr.length - 1, Math.max(0, Math.round(pct * (arr.length - 1))));
+                return arr[index];
+              };
+              centroidStats = {
+                emptyLists,
+                minRows,
+                maxRows,
+                avgRows: Number(avgRows.toFixed(2)),
+                stdevRows: Number(stdevRows.toFixed(2)),
+                p50Rows: percentile(sortedCounts, 0.5),
+                p90Rows: percentile(sortedCounts, 0.9),
+              };
             }
-            const totalAssigned = counts.reduce((sum, value) => sum + value, 0);
-            const nonEmptyCounts = counts.filter((value) => value > 0);
-            const emptyLists = counts.length - nonEmptyCounts.length;
-            const minRows = nonEmptyCounts.length > 0 ? Math.min(...nonEmptyCounts) : 0;
-            const maxRows = nonEmptyCounts.length > 0 ? Math.max(...nonEmptyCounts) : 0;
-            const avgRows = counts.length > 0 ? totalAssigned / counts.length : 0;
-            const variance = counts.length > 0
-              ? counts.reduce((acc, value) => acc + Math.pow(value - avgRows, 2), 0) / counts.length
-              : 0;
-            const stdevRows = Math.sqrt(variance);
-            const sortedCounts = [...counts].sort((a, b) => a - b);
-            const percentile = (arr: number[], pct: number): number => {
-              if (arr.length === 0) {
-                return 0;
-              }
-              const index = Math.min(arr.length - 1, Math.max(0, Math.round(pct * (arr.length - 1))));
-              return arr[index];
-            };
-            centroidStats = {
-              emptyLists,
-              minRows,
-              maxRows,
-              avgRows: Number(avgRows.toFixed(2)),
-              stdevRows: Number(stdevRows.toFixed(2)),
-              p50Rows: percentile(sortedCounts, 0.5),
-              p90Rows: percentile(sortedCounts, 0.9),
-            };
-          }
-          centroids = trained;
-          centroidPayload = encode_centroids({
-            centroids: trained,
-            dim,
-            format: 'f32',
-            version: model.embedding_version ?? 0,
-            nlist: desiredNlist,
-            updatedAt,
-            trainedOn: {
+            centroids = trained;
+            centroidPayload = encode_centroids({
+              centroids: trained,
+              dim,
+              format: 'f32',
+              version: model.embedding_version ?? 0,
+              nlist: desiredNlist,
+              updatedAt,
+              trainedOn: {
+                totalRows,
+                sampleCount: samples.length,
+              },
+            });
+            await write_centroids(anchorId, centroidPayload);
+            log.info('Rebuilt IVF centroids', {
+              modelId: model.id,
+              desiredNlist,
               totalRows,
-              sampleCount: samples.length,
-            },
-          });
-          await write_centroids(anchorId, centroidPayload);
-          log.info('Rebuilt IVF centroids', {
+              samples: samples.length,
+              reason,
+              ...(centroidStats ?? {}),
+            });
+            loaded = decode_centroids(centroidPayload);
+            refreshState = undefined;
+          } else {
+            log.debug('Skipped centroid training due to insufficient samples', {
+              modelId: model.id,
+              desiredNlist,
+              samples: samples.length,
+              reason,
+            });
+            refreshState = upsert_pending_refresh_state(refreshState, {
+              reason,
+              requestedAt: refreshState?.requestedAt ?? nowIso,
+              requestedBy: refreshState?.requestedBy ?? deviceLabel,
+              lastAttemptAt: nowIso,
+            });
+          }
+        } else {
+          log.info('Centroid refresh deferred to desktop device', {
             modelId: model.id,
-            desiredNlist,
-            totalRows,
-            samples: samples.length,
-            ...(centroidStats ?? {}),
+            reason,
           });
-        } else if (!centroids) {
-          log.debug('Skipped centroid training due to insufficient samples', {
-            modelId: model.id,
-            desiredNlist,
-            samples: samples.length,
+          refreshState = upsert_pending_refresh_state(refreshState, {
+            reason,
+            requestedAt: refreshState?.requestedAt ?? nowIso,
+            requestedBy: refreshState?.requestedBy ?? deviceLabel,
           });
         }
-        loaded = decode_centroids(centroidPayload);
+      } else if (refreshState && refreshState.status !== 'pending') {
+        refreshState = undefined;
       }
 
       if (centroids && blockVectors.length > 0) {
         centroidIds = assign_centroid_ids(centroids, dim, blockVectors);
       }
 
-      await write_anchor_metadata(anchorId, {
+      const anchorMetadata: AnchorMetadata = {
         modelId: model.id,
         dim,
         version: model.version ?? 'unknown',
@@ -234,7 +263,13 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
         nlist: (loaded?.nlist ?? desiredNlist) > 0 ? (loaded?.nlist ?? desiredNlist) : undefined,
         centroidUpdatedAt: centroidPayload?.updatedAt ?? loaded?.updatedAt,
         centroidHash: centroidPayload?.hash ?? loaded?.hash,
-      });
+      };
+
+      if (refreshState) {
+        anchorMetadata.refresh = refreshState;
+      }
+
+      await write_anchor_metadata(anchorId, anchorMetadata);
     } catch (error) {
       log.warn('Failed to update model anchor metadata', { modelId: model.id, error });
     }
@@ -285,11 +320,22 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
   return { meta, shards };
 }
 
+interface CentroidRefreshDecision {
+  reason: CentroidRefreshReason;
+}
+
+interface RefreshStateUpdate {
+  reason: CentroidRefreshReason;
+  requestedAt: string;
+  requestedBy?: string;
+  lastAttemptAt?: string;
+}
+
 /**
  * Decide whether IVF centroids need rebuilding based on corpus size, metadata,
  * and payload characteristics.
  */
-function should_train_centroids(args: {
+function evaluate_centroid_refresh(args: {
   totalRows: number;
   desiredNlist: number;
   dim: number;
@@ -298,12 +344,11 @@ function should_train_centroids(args: {
   embeddingVersion: number | string;
   anchorMeta: AnchorMetadata | null;
   payload: CentroidPayload | null;
-}): boolean {
+}): CentroidRefreshDecision | null {
   const {
     totalRows,
     desiredNlist,
     dim,
-    embeddingSettings,
     settingsMatch,
     embeddingVersion,
     anchorMeta,
@@ -311,35 +356,49 @@ function should_train_centroids(args: {
   } = args;
 
   if (desiredNlist < 2 || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
-    return false;
+    return null;
   }
   if (!payload?.b64) {
-    return true;
+    return { reason: 'missingPayload' };
   }
   if (!payload.dim || payload.dim !== dim) {
-    return true;
+    return { reason: 'dimMismatch' };
   }
   const payloadNlist = payload.nlist ?? 0;
   if (payloadNlist !== desiredNlist) {
-    return true;
+    return { reason: 'nlistMismatch' };
   }
   const payloadVersion = payload.version ?? '';
   if (String(payloadVersion) !== String(embeddingVersion ?? '')) {
-    return true;
+    return { reason: 'versionMismatch' };
   }
-  // Use settings comparison instead of hash
   if (!settingsMatch) {
-    return true;
+    return { reason: 'settingsChanged' };
   }
   const previousRows = anchorMeta?.rowCount ?? 0;
   if (!previousRows) {
-    return true;
+    return { reason: 'bootstrap' };
   }
-  // Retrain when corpus drifts beyond ±30% to keep list load balanced.
-  if (totalRows > previousRows * 1.3 || totalRows < previousRows * 0.7) {
-    return true;
+  if (totalRows > previousRows * 1.3) {
+    return { reason: 'rowGrowth' };
   }
-  return false;
+  if (totalRows < previousRows * 0.7) {
+    return { reason: 'rowShrink' };
+  }
+  return null;
+}
+
+function upsert_pending_refresh_state(
+  existing: AnchorRefreshState | undefined,
+  update: RefreshStateUpdate,
+): AnchorRefreshState {
+  return {
+    status: 'pending',
+    reason: update.reason,
+    requestedAt: existing?.requestedAt ?? update.requestedAt,
+    requestedBy: existing?.requestedBy ?? update.requestedBy,
+    lastAttemptAt: update.lastAttemptAt ?? existing?.lastAttemptAt,
+  };
 }
 
 /**

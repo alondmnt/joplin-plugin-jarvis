@@ -9,7 +9,7 @@ import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
 import { find_nearest_notes } from './notes/embeddings';
-import { ensure_catalog_note } from './notes/catalog';
+import { ensure_catalog_note, get_catalog_note_id, resolve_anchor_note_id } from './notes/catalog';
 import { register_panel, update_panel } from './ux/panel';
 import { get_settings, register_settings, set_folders, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
 import type { JarvisSettings } from './ux/settings';
@@ -22,9 +22,11 @@ import {
   resolve_embedding_model_id,
   prompt_model_switch_decision,
 } from './notes/modelSwitch';
+import { read_anchor_meta_data, write_anchor_metadata, AnchorRefreshState } from './notes/anchorStore';
 
 const STARTUP_DELAY_SECONDS = 5;
 const PANEL_DEBOUNCE_SECONDS = 1;
+const REFRESH_ATTEMPT_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface UpdateOptions {
   force?: boolean;
@@ -66,8 +68,8 @@ joplin.plugins.register({
       find_notes_debounce(runtime.model_embed, runtime.panel);
     }
 
-    schedule_full_sweep_timer(runtime, updates);
     await run_initial_sweep(runtime, updates);
+    schedule_full_sweep_timer(runtime, updates);
 
     await register_content_scripts();
     await register_commands_and_menus(runtime, updates, find_notes_debounce);
@@ -187,6 +189,69 @@ function create_update_manager(runtime: PluginRuntime): UpdateManager {
   };
 }
 
+async function claim_centroid_refresh(runtime: PluginRuntime): Promise<boolean> {
+  if (!runtime.settings.experimental_user_data_index) {
+    return false;
+  }
+  if (runtime.settings.notes_device_profile_effective === 'mobile') {
+    return false;
+  }
+
+  const modelId = resolve_embedding_model_id(runtime.settings);
+  if (!modelId) {
+    return false;
+  }
+
+  try {
+    const catalogId = await get_catalog_note_id();
+    if (!catalogId) {
+      return false;
+    }
+
+    const anchorId = await resolve_anchor_note_id(catalogId, modelId);
+    if (!anchorId) {
+      return false;
+    }
+
+    const metadata = await read_anchor_meta_data(anchorId);
+    const refresh = metadata?.refresh;
+    if (!metadata || !refresh) {
+      return false;
+    }
+
+    const now = Date.now();
+    const lastAttemptMs = Date.parse(refresh.lastAttemptAt ?? refresh.requestedAt ?? '') || 0;
+    const attemptStale = refresh.status === 'in_progress'
+      && (now - lastAttemptMs) > REFRESH_ATTEMPT_TIMEOUT_MS;
+
+    if (refresh.status !== 'pending' && !attemptStale) {
+      return false;
+    }
+
+    const updatedRefresh: AnchorRefreshState = {
+      ...refresh,
+      status: 'in_progress',
+      lastAttemptAt: new Date().toISOString(),
+    };
+
+    await write_anchor_metadata(anchorId, {
+      ...metadata,
+      refresh: updatedRefresh,
+    });
+
+    runtime.log.info('Jarvis: claimed centroid refresh request', {
+      modelId,
+      reason: refresh.reason,
+      requestedAt: refresh.requestedAt,
+    });
+
+    return true;
+  } catch (error) {
+    runtime.log.warn('Jarvis: failed to claim centroid refresh request', error);
+    return false;
+  }
+}
+
 /**
  * Stop the periodic sweep timer if one is active.
  */
@@ -215,7 +280,11 @@ function schedule_full_sweep_timer(runtime: PluginRuntime, updates: UpdateManage
         return;
       }
       try {
-        await updates.start_update({ force: false, silent: true });
+        const refreshClaimed = await claim_centroid_refresh(runtime);
+        const updateOptions: UpdateOptions = refreshClaimed
+          ? { force: true }
+          : { force: false, silent: true };
+        await updates.start_update(updateOptions);
         runtime.pending_note_ids.clear();
         runtime.initial_sweep_completed = true;
       } catch (error) {
@@ -229,14 +298,25 @@ function schedule_full_sweep_timer(runtime: PluginRuntime, updates: UpdateManage
  * Run the initial background sweep after startup if requested.
  */
 async function run_initial_sweep(runtime: PluginRuntime, updates: UpdateManager): Promise<void> {
-  if (runtime.delay_db_update > 0 && runtime.model_embed.model !== null) {
-    try {
-      await updates.start_update({ force: false, silent: true });
-      runtime.pending_note_ids.clear();
-      runtime.initial_sweep_completed = true;
-    } catch (error) {
-      console.warn('Jarvis: initial note DB sweep failed', error);
+  if (runtime.model_embed.model === null) {
+    return;
+  }
+
+  try {
+    const refreshClaimed = await claim_centroid_refresh(runtime);
+    if (!refreshClaimed && runtime.delay_db_update <= 0) {
+      return;
     }
+
+    const updateOptions: UpdateOptions = refreshClaimed
+      ? { force: true }
+      : { force: false, silent: true };
+
+    await updates.start_update(updateOptions);
+    runtime.pending_note_ids.clear();
+    runtime.initial_sweep_completed = true;
+  } catch (error) {
+    console.warn('Jarvis: initial note DB sweep failed', error);
   }
 }
 
