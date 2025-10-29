@@ -9,6 +9,50 @@ export const context_cmd = 'Context:';
 export const notcontext_cmd = 'Not context:';
 export const title_separator = ' ::: ';
 
+export const GENERATION_SETTING_KEYS = new Set([
+  'openai_api_key',
+  'anthropic_api_key',
+  'hf_api_key',
+  'google_api_key',
+  'model',
+  'chat_system_message',
+  'chat_timeout',
+  'chat_openai_model_id',
+  'chat_openai_model_type',
+  'chat_openai_endpoint',
+  'max_tokens',
+  'memory_tokens',
+  'notes_context_tokens',
+  'temperature',
+  'top_p',
+  'frequency_penalty',
+  'presence_penalty',
+  'chat_hf_model_id',
+  'chat_hf_endpoint',
+  'chat_prefix',
+  'chat_suffix',
+]);
+
+export const EMBEDDING_SETTING_KEYS = new Set([
+  'openai_api_key',
+  'hf_api_key',
+  'google_api_key',
+  'notes_model',
+  'experimental.userDataIndex',
+  'notes_embed_title',
+  'notes_embed_path',
+  'notes_embed_heading',
+  'notes_embed_tags',
+  'notes_parallel_jobs',
+  'notes_max_tokens',
+  'notes_openai_model_id',
+  'notes_openai_endpoint',
+  'notes_hf_model_id',
+  'notes_hf_endpoint',
+  'notes_abort_on_error',
+  'notes_embed_timeout',
+]);
+
 export interface JarvisSettings {
   // APIs
   openai_api_key: string;

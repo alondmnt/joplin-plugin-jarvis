@@ -10,9 +10,17 @@ import { load_embedding_model, load_generation_model } from './models/models';
 import { find_nearest_notes } from './notes/embeddings';
 import { ensure_catalog_note } from './notes/catalog';
 import { register_panel, update_panel } from './ux/panel';
-import { get_settings, register_settings, set_folders } from './ux/settings';
+import { get_settings, register_settings, set_folders, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
+import type { JarvisSettings } from './ux/settings';
 import { auto_complete } from './commands/complete';
 import { getLogger } from './utils/logger';
+import type { ModelCoverageStats, ModelSwitchDecision } from './notes/modelSwitch';
+import {
+  estimate_model_coverage,
+  LOW_COVERAGE_THRESHOLD,
+  resolve_embedding_model_id,
+  prompt_model_switch_decision,
+} from './notes/modelSwitch';
 
 joplin.plugins.register({
 	onStart: async function() {
@@ -21,12 +29,17 @@ joplin.plugins.register({
     let settings = await get_settings();
 
     const dialogAsk = await joplin.views.dialogs.create('jarvis.ask.dialog');
+    const modelSwitchDialog = await joplin.views.dialogs.create('jarvis.modelSwitch');
+    await joplin.views.dialogs.addScript(modelSwitchDialog, 'ux/view.css');
 
     const delay_startup = 5;  // seconds
     const delay_panel = 1;
     let delay_scroll = await joplin.settings.value('notes_scroll_delay');
     const abort_timeout = 10;  // minutes
     let delay_db_update = 60 * settings.notes_db_update_delay;
+
+    const generationSettingKeys = GENERATION_SETTING_KEYS;
+    const embeddingSettingKeys = EMBEDDING_SETTING_KEYS;
 
     await new Promise(res => setTimeout(res, delay_startup * 1000));
     let model_embed = await load_embedding_model(settings);
@@ -50,6 +63,7 @@ joplin.plugins.register({
     let updateAbortController: AbortController | null = null;
     let updateStartTime: number | null = null;
     const pendingNoteIds = new Set<string>();  // deduplicated queue of notes awaiting rebuild
+    let suppress_model_switch_revert = false;
 
     interface UpdateOptions {
       /**
@@ -553,51 +567,105 @@ joplin.plugins.register({
     });
 
     await joplin.settings.onChange(async (event) => {
-      settings = await get_settings();
-      // load generation model
-      if (event.keys.includes('openai_api_key') ||
-          event.keys.includes('anthropic_api_key') ||
-          event.keys.includes('hf_api_key') ||
-          event.keys.includes('google_api_key') ||
-          event.keys.includes('model') ||
-          event.keys.includes('chat_system_message') ||
-          event.keys.includes('chat_timeout') ||
-          event.keys.includes('chat_openai_model_id') ||
-          event.keys.includes('chat_openai_model_type') ||
-          event.keys.includes('chat_openai_endpoint') ||
-          event.keys.includes('max_tokens') ||
-          event.keys.includes('memory_tokens') ||
-          event.keys.includes('notes_context_tokens') ||
-          event.keys.includes('temperature') ||
-          event.keys.includes('top_p') ||
-          event.keys.includes('frequency_penalty') ||
-          event.keys.includes('presence_penalty') ||
-          event.keys.includes('chat_hf_model_id') ||
-          event.keys.includes('chat_hf_endpoint') ||
-          event.keys.includes('chat_prefix') ||
-          event.keys.includes('chat_suffix')) {
+      const previousSettings = settings;
 
+      if (suppress_model_switch_revert) {
+        suppress_model_switch_revert = false;
+        settings = await get_settings();
+        return;
+      }
+
+      settings = await get_settings();
+
+      const reloadGeneration = event.keys.some((key: string) => generationSettingKeys.has(key));
+      const reloadEmbedding = event.keys.some((key: string) => embeddingSettingKeys.has(key));
+
+      const notesModelChanged = event.keys.includes('notes_model')
+        && previousSettings?.notes_model !== settings.notes_model;
+
+      let forceUpdateAfterReload = false;
+      let skipUpdateAfterReload = false;
+
+      if (notesModelChanged) {
+        const newModelId = resolve_embedding_model_id(settings);
+        const oldModelId = resolve_embedding_model_id(previousSettings);
+
+        if (settings.experimental_user_data_index && newModelId) {
+          let coverageStats: ModelCoverageStats | null = null;
+          try {
+            coverageStats = await estimate_model_coverage(newModelId);
+          } catch (error) {
+            log.warn('Jarvis: failed to estimate model coverage', { modelId: newModelId, error });
+          }
+
+          const totalNotes = coverageStats?.totalNotes ?? 0;
+          const coverageRatio = coverageStats?.coverageRatio ?? 1;
+
+          if (coverageStats && totalNotes > 0 && coverageRatio < LOW_COVERAGE_THRESHOLD) {
+            const decision: ModelSwitchDecision = await prompt_model_switch_decision(modelSwitchDialog, coverageStats, newModelId);
+            if (decision === 'cancel') {
+              suppress_model_switch_revert = true;
+              const previousModelSetting = previousSettings?.notes_model ?? '';
+              await joplin.settings.setValue('notes_model', previousModelSetting);
+              settings = previousSettings;
+              log.info('Jarvis: model switch cancelled by user', {
+                from: oldModelId,
+                to: newModelId,
+                coverage: coverageRatio,
+              });
+              return;
+            }
+
+            if (decision === 'populate') {
+              forceUpdateAfterReload = true;
+              log.info('Jarvis: low coverage populate selected', {
+                from: oldModelId,
+                to: newModelId,
+                coverage: coverageRatio,
+                sampled: coverageStats.sampledNotes,
+                estimatedNotes: coverageStats.estimatedNotesWithModel,
+              });
+            } else {
+              skipUpdateAfterReload = true;
+              log.warn('Jarvis: low coverage switch without populate', {
+                from: oldModelId,
+                to: newModelId,
+                coverage: coverageRatio,
+                sampled: coverageStats.sampledNotes,
+                estimatedNotes: coverageStats.estimatedNotesWithModel,
+              });
+            }
+          } else {
+            forceUpdateAfterReload = true;
+            if (coverageStats) {
+              log.info('Jarvis: model switch coverage OK', {
+                from: oldModelId,
+                to: newModelId,
+                coverage: coverageRatio,
+                sampled: coverageStats.sampledNotes,
+                estimatedNotes: coverageStats.estimatedNotesWithModel,
+              });
+            } else {
+              log.warn('Jarvis: model switch coverage unavailable, defaulting to populate', {
+                from: oldModelId,
+                to: newModelId,
+              });
+            }
+          }
+        } else {
+          forceUpdateAfterReload = true;
+          log.info('Jarvis: model switch without userData coverage check', {
+            from: oldModelId,
+            to: newModelId,
+          });
+        }
+      }
+
+      if (reloadGeneration) {
         model_gen = await load_generation_model(settings);
       }
-      // load embedding model
-      if (event.keys.includes('openai_api_key') ||
-          event.keys.includes('hf_api_key') ||
-          event.keys.includes('google_api_key') ||
-          event.keys.includes('notes_model') ||
-          event.keys.includes('experimental.userDataIndex') ||
-          event.keys.includes('notes_embed_title') ||
-          event.keys.includes('notes_embed_path') ||
-          event.keys.includes('notes_embed_heading') ||
-          event.keys.includes('notes_embed_tags') ||
-          event.keys.includes('notes_parallel_jobs') ||
-          event.keys.includes('notes_max_tokens') ||
-          event.keys.includes('notes_openai_model_id') ||
-          event.keys.includes('notes_openai_endpoint') ||
-          event.keys.includes('notes_hf_model_id') ||
-          event.keys.includes('notes_hf_endpoint') ||
-          event.keys.includes('notes_abort_on_error') ||
-          event.keys.includes('notes_embed_timeout')) {
 
+      if (reloadEmbedding) {
         model_embed = await load_embedding_model(settings);
         if (settings.experimental_user_data_index) {
           try {
@@ -609,24 +677,32 @@ joplin.plugins.register({
             }
           }
         }
-        if (model_embed.model) {
+        if (model_embed.model && !skipUpdateAfterReload) {
           try {
-            await start_update(model_embed, panel, { force: false, silent: true });
+            const updateOptions = forceUpdateAfterReload
+              ? { force: true }
+              : { force: false, silent: true };
+            await start_update(model_embed, panel, updateOptions);
             pendingNoteIds.clear();
             initialSweepCompleted = true;
           } catch (error) {
             console.warn('Jarvis: settings-triggered note DB sweep failed', error);
           }
+        } else if (skipUpdateAfterReload) {
+          log.info('Jarvis: skipped automatic populate for new model', {
+            modelId: model_embed?.id,
+          });
         }
       }
+
       if (event.keys.includes('notes_scroll_delay')) {
         delay_scroll = await joplin.settings.value('notes_scroll_delay');
       }
-      // update panel
+
       if (model_embed.model) {
         find_notes_debounce(model_embed, panel);
-      };
-      // update db refresh interval
+      }
+
       if (event.keys.includes('notes_db_update_delay')) {
         delay_db_update = 60 * settings.notes_db_update_delay;
         schedule_full_sweep_timer();
