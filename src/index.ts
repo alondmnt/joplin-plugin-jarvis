@@ -50,8 +50,16 @@ joplin.plugins.register({
     const pendingNoteIds = new Set<string>();  // deduplicated queue of notes awaiting rebuild
 
     interface UpdateOptions {
+      /**
+       * Controls rebuild behavior:
+       * - false: Skip notes where content unchanged (only checks contentHash)
+       * - true: Skip only if content unchanged AND settings match AND model matches
+       * Also controls concurrent update handling - force=true will abort running updates
+       */
       force?: boolean;
+      /** Optional list of specific note IDs to update (if omitted, updates all notes) */
       noteIds?: string[];
+      /** If true, suppress "update in progress" dialog */
       silent?: boolean;
     }
 
@@ -64,6 +72,14 @@ joplin.plugins.register({
 
     /**
      * Kick off an embedding rebuild, optionally scoped to a set of note IDs.
+     * 
+     * @param options.force - Controls rebuild behavior:
+     *   - false (default): Skip notes where content unchanged. Used for note saves, periodic sweeps.
+     *   - true: Skip only if content AND settings AND model all match. Used for manual "Update DB",
+     *     settings changes, validation rebuilds. Also aborts any running update to start fresh.
+     * @param options.noteIds - Optional list of specific note IDs to update. If omitted, updates all notes.
+     * @param options.silent - If true, suppress "update in progress" dialog.
+     * 
      * Collapses concurrent callers, reusing the shared abort controller when forced.
      * Note the legacy snake_case helpers (`update_note_db`, `find_notes`) this wraps.
      */
@@ -98,7 +114,7 @@ joplin.plugins.register({
       updateStartTime = Date.now();
 
       try {
-        await update_note_db(model_embed, panel, updateAbortController, targetIds);
+        await update_note_db(model_embed, panel, updateAbortController, targetIds, force);
       } finally {
         updateAbortController = null;
         updateStartTime = null;

@@ -5,7 +5,7 @@ import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { UserDataEmbStore } from './userDataStore';
 import { prepare_user_data_embeddings } from './userDataIndexer';
 import { read_user_data_embeddings } from './userDataReader';
-import { globalValidationTracker, extract_embedding_settings_for_validation } from './validator';
+import { globalValidationTracker, extract_embedding_settings_for_validation, settings_equal } from './validator';
 import { getLogger } from '../utils/logger';
 import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
 import { search_keywords, ModelError, htmlToText } from '../utils';
@@ -408,9 +408,30 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
 }
 
 // async function to process a single note
+/**
+ * Update embeddings for a single note.
+ * 
+ * @param force - Controls rebuild behavior:
+ *   - false (note save): Skip if content unchanged (only checks contentHash)
+ *     - Backfills userData from SQLite if needed (migration convenience)
+ *     - Used for: incremental updates when user saves a note, periodic background sweeps
+ *   - true (manual rebuild/settings change): Skip only if content unchanged AND settings match AND model matches
+ *     - Checks userData metadata against current model/settings/version
+ *     - Rebuilds if any mismatch found (outdated settings, old model version, etc.)
+ *     - Used for: manual "Update DB", settings changes, validation dialog rebuilds
+ * 
+ * Smart rebuild: Both modes skip when up-to-date, but "up-to-date" means different things:
+ *   - force=false: Content unchanged (backfills userData from SQLite if needed)
+ *   - force=true: Content unchanged AND userData matches current settings/model/version
+ * 
+ * Multi-device benefit: When Device A syncs embeddings with new settings to Device B,
+ * Device B's force=true rebuild will detect already-updated notes and skip them, saving API quota.
+ * 
+ * @returns BlockEmbedding[] - Array of embeddings for this note (may be from cache if skipped)
+ */
 async function update_note(note: any,
     model: TextEmbeddingModel, settings: JarvisSettings,
-    abortSignal: AbortSignal): Promise<BlockEmbedding[]> {
+    abortSignal: AbortSignal, force: boolean = false): Promise<BlockEmbedding[]> {
   if (abortSignal.aborted) {
     throw new ModelError("Operation cancelled");
   }
@@ -448,40 +469,76 @@ async function update_note(note: any,
   const hash = calc_hash(note.body);
   const old_embd = model.embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
 
-  // if the note hasn't changed, return the old embeddings
+  // Check if content unchanged (in SQLite)
   if ((old_embd.length > 0) && (old_embd[0].hash === hash)) {
-    // Backfill per-note userData on rebuild when the experimental index is enabled.
-    // This ensures a full "Update Jarvis note DB" populates userData even if the
-    // legacy embeddings already exist and the note content hasn't changed.
+    // Content unchanged - decide whether to skip based on force parameter
+    
+    if (!force) {
+      // force=false (note save): Skip if content unchanged, backfill userData if needed
+      // This is for incremental updates when user saves a note
+      if (settings.experimental_user_data_index) {
+        try {
+          const existing = await userDataStore.getMeta(note.id);
+          const modelMeta = existing?.models?.[model.id];
+          const needsBackfill = !existing
+            || !modelMeta
+            || modelMeta.current?.contentHash !== hash;
+          let needsCompaction = false;
+          if (!needsBackfill && existing && modelMeta && modelMeta.current?.shards > 0) {
+            try {
+              const first = await userDataStore.getShard(note.id, 0);
+              const row0 = first?.meta?.[0] as any;
+              // Detect legacy rows by presence of duplicated per-row fields or blockId
+              needsCompaction = Boolean(row0?.noteId || row0?.noteHash || row0?.blockId);
+            } catch (e) {
+              // Ignore shard read issues during compact check
+            }
+          }
+          if (needsBackfill || needsCompaction) {
+            await maybe_write_user_data_embeddings(note, old_embd, model, settings, hash);
+          }
+        } catch (error) {
+          log.warn(`Failed to ensure userData embeddings for unchanged note ${note.id}`, error);
+        }
+      }
+      return old_embd; // Skip - content unchanged
+    }
+    
+    // force=true: Check if userData matches current settings/model before skipping
+    // This is for manual "Update DB", settings changes, or validation dialog rebuilds
     if (settings.experimental_user_data_index) {
       try {
-        const existing = await userDataStore.getMeta(note.id);
-        const modelMeta = existing?.models?.[model.id];
-        const needsBackfill = !existing
-          || !modelMeta
-          || modelMeta.current?.contentHash !== hash;
-        let needsCompaction = false;
-        if (!needsBackfill && existing && modelMeta && modelMeta.current?.shards > 0) {
-          try {
-            const first = await userDataStore.getShard(note.id, 0);
-            const row0 = first?.meta?.[0] as any;
-            // Detect legacy rows by presence of duplicated per-row fields or blockId
-            needsCompaction = Boolean(row0?.noteId || row0?.noteHash || row0?.blockId);
-          } catch (e) {
-            // Ignore shard read issues during compact check
+        const userDataMeta = await userDataStore.getMeta(note.id);
+        if (userDataMeta && userDataMeta.activeModelId === model.id) {
+          const modelMeta = userDataMeta.models[model.id];
+          const currentSettings = extract_embedding_settings_for_validation(settings);
+          
+          if (modelMeta && 
+              modelMeta.current.contentHash === hash &&
+              modelMeta.modelVersion === (model.version ?? 'unknown') &&
+              modelMeta.embeddingVersion === (model.embedding_version ?? 0) &&
+              settings_equal(currentSettings, modelMeta.settings)) {
+            // Everything up-to-date: content, settings, and model all match
+            log.debug(`Skipping note ${note.id} - already up-to-date (force=true, all checks passed)`);
+            return old_embd;
           }
-        }
-        if (needsBackfill || needsCompaction) {
-          await maybe_write_user_data_embeddings(note, old_embd, model, settings, hash);
+          // userData exists but outdated (settings or model changed) - fall through to rebuild
+          log.debug(`Rebuilding note ${note.id} - userData outdated (force=true)`);
+        } else {
+          // userData missing or wrong model - fall through to rebuild
+          log.debug(`Rebuilding note ${note.id} - userData missing or wrong model (force=true)`);
         }
       } catch (error) {
-        log.warn(`Failed to ensure userData embeddings for unchanged note ${note.id}`, error);
+        log.warn(`Failed to check userData for note ${note.id}, will rebuild`, error);
+        // Fall through to rebuild on error
       }
+    } else {
+      // experimental_user_data_index disabled - skip since content unchanged
+      return old_embd;
     }
-    return old_embd;
   }
 
-  // otherwise, calculate the new embeddings
+  // Rebuild needed: content changed OR (force=true AND userData outdated/missing)
   try {
     const new_embd = await calc_note_embeddings(note, note_tags, model, settings, abortSignal, 'doc');
 
@@ -576,11 +633,22 @@ async function promptEmbeddingError(
 }
 
 // in-place function
+/**
+ * Update embeddings for multiple notes.
+ * 
+ * @param force - Controls rebuild behavior for all notes:
+ *   - false: Skip notes where content unchanged (only checks contentHash)
+ *   - true: Skip only if content unchanged AND settings match AND model matches
+ * 
+ * Processes notes in batches, handling errors per-note with retry/skip/abort prompts.
+ * Updates in-memory model.embeddings array after successful batch completion.
+ */
 export async function update_embeddings(
   notes: any[],
   model: TextEmbeddingModel,
   settings: JarvisSettings,
   abortController: AbortController,
+  force: boolean = false,
 ): Promise<void> {
   const successfulNotes: Array<{ note: any; embeddings: BlockEmbedding[] }> = [];
   let dialogQueue: Promise<unknown> = Promise.resolve();
@@ -595,7 +663,7 @@ export async function update_embeddings(
     let attempt = 0;
     while (!abortController.signal.aborted) {
       try {
-        const embeddings = await update_note(note, model, settings, abortController.signal);
+        const embeddings = await update_note(note, model, settings, abortController.signal, force);
         successfulNotes.push({ note, embeddings });
         return;
       } catch (rawError) {

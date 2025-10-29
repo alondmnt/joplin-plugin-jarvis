@@ -11,12 +11,26 @@ import { ModelError } from '../utils';
  * Refresh embeddings for either the entire notebook set or a specific list of notes.
  * When `noteIds` are provided the function reuses the existing update pipeline to
  * rebuild only those entries, skipping the legacy full-library scan.
+ * 
+ * @param force - Controls rebuild behavior:
+ *   - false: Skip notes where content unchanged (only checks contentHash)
+ *     Example: Note saved by user, incremental periodic sweeps
+ *   - true: Skip only if content unchanged AND settings match AND model matches
+ *     Example: Manual "Update DB", settings changed, validation dialog rebuild
+ * 
+ * Smart rebuild: Both modes skip when up-to-date, but "up-to-date" means different things:
+ *   - force=false: Content unchanged (backfills userData from SQLite if needed for migration)
+ *   - force=true: Content unchanged AND userData matches current settings/model/version
+ * 
+ * Multi-device benefit: If Device A syncs embeddings with new settings, Device B's force=true
+ * rebuild will skip already-updated notes, saving API quota.
  */
 export async function update_note_db(
   model: TextEmbeddingModel,
   panel: string,
   abortController: AbortController,
   noteIds?: string[],
+  force: boolean = false,
 ): Promise<void> {
   if (model.model === null) { return; }
 
@@ -66,14 +80,14 @@ export async function update_note_db(
       while (batch.length >= model.page_size && !abortController.signal.aborted) {
         // Flush in fixed-size chunks so we keep consistent throughput with the full scan path.
         const chunk = batch.splice(0, model.page_size);
-        await update_embeddings(chunk, model, settings, abortController);
+        await update_embeddings(chunk, model, settings, abortController, force);
         processed_notes += chunk.length;
         update_progress_bar(panel, Math.min(processed_notes, total_notes), total_notes, settings);
       }
     }
 
     if (batch.length > 0 && !abortController.signal.aborted) {
-      await update_embeddings(batch, model, settings, abortController);
+      await update_embeddings(batch, model, settings, abortController, force);
       processed_notes += batch.length;
       update_progress_bar(panel, Math.min(processed_notes, total_notes), total_notes, settings);
     }
@@ -96,7 +110,7 @@ export async function update_note_db(
       notes = await joplin.data.get(['notes'], { fields: noteFields, page: page, limit: model.page_size });
       if (notes.items) {
         console.debug(`Processing page ${page}: ${notes.items.length} notes`);
-        await update_embeddings(notes.items, model, settings, abortController);
+        await update_embeddings(notes.items, model, settings, abortController, force);
         processed_notes += notes.items.length;
         update_progress_bar(panel, processed_notes, total_notes, settings);
       }

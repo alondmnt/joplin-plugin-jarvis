@@ -49,7 +49,7 @@ export function extract_embedding_settings_for_validation(settings: JarvisSettin
  * Compare two embedding settings objects field by field
  * Returns true if all fields match, false otherwise
  */
-function settings_equal(a: EmbeddingSettings, b: EmbeddingSettings): boolean {
+export function settings_equal(a: EmbeddingSettings, b: EmbeddingSettings): boolean {
   return (
     a.embedTitle === b.embedTitle &&
     a.embedPath === b.embedPath &&
