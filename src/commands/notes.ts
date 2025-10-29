@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { find_nearest_notes, update_embeddings } from '../notes/embeddings';
+import { find_nearest_notes, update_embeddings, build_centroid_index_on_startup } from '../notes/embeddings';
 import { ensure_catalog_note, ensure_model_anchor, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings } from '../ux/settings';
@@ -28,6 +28,10 @@ export async function update_note_db(
     try {
       const catalogId = await ensure_catalog_note();
       await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
+      
+      // Build centroid-to-note index during startup/full database update (§4 in task list)
+      // Piggybacks on note scanning to populate index without additional overhead
+      await build_centroid_index_on_startup(model.id, settings);
     } catch (error) {
       const msg = String((error as any)?.message ?? error);
       if (!/SQLITE_CONSTRAINT|UNIQUE constraint failed/i.test(msg)) {

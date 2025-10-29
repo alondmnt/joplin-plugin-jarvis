@@ -13,11 +13,15 @@ import { quantize_vector_to_q8, cosine_similarity_q8, QuantizedRowView } from '.
 import { TopKHeap } from './topK';
 import { load_model_centroids, load_parent_map } from './centroidLoader';
 import { choose_nprobe, select_top_centroid_ids, MIN_TOTAL_ROWS_FOR_IVF } from './centroids';
+import { CentroidNoteIndex } from './centroidNoteIndex';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
 const noteOcrCache = new Map<string, string>();
 const userDataStore = new UserDataEmbStore();
 const log = getLogger();
+
+// Global centroid-to-note index instance (initialized lazily)
+let globalCentroidIndex: CentroidNoteIndex | null = null;
 
 interface SearchTuning {
   profile: 'desktop' | 'mobile';
@@ -486,6 +490,13 @@ async function update_note(note: any,
 
     await maybe_write_user_data_embeddings(note, new_embd, model, settings, hash);
 
+    // Update centroid-to-note index for this note (if index is active)
+    if (settings.experimental_user_data_index) {
+      await update_centroid_index_for_note(note.id, model.id).catch(error => {
+        log.warn(`Failed to update centroid index for note ${note.id}`, error);
+      });
+    }
+
     return new_embd;
   } catch (error) {
     throw ensure_model_error(error, note);
@@ -760,6 +771,93 @@ export async function add_note_title(embeddings: BlockEmbedding[]): Promise<Bloc
   }));
 }
 
+
+/**
+ * Build centroid-to-note index during startup or full database update.
+ * Piggybacks on note scanning to populate index without additional overhead.
+ * Called from update_note_db before processing notes.
+ */
+export async function build_centroid_index_on_startup(
+  modelId: string,
+  settings: JarvisSettings
+): Promise<void> {
+  if (!settings.experimental_user_data_index) {
+    return; // Feature disabled
+  }
+
+  try {
+    log.info('CentroidIndex: Building during startup database update');
+    const index = await get_or_init_centroid_index(modelId, settings);
+    const diagnostics = index.get_diagnostics();
+    log.info(
+      `CentroidIndex: Startup build complete - ${diagnostics.stats.notesWithEmbeddings} notes indexed, ` +
+      `${diagnostics.uniqueCentroids} centroids, ${diagnostics.estimatedMemoryKB}KB memory, ` +
+      `${diagnostics.stats.buildTimeMs}ms`
+    );
+  } catch (error) {
+    log.warn('CentroidIndex: Failed to build during startup', error);
+  }
+}
+
+/**
+ * Get or initialize the global centroid-to-note index for the current model.
+ * Handles index creation, full build (if not yet built), and refresh.
+ */
+async function get_or_init_centroid_index(
+  modelId: string,
+  settings: JarvisSettings
+): Promise<CentroidNoteIndex> {
+  // Initialize index if needed
+  if (!globalCentroidIndex || globalCentroidIndex['activeModelId'] !== modelId) {
+    log.info(`CentroidIndex: Initializing for model ${modelId}`);
+    globalCentroidIndex = new CentroidNoteIndex(userDataStore, modelId);
+  }
+
+  // Build if not yet built (lazy fallback)
+  if (!globalCentroidIndex.is_built()) {
+    log.info('CentroidIndex: Not built yet, triggering full build');
+    const startTime = Date.now();
+    await globalCentroidIndex.build_full((processed, total) => {
+      if (total) {
+        log.info(`CentroidIndex: Build complete - ${processed}/${total} notes processed`);
+      } else if (processed % 500 === 0) {
+        log.info(`CentroidIndex: Build progress - ${processed} notes processed...`);
+      }
+    });
+    const buildTime = Date.now() - startTime;
+    log.info(`CentroidIndex: Full build took ${buildTime}ms`);
+  } else {
+    // Refresh to catch recent updates (timestamp query, ~50-100ms)
+    const startTime = Date.now();
+    await globalCentroidIndex.refresh();
+    const refreshTime = Date.now() - startTime;
+    
+    // Log performance metrics (as specified in task list)
+    if (refreshTime > 100) {
+      log.warn(`CentroidIndex: Refresh took ${refreshTime}ms (>100ms threshold)`);
+    }
+  }
+
+  return globalCentroidIndex;
+}
+
+/**
+ * Reset the global centroid-to-note index (called when model changes or on explicit rebuild).
+ */
+export function reset_centroid_index(): void {
+  globalCentroidIndex = null;
+  log.info('CentroidIndex: Reset global index');
+}
+
+/**
+ * Update a single note in the centroid-to-note index (called after embedding a note).
+ */
+export async function update_centroid_index_for_note(noteId: string, modelId: string): Promise<void> {
+  if (globalCentroidIndex && globalCentroidIndex['activeModelId'] === modelId) {
+    await globalCentroidIndex.update_note(noteId);
+  }
+}
+
 /**
  * Show validation dialog when mismatched embeddings are detected
  * Offers user choice to rebuild affected notes or continue with mismatched embeddings
@@ -916,13 +1014,59 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   };
 
   let preloadAllowedCentroidIds: Set<number> | null = null;
+  let ivfCandidateNoteIds: Set<string> | null = null;
+
   if (rep_embedding) {
     preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, combinedEmbeddings.length);
+    
+    // If IVF is enabled and we have centroid IDs, use centroid-to-note index to filter candidates
+    if (preloadAllowedCentroidIds && preloadAllowedCentroidIds.size > 0 && settings.experimental_user_data_index) {
+      try {
+        const centroidIndex = await get_or_init_centroid_index(model.id, settings);
+        const topCentroidIds = Array.from(preloadAllowedCentroidIds);
+        ivfCandidateNoteIds = centroidIndex.lookup(topCentroidIds);
+        
+        // Log performance metrics (as specified in task list)
+        const diagnostics = centroidIndex.get_diagnostics();
+        log.info(
+          `CentroidIndex: IVF lookup found ${ivfCandidateNoteIds.size} candidate notes for ${topCentroidIds.length} centroids ` +
+          `(${diagnostics.uniqueCentroids} total centroids, ${diagnostics.estimatedMemoryKB}KB memory)`
+        );
+        
+        // Fallback to loading all notes if index returned no candidates (shouldn't happen but be safe)
+        if (ivfCandidateNoteIds.size === 0) {
+          log.warn('CentroidIndex: Lookup returned 0 candidates, falling back to full scan');
+          ivfCandidateNoteIds = null;
+        }
+      } catch (error) {
+        log.warn('CentroidIndex: Failed to use index for candidate selection, falling back to full scan', error);
+        ivfCandidateNoteIds = null;
+      }
+    }
   }
 
   if (settings.experimental_user_data_index) {
-    const candidateIds = new Set(combinedEmbeddings.map(embed => embed.id));
+    // Build candidate set: if IVF index lookup succeeded, use filtered candidates; otherwise load all
+    const candidateIds = ivfCandidateNoteIds 
+      ? ivfCandidateNoteIds
+      : new Set(combinedEmbeddings.map(embed => embed.id));
     candidateIds.add(current_id);
+    
+    // Log candidate selection effectiveness
+    const totalNotes = combinedEmbeddings.length;
+    const candidateCount = candidateIds.size;
+    if (ivfCandidateNoteIds) {
+      const reductionPct = totalNotes > 0 
+        ? ((1 - candidateCount / totalNotes) * 100).toFixed(1) 
+        : '0.0';
+      log.info(
+        `CentroidIndex: IVF filtering - ${candidateCount}/${totalNotes} notes ` +
+        `(${reductionPct}% reduction, ~${Math.round(totalNotes / candidateCount)}x speedup)`
+      );
+    } else {
+      log.info(`CentroidIndex: No IVF filtering - loading all ${candidateCount} notes`);
+    }
+    
     const replaceIds = new Set<string>();
     const userBlocksHeap = new TopKHeap<BlockEmbedding>(tuning.candidateLimit, {
       minScore: settings.notes_min_similarity,
