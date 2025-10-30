@@ -28,6 +28,10 @@ export type ModelSwitchDecision = 'populate' | 'switch' | 'cancel';
 type NotesModelConfig = Pick<JarvisSettings,
   'notes_model' | 'notes_hf_model_id' | 'notes_openai_model_id'>;
 
+/**
+ * Resolve the canonical embedding model identifier based on the current Jarvis settings.
+ * Returns `null` when the model selection is incomplete to avoid downstream lookups.
+ */
 export function resolve_embedding_model_id(settings: NotesModelConfig | null | undefined): string | null {
   if (!settings) {
     return null;
@@ -54,6 +58,9 @@ export function resolve_embedding_model_id(settings: NotesModelConfig | null | u
   return base;
 }
 
+/**
+ * Escape HTML special characters so generated dialog markup cannot break rendering or execute scripts.
+ */
 function escape_html(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -63,6 +70,9 @@ function escape_html(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Convert a coverage ratio to an integer percentage while clamping to the 0–100 range.
+ */
 export function coverage_ratio_to_percent(ratio: number): number {
   if (!Number.isFinite(ratio)) {
     return 0;
@@ -70,6 +80,9 @@ export function coverage_ratio_to_percent(ratio: number): number {
   return Math.min(100, Math.max(0, Math.round(ratio * 100)));
 }
 
+/**
+ * Generate the HTML body for the low-coverage model switch dialog.
+ */
 export function build_model_switch_dialog_html(stats: ModelCoverageStats, modelId: string): string {
   const percent = coverage_ratio_to_percent(stats.coverageRatio);
   const thresholdPercent = coverage_ratio_to_percent(LOW_COVERAGE_THRESHOLD);
@@ -86,6 +99,9 @@ export function build_model_switch_dialog_html(stats: ModelCoverageStats, modelI
   `;
 }
 
+/**
+ * Prompt the user for how to proceed when switching to a model with low coverage.
+ */
 export async function prompt_model_switch_decision(
   dialogHandle: string,
   stats: ModelCoverageStats,
@@ -112,7 +128,7 @@ export async function prompt_model_switch_decision(
 }
 
 /**
- * Normalize the requested sample size while respecting the 100-200 note guidance.
+ * Normalize the requested sample size while respecting the 100–200 note guidance.
  */
 function sanitize_sample_size(requested: number | undefined): number {
   const target = Number.isFinite(requested) ? Math.round(requested as number) : DEFAULT_SAMPLE_SIZE;
@@ -121,7 +137,7 @@ function sanitize_sample_size(requested: number | undefined): number {
 }
 
 /**
- * Reservoir sample note identifiers across the full library without loading all ids in memory.
+ * Reservoir sample note identifiers across the full library without loading all IDs in memory.
  */
 async function reservoir_sample_note_ids(sampleSize: number): Promise<{ total: number; sample: string[] }> {
   const sample: string[] = [];
@@ -167,7 +183,7 @@ async function reservoir_sample_note_ids(sampleSize: number): Promise<{ total: n
 }
 
 /**
- * Count how many sampled notes contain embeddings for the requested model.
+ * Count how many of the sampled notes contain embeddings for the requested model ID.
  */
 async function count_notes_with_model(modelId: string, noteIds: string[]): Promise<number> {
   if (!modelId || noteIds.length === 0) {
@@ -188,6 +204,9 @@ async function count_notes_with_model(modelId: string, noteIds: string[]): Promi
   return matches;
 }
 
+/**
+ * Determine whether the supplied metadata object contains embeddings for the requested model.
+ */
 function contains_model(meta: NoteEmbMeta | null, modelId: string): boolean {
   if (!meta || !meta.models) {
     return false;

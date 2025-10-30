@@ -33,6 +33,9 @@ interface DeletionSummary {
   errors: number;
 }
 
+/**
+ * Escape HTML special characters to prevent user-provided metadata from breaking dialog markup.
+ */
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -42,6 +45,9 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Convert a raw byte estimate to a human-readable approximation for UI display.
+ */
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) {
     return '≈0 KB';
@@ -54,6 +60,9 @@ function formatBytes(bytes: number): string {
   return `≈${kb.toFixed(kb >= 10 ? 0 : 1)} KB`;
 }
 
+/**
+ * Render an ISO timestamp in the user's locale, falling back to the original string when parsing fails.
+ */
 function formatTimestamp(value?: string): string {
   if (!value) {
     return 'unknown';
@@ -65,6 +74,9 @@ function formatTimestamp(value?: string): string {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
+/**
+ * Scan all notes to aggregate per-model inventory statistics and a lookup of note IDs by model.
+ */
 async function collect_model_inventory(activeModelId: string): Promise<InventoryResult> {
   const store = new UserDataEmbStore(undefined, { cacheSize: 0 });
   const noteIdsByModel = new Map<string, Set<string>>();
@@ -174,6 +186,9 @@ async function collect_model_inventory(activeModelId: string): Promise<Inventory
   return { items, noteIdsByModel };
 }
 
+/**
+ * Remove embeddings for the specified model from all provided notes and clean up catalog references.
+ */
 async function delete_model_data(modelId: string, noteIds: string[]): Promise<DeletionSummary> {
   const summary: DeletionSummary = {
     updatedNotes: 0,
@@ -228,6 +243,9 @@ async function delete_model_data(modelId: string, noteIds: string[]): Promise<De
   return summary;
 }
 
+/**
+ * Build the HTML string for the model management dialog using the computed inventory.
+ */
 function build_dialog_html(items: ModelInventoryItem[], activeModelId: string, message: string): string {
   if (items.length === 0) {
     return `
@@ -300,6 +318,9 @@ function build_dialog_html(items: ModelInventoryItem[], activeModelId: string, m
   `;
 }
 
+/**
+ * Present the model management dialog workflow, including refresh and deletion actions.
+ */
 export async function open_model_management_dialog(dialogHandle: string): Promise<void> {
   const enabled = await joplin.settings.value('experimental.userDataIndex');
   if (!enabled) {
