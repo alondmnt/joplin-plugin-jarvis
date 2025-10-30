@@ -1,0 +1,84 @@
+#jarvis-model-manager {
+  font-family: inherit;
+  min-width: 520px;
+  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+}
+
+#jarvis-model-manager h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+#jarvis-model-manager p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.jarvis-model-manager__hint {
+  font-size: 13px;
+}
+
+.jarvis-model-manager__message {
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+.jarvis-model-manager__table-wrapper {
+  max-height: 45vh;
+  overflow-y: auto;
+  border-radius: 6px;
+  border: 1px solid var(--joplin-divider-color, rgba(0, 0, 0, 0.2));
+}
+
+.jarvis-model-manager__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.jarvis-model-manager__table th,
+.jarvis-model-manager__table td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--joplin-divider-color, rgba(0, 0, 0, 0.2));
+}
+
+.jarvis-model-manager__table th {
+  font-weight: 600;
+}
+
+.jarvis-model-manager__select {
+  width: 32px;
+  text-align: center;
+}
+
+.jarvis-model-manager__model {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.jarvis-model-manager__model-id {
+  word-break: break-all;
+}
+
+.jarvis-model-manager__meta {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.jarvis-model-manager__badge {
+  background-color: var(--joplin-color-primary, #4a89dc);
+  color: var(--joplin-color-primaryContrast, #ffffff);
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+

@@ -35,8 +35,7 @@ export async function load_model_centroids(modelId: string): Promise<LoadedCentr
 }
 
 /** Clear cached centroids, forcing the next call to reload from userData. */
-// Internal cache reset retained for potential future use; not exported
-function clear_centroid_cache(modelId?: string): void {
+export function clear_centroid_cache(modelId?: string): void {
   if (modelId) {
     cache.delete(modelId);
     parentCache.delete(modelId);

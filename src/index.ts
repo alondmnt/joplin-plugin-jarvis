@@ -23,6 +23,7 @@ import {
   prompt_model_switch_decision,
 } from './notes/modelSwitch';
 import { read_anchor_meta_data, write_anchor_metadata, AnchorRefreshState } from './notes/anchorStore';
+import { open_model_management_dialog } from './ux/modelManagement';
 
 const STARTUP_DELAY_SECONDS = 5;
 const PANEL_DEBOUNCE_SECONDS = 1;
@@ -39,6 +40,7 @@ interface PluginRuntime {
   settings: JarvisSettings;
   dialogAsk: string;
   model_switch_dialog: string;
+  model_management_dialog: string;
   model_embed: TextEmbeddingModel;
   model_gen: TextGenerationModel;
   panel: string;
@@ -89,6 +91,9 @@ async function initialize_runtime(): Promise<PluginRuntime> {
   const dialogAsk = await joplin.views.dialogs.create('jarvis.ask.dialog');
   const model_switch_dialog = await joplin.views.dialogs.create('jarvis.modelSwitch');
   await joplin.views.dialogs.addScript(model_switch_dialog, 'ux/view.css');
+  const model_management_dialog = await joplin.views.dialogs.create('jarvis.modelManagement');
+  await joplin.views.dialogs.addScript(model_management_dialog, 'ux/view.css');
+  await joplin.views.dialogs.addScript(model_management_dialog, 'ux/modelManagementDialog.css');
 
   let delay_scroll = await joplin.settings.value('notes_scroll_delay');
   let delay_db_update = 60 * settings.notes_db_update_delay;
@@ -123,6 +128,7 @@ async function initialize_runtime(): Promise<PluginRuntime> {
     settings,
     dialogAsk,
     model_switch_dialog,
+    model_management_dialog,
     model_embed,
     model_gen,
     panel,
@@ -453,6 +459,14 @@ async function register_commands_and_menus(
   });
 
   await joplin.commands.register({
+    name: 'jarvis.notes.manage_models',
+    label: 'Manage Jarvis embedding models',
+    execute: async () => {
+      await open_model_management_dialog(runtime.model_management_dialog);
+    },
+  });
+
+  await joplin.commands.register({
     name: 'jarvis.notes.db.updateSubset',
     execute: async (args?: any) => {
       const noteIds: string[] = Array.isArray(args)
@@ -577,6 +591,7 @@ async function register_commands_and_menus(
     { commandName: 'jarvis.notes.preview' },
     { commandName: 'jarvis.utils.count_tokens' },
     { commandName: 'jarvis.notes.db.update' },
+    { commandName: 'jarvis.notes.manage_models' },
     { commandName: 'jarvis.notes.toggle_panel' },
     { commandName: 'jarvis.notes.exclude_folder' },
     { commandName: 'jarvis.notes.include_folder' },

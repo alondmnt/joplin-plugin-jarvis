@@ -252,6 +252,47 @@ export async function resolve_anchor_note_id(catalogNoteId: string, modelId: str
 }
 
 /**
+ * Remove the catalog registry entry and anchor for a given model. Used by the model
+ * management dialog when users delete a deprecated embedding model.
+ */
+export async function remove_model_from_catalog(modelId: string): Promise<void> {
+  const catalogNoteId = await get_catalog_note_id();
+  if (!catalogNoteId) {
+    return;
+  }
+
+  const registry = await load_model_registry(catalogNoteId);
+  const anchorId = registry[modelId];
+  if (anchorId) {
+    if (anchorId !== catalogNoteId) {
+      try {
+        await joplin.data.delete(['notes', anchorId]);
+        log.info('Deleted model anchor while removing registry entry', { modelId, anchorId });
+      } catch (error) {
+        log.warn('Failed to delete anchor note during model removal', { modelId, anchorId, error });
+      }
+    }
+    delete registry[modelId];
+  } else if (registry[modelId] !== undefined) {
+    delete registry[modelId];
+  }
+
+  try {
+    await joplin.data.userDataSet(ModelType.Note, catalogNoteId, REGISTRY_KEY, registry);
+  } catch (error) {
+    log.warn('Failed to persist updated model registry after removal', { modelId, error });
+  }
+
+  try {
+    await update_catalog_body(catalogNoteId, registry);
+  } catch (error) {
+    log.warn('Failed to refresh catalog note body after model removal', { modelId, error });
+  }
+
+  await remove_cached_anchor(modelId);
+}
+
+/**
  * Ensure a single catalog note exists and resides in the Jarvis system folder.
  *
  * @returns Existing catalog id or the identifier of a newly created one.
