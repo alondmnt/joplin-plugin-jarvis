@@ -73,9 +73,17 @@ export function coverage_ratio_to_percent(ratio: number): number {
 export function build_model_switch_dialog_html(stats: ModelCoverageStats, modelId: string): string {
   const percent = coverage_ratio_to_percent(stats.coverageRatio);
   const thresholdPercent = coverage_ratio_to_percent(LOW_COVERAGE_THRESHOLD);
-  const message = `Model '${modelId}' has ~${percent}% coverage (estimated ${stats.estimatedNotesWithModel}/${stats.totalNotes} notes). Populate embeddings now?`;
-  const detail = `Sampled ${stats.sampledNotes} notes (target ${stats.sampleSizeTarget}). Switching without populating may return fewer results until coverage exceeds ${thresholdPercent}%.`;
-  return `<form name="jarvisModelSwitch"><div class="jarvis-dialog"><p>${escape_html(message)}</p><p>${escape_html(detail)}</p></div></form>`;
+  const headline = `Low coverage for ${modelId}`;
+  const summary = `Only ~${percent}% of notes (${stats.estimatedNotesWithModel}/${stats.totalNotes}) currently have embeddings. Switching without populating may return fewer results until coverage exceeds ${thresholdPercent}%.`;
+
+  return `
+    <form name="jarvisModelSwitch">
+      <div id="jarvis-model-switch" class="jarvis-dialog">
+        <h3>${escape_html(headline)}</h3>
+        <p>${escape_html(summary)}</p>
+      </div>
+    </form>
+  `;
 }
 
 export async function prompt_model_switch_decision(
@@ -83,7 +91,10 @@ export async function prompt_model_switch_decision(
   stats: ModelCoverageStats,
   modelId: string,
 ): Promise<ModelSwitchDecision> {
+  await joplin.views.dialogs.setFitToContent(dialogHandle, false);
   await joplin.views.dialogs.setHtml(dialogHandle, build_model_switch_dialog_html(stats, modelId));
+  await joplin.views.dialogs.addScript(dialogHandle, 'ux/modelSwitchDialog.css');
+  await joplin.views.dialogs.addScript(dialogHandle, 'ux/modelSwitchDialog.js');
   await joplin.views.dialogs.setButtons(dialogHandle, [
     { id: 'populate', title: 'Populate Now' },
     { id: 'switch', title: 'Switch Anyway' },
