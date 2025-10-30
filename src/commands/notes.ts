@@ -2,7 +2,7 @@ import joplin from 'api';
 import { find_nearest_notes, update_embeddings, build_centroid_index_on_startup } from '../notes/embeddings';
 import { ensure_catalog_note, ensure_model_anchor, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
-import { get_settings } from '../ux/settings';
+import { get_settings, mark_model_migration_completed } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
 import { ModelError } from '../utils';
 
@@ -57,6 +57,8 @@ export async function update_note_db(
   const noteFields = ['id', 'title', 'body', 'is_conflict', 'parent_id', 'deleted_time', 'markup_language'];
   let total_notes = 0;
   let processed_notes = 0;
+
+  const isFullSweep = !noteIds || noteIds.length === 0;
 
   if (noteIds && noteIds.length > 0) {
     const uniqueIds = Array.from(new Set(noteIds));  // dedupe in case of repeated change events
@@ -120,6 +122,35 @@ export async function update_note_db(
         await new Promise(res => setTimeout(res, model.wait_period * 1000));
       }
     } while (notes.has_more);
+  }
+
+  if (
+    !abortController.signal.aborted
+    && isFullSweep
+    && settings.experimental_user_data_index
+    && model?.id
+    && !settings.notes_model_migration_completed?.[model.id]
+  ) {
+    await mark_model_migration_completed(model.id);
+    console.info('Jarvis: userData migration sweep completed', { modelId: model.id });
+    if (model.db && typeof model.db.close === 'function') {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          model.db.close((error: any) => {
+            if (error) {
+              reject(error);
+            } else {
+              resolve();
+            }
+          });
+        });
+      } catch (error) {
+        console.warn('Jarvis: failed to close legacy SQLite database after migration', error);
+      }
+    }
+    model.db = null;
+    model.disableDbLoad = true;
+    console.info('Jarvis: disabled legacy SQLite access for migrated model', { modelId: model.id });
   }
 
   find_notes(model, panel);
