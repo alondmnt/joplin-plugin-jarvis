@@ -5,6 +5,8 @@ import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
 import { ModelError } from '../utils';
+import { assign_missing_centroids } from '../notes/centroidAssignment';
+import { UserDataEmbStore } from '../notes/userDataStore';
 
 
 /**
@@ -124,6 +126,48 @@ export async function update_note_db(
     } while (notes.has_more);
   }
 
+  // Check if centroids were trained/retrained during this sweep and assign centroid IDs immediately
+  // This is critical for search correctness - missing or stale centroid IDs break IVF routing
+  // This handles both first build (if corpus ≥512 rows) and subsequent retraining
+  if (
+    !abortController.signal.aborted
+    && settings.experimental_user_data_index
+    && model?.id
+    && model.needsCentroidReassignment
+  ) {
+    console.info('Jarvis: centroids were trained/retrained, assigning centroid IDs to all notes', { modelId: model.id });
+    try {
+      const store = new UserDataEmbStore();
+      const result = await assign_missing_centroids({
+        model,
+        store,
+        abortSignal: abortController.signal,
+        forceReassign: true, // Force reassignment even for notes with existing centroid IDs (handles stale assignments)
+        onProgress: (processed, total) => {
+          if (total > 0) {
+            update_progress_bar(panel, processed, total, settings);
+          }
+        },
+      });
+      console.info('Jarvis: centroid assignment completed', {
+        modelId: model.id,
+        ...result,
+      });
+      // Clear the flag so we don't reassign again unless centroids are retrained
+      model.needsCentroidReassignment = false;
+    } catch (error) {
+      console.warn('Jarvis: centroid assignment failed', {
+        modelId: model.id,
+        error: String((error as any)?.message ?? error),
+      });
+      // Don't clear the flag - we'll try again next time
+      // Notes without centroid IDs will fall back to brute-force search (functional but slower)
+    }
+  }
+
+  // Mark first build as complete after main sweep finishes
+  // This is separate from centroid assignment - even if corpus is small (<512 rows) and no centroids exist,
+  // we still mark first build complete so we stop loading legacy SQLite database
   if (
     !abortController.signal.aborted
     && isFullSweep
@@ -131,8 +175,7 @@ export async function update_note_db(
     && model?.id
     && !settings.notes_model_first_build_completed?.[model.id]
   ) {
-    await mark_model_first_build_completed(model.id);
-    console.info('Jarvis: first userData build completed', { modelId: model.id });
+    // Close legacy SQLite database
     if (model.db && typeof model.db.close === 'function') {
       try {
         await new Promise<void>((resolve, reject) => {
@@ -150,7 +193,9 @@ export async function update_note_db(
     }
     model.db = null;
     model.disableDbLoad = true;
-    console.info('Jarvis: disabled legacy SQLite access after first build', { modelId: model.id });
+    
+    await mark_model_first_build_completed(model.id);
+    console.info('Jarvis: first userData build completed, disabled legacy SQLite access', { modelId: model.id });
   }
 
   find_notes(model, panel);

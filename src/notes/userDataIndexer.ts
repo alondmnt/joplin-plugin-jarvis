@@ -220,6 +220,10 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
             });
             loaded = decode_centroids(centroidPayload);
             refreshState = undefined;
+            
+            // Flag that centroid reassignment is needed after this sweep completes
+            // This flag will be checked in update_note_db() to trigger immediate reassignment
+            model.needsCentroidReassignment = true;
           } else {
             log.debug('Skipped centroid training due to insufficient samples', {
               modelId: model.id,
