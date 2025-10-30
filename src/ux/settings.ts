@@ -126,7 +126,7 @@ export interface JarvisSettings {
   notes_mobile_max_rows?: number;
   notes_mobile_time_budget_ms?: number;
   notes_desktop_time_budget_ms?: number;
-  notes_model_migration_completed: Record<string, boolean>;
+  notes_model_first_build_completed: Record<string, boolean>;
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -280,7 +280,7 @@ export async function get_settings(): Promise<JarvisSettings> {
   const pubmed_api_key = await joplin.settings.value('pubmed_api_key');
 
   const rawProfileSetting = (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile');
-  const migrationCompleted = safeParseMigrationCompleted(await joplin.settings.value('notes_model_migration_completed'));
+  const firstBuildCompleted = safeParseFirstBuildCompleted(await joplin.settings.value('notes_model_first_build_completed'));
   let detectedPlatform = 'unknown';
   let inferredProfile: 'desktop' | 'mobile' = 'desktop';
   try {
@@ -379,7 +379,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_mobile_max_rows: await joplin.settings.value('notes_mobile_max_rows'),
     notes_mobile_time_budget_ms: await joplin.settings.value('notes_mobile_time_budget_ms'),
     notes_desktop_time_budget_ms: await joplin.settings.value('notes_desktop_time_budget_ms'),
-    notes_model_migration_completed: migrationCompleted,
+    notes_model_first_build_completed: firstBuildCompleted,
     notes_anchor_cache: safeParseAnchorCache(await joplin.settings.value('notes_anchor_cache')),
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
@@ -1392,14 +1392,14 @@ export async function register_settings() {
       label: 'Notes: User CSS for notes panel',
       description: 'Custom CSS to apply to the notes panel.',
     },
-    'notes_model_migration_completed': {
+    'notes_model_first_build_completed': {
       value: '{}',
       type: SettingItemType.String,
       section: 'jarvis.notes',
       public: false,
       advanced: true,
-      label: 'Notes: Migration completion flags (internal)',
-      description: 'Internal map tracking per-model migrations from SQLite to userData. Do not modify.',
+      label: 'Notes: First build completion flags (internal)',
+      description: 'Internal map tracking per-model first full builds (fresh or migrated from SQLite). Do not modify.',
     },
     'notes_anchor_cache': {
       value: '{}',
@@ -1425,7 +1425,7 @@ function safeParseAnchorCache(raw: any): Record<string, string> {
   }
 }
 
-function safeParseMigrationCompleted(raw: any): Record<string, boolean> {
+function safeParseFirstBuildCompleted(raw: any): Record<string, boolean> {
   if (typeof raw !== 'string' || !raw.trim()) {
     return {};
   }
@@ -1436,23 +1436,23 @@ function safeParseMigrationCompleted(raw: any): Record<string, boolean> {
     }
     return {};
   } catch (error) {
-    console.warn('Failed to parse notes_model_migration_completed; resetting');
+    console.warn('Failed to parse notes_model_first_build_completed; resetting');
     return {};
   }
 }
 
-export async function mark_model_migration_completed(modelId: string): Promise<void> {
+export async function mark_model_first_build_completed(modelId: string): Promise<void> {
   if (!modelId) {
     return;
   }
-  const raw = await joplin.settings.value('notes_model_migration_completed');
-  const current = safeParseMigrationCompleted(raw);
+  const raw = await joplin.settings.value('notes_model_first_build_completed');
+  const current = safeParseFirstBuildCompleted(raw);
   if (current[modelId]) {
     return;
   }
   current[modelId] = true;
-  await joplin.settings.setValue('notes_model_migration_completed', JSON.stringify(current));
-  console.info('Jarvis: marked model migration completed', { modelId });
+  await joplin.settings.setValue('notes_model_first_build_completed', JSON.stringify(current));
+  console.info('Jarvis: marked model first build completed', { modelId });
 }
 
 export async function set_folders(exclude: boolean, folder_id: string, settings: JarvisSettings) {

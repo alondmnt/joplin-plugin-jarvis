@@ -315,10 +315,10 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
   if (model) {
     const isMobile = settings.notes_device_profile_effective === 'mobile';
     model.allowFsCache = !isMobile;
-    const migrationCompleted = Boolean(settings.notes_model_migration_completed?.[model?.id ?? '']);
-    model.disableDbLoad = isMobile || migrationCompleted;
-    if (migrationCompleted) {
-      console.info('Jarvis: skipping legacy SQLite load (migration completed)', { modelId: model?.id });
+    const firstBuildCompleted = Boolean(settings.notes_model_first_build_completed?.[model?.id ?? '']);
+    model.disableDbLoad = isMobile || firstBuildCompleted;
+    if (firstBuildCompleted) {
+      console.info('Jarvis: skipping legacy SQLite load (first build completed)', { modelId: model?.id });
     }
     model.disableModelLoad = isMobile && !settings.experimental_user_data_index;
   }
