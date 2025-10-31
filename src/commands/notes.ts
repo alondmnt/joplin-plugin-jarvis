@@ -65,7 +65,7 @@ export async function update_note_db(
   if (noteIds && noteIds.length > 0) {
     const uniqueIds = Array.from(new Set(noteIds));  // dedupe in case of repeated change events
     total_notes = uniqueIds.length;
-    update_progress_bar(panel, 0, total_notes, settings);
+    update_progress_bar(panel, 0, total_notes, settings, 'Computing embeddings');
 
     const batch: any[] = [];
     for (const noteId of uniqueIds) {
@@ -86,14 +86,14 @@ export async function update_note_db(
         const chunk = batch.splice(0, model.page_size);
         await update_embeddings(chunk, model, settings, abortController, force);
         processed_notes += chunk.length;
-        update_progress_bar(panel, Math.min(processed_notes, total_notes), total_notes, settings);
+        update_progress_bar(panel, Math.min(processed_notes, total_notes), total_notes, settings, 'Computing embeddings');
       }
     }
 
     if (batch.length > 0 && !abortController.signal.aborted) {
       await update_embeddings(batch, model, settings, abortController, force);
       processed_notes += batch.length;
-      update_progress_bar(panel, Math.min(processed_notes, total_notes), total_notes, settings);
+      update_progress_bar(panel, Math.min(processed_notes, total_notes), total_notes, settings, 'Computing embeddings');
     }
   } else {
     let notes: any;
@@ -105,7 +105,7 @@ export async function update_note_db(
       notes = await joplin.data.get(['notes'], { fields: ['id'], page: page });
       total_notes += notes.items.length;
     } while (notes.has_more);
-    update_progress_bar(panel, 0, total_notes, settings);
+    update_progress_bar(panel, 0, total_notes, settings, 'Computing embeddings');
 
     page = 0;
     // iterate over all notes
@@ -116,7 +116,7 @@ export async function update_note_db(
         console.debug(`Processing page ${page}: ${notes.items.length} notes`);
         await update_embeddings(notes.items, model, settings, abortController, force);
         processed_notes += notes.items.length;
-        update_progress_bar(panel, processed_notes, total_notes, settings);
+        update_progress_bar(panel, processed_notes, total_notes, settings, 'Computing embeddings');
       }
       // rate limiter
       if (notes.has_more && (page % model.page_cycle) == 0) {
@@ -145,7 +145,7 @@ export async function update_note_db(
         forceReassign: true, // Force reassignment even for notes with existing centroid IDs (handles stale assignments)
         onProgress: (processed, total) => {
           if (total > 0) {
-            update_progress_bar(panel, processed, total, settings);
+            update_progress_bar(panel, processed, total, settings, 'Assigning centroid IDs');
           }
         },
       });

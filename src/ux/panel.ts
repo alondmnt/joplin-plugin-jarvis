@@ -45,12 +45,22 @@ export async function update_panel(panel: string, nearest: NoteEmbedding[], sett
 `);
 }
 
-export async function update_progress_bar(panel: string, processed: number, total: number, settings: JarvisSettings) {
+export async function update_progress_bar(
+  panel: string, 
+  processed: number, 
+  total: number, 
+  settings: JarvisSettings, 
+  stage?: string
+) {
+  const mainMessage = 'Updating note database...';
+  const stageMessage = stage ? `<p class="jarvis-semantic-note" style="font-style: italic; opacity: 0.8;">${stage}</p>` : '';
+  
   await joplin.views.panels.setHtml(panel, `
   <html>
   <div class="container">
     <p class="jarvis-semantic-title">${settings.notes_panel_title}</p>
-    <p class="jarvis-semantic-note">Updating note database...</p>
+    <p class="jarvis-semantic-note">${mainMessage}</p>
+    ${stageMessage}
     <progress class="jarvis-semantic-progress" value="${processed}" max="${total}"></progress>
     <p class="jarvis-semantic-note">Total notes processed: ${processed} / ${total}</p>
     <button class="jarvis-cancel-button">Cancel</button>
