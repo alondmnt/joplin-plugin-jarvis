@@ -124,24 +124,25 @@ export async function update_note_db(
     }
   } else if (isFullSweep && incrementalSweep && !force) {
     // Mode 2: Timestamp-based incremental sweep (optimized for periodic background updates)
-    // Queries notes ordered by updated_time DESC and stops at last sweep time from settings
+    // Uses user_updated_time (user content changes) instead of updated_time (system changes including userData writes)
+    // This prevents reprocessing notes where only embeddings were written, while still catching synced content changes
     let page = 1;
     let hasMore = true;
     let reachedOldNotes = false;
     
     while (hasMore && !reachedOldNotes && !abortController.signal.aborted) {
       const notes = await joplin.data.get(['notes'], {
-        fields: [...noteFields, 'updated_time'],
+        fields: [...noteFields, 'user_updated_time'],
         page,
         limit: model.page_size,
-        order_by: 'updated_time',
+        order_by: 'user_updated_time',
         order_dir: 'DESC',
       });
       
       const batch: any[] = [];
       for (const note of notes.items) {
-        // Stop when we reach notes older than last sweep
-        if (note.updated_time <= lastSweepTime) {
+        // Stop when we reach notes older than last sweep (comparing user content timestamp)
+        if (note.user_updated_time <= lastSweepTime) {
           reachedOldNotes = true;
           console.debug(`Reached old notes at page ${page}, stopping early`);
           break;
@@ -161,7 +162,7 @@ export async function update_note_db(
       await apply_rate_limit_if_needed(hasMore, page, model);
     }
     
-    console.info(`Jarvis: incremental sweep completed - ${processed_notes} notes processed`);
+    console.info(`Jarvis: incremental sweep completed - ${processed_notes} notes processed (${reachedOldNotes ? 'stopped early' : 'reached end of notes'})`);
   } else {
     // Mode 3: Full sweep (thorough scan of all notes)
     // Used for: manual rebuild, force=true validation, first-time builds
