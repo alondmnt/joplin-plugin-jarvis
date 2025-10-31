@@ -431,7 +431,7 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
  */
 async function update_note(note: any,
     model: TextEmbeddingModel, settings: JarvisSettings,
-    abortSignal: AbortSignal, force: boolean = false): Promise<BlockEmbedding[]> {
+    abortSignal: AbortSignal, force: boolean = false, catalogId?: string, anchorId?: string): Promise<BlockEmbedding[]> {
   if (abortSignal.aborted) {
     throw new ModelError("Operation cancelled");
   }
@@ -495,7 +495,7 @@ async function update_note(note: any,
             }
           }
           if (needsBackfill || needsCompaction) {
-            await maybe_write_user_data_embeddings(note, old_embd, model, settings, hash);
+            await maybe_write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId, anchorId);
           }
         } catch (error) {
           log.warn(`Failed to ensure userData embeddings for unchanged note ${note.id}`, error);
@@ -545,7 +545,7 @@ async function update_note(note: any,
     // insert new embeddings into DB
     await insert_note_embeddings(model.db, new_embd, model);
 
-    await maybe_write_user_data_embeddings(note, new_embd, model, settings, hash);
+    await maybe_write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId, anchorId);
 
     // Update centroid-to-note index for this note (if index is active)
     if (settings.experimental_user_data_index) {
@@ -649,6 +649,8 @@ export async function update_embeddings(
   settings: JarvisSettings,
   abortController: AbortController,
   force: boolean = false,
+  catalogId?: string,
+  anchorId?: string,
 ): Promise<void> {
   const successfulNotes: Array<{ note: any; embeddings: BlockEmbedding[] }> = [];
   let dialogQueue: Promise<unknown> = Promise.resolve();
@@ -663,7 +665,7 @@ export async function update_embeddings(
     let attempt = 0;
     while (!abortController.signal.aborted) {
       try {
-        const embeddings = await update_note(note, model, settings, abortController.signal, force);
+        const embeddings = await update_note(note, model, settings, abortController.signal, force, catalogId, anchorId);
         successfulNotes.push({ note, embeddings });
         return;
       } catch (rawError) {
@@ -1424,6 +1426,8 @@ async function maybe_write_user_data_embeddings(
   model: TextEmbeddingModel,
   settings: JarvisSettings,
   contentHash: string,
+  catalogId?: string,
+  anchorId?: string,
 ): Promise<void> {
   if (!settings.experimental_user_data_index) {
     if (note?.id) {
@@ -1447,6 +1451,8 @@ async function maybe_write_user_data_embeddings(
       model,
       settings,
       store: userDataStore,
+      catalogId,
+      anchorId,
     });
     if (!prepared) {
       return;

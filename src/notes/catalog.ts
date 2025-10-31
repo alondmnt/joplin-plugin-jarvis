@@ -298,16 +298,25 @@ export async function remove_model_from_catalog(modelId: string): Promise<void> 
  * @returns Existing catalog id or the identifier of a newly created one.
  */
 export async function ensure_catalog_note(): Promise<string> {
+  // Check lock FIRST before any async operations to minimize race window
+  if (inFlightCatalogCreation) {
+    return inFlightCatalogCreation;
+  }
+
   const found = await get_catalog_note_id();
   if (found) {
     await ensure_note_tag(found);
     return found;
   }
 
-  if (inFlightCatalogCreation) return inFlightCatalogCreation;
+  // Check lock again after the await (another call might have started creation)
+  if (inFlightCatalogCreation) {
+    return inFlightCatalogCreation;
+  }
 
+  // Create the promise and set the lock immediately (no delay between them)
   inFlightCatalogCreation = (async () => {
-    // Double-check inside the lock
+    // Triple-check inside the lock after acquiring it
     const again = await get_catalog_note_id();
     if (again) {
       await ensure_note_tag(again);
@@ -320,20 +329,21 @@ export async function ensure_catalog_note(): Promise<string> {
         body: catalog_body(),
         parent_id: folderId,
       });
-      await ensure_note_tag(note.id);
-      // Seed empty registry marker
+      // Seed empty registry marker BEFORE tagging so the note is immediately discoverable
+      // by get_catalog_note_id() which searches by tag+userData presence
       try {
         await joplin.data.userDataSet(ModelType.Note, note.id, REGISTRY_KEY, {} as Record<string, string>);
       } catch (error) {
         log.warn('Failed to initialize catalog registry userData', { noteId: note.id, error });
       }
+      // Now add tags - note is already discoverable by userData even if tagging is slow/fails
+      await ensure_note_tag(note.id);
       log.info('Created catalog note', { noteId: note.id });
       return note.id;
     } catch (creationError) {
       // If creation failed (e.g., due to concurrent or platform issues), adopt by title if present
       const adoptId = await find_catalog_by_title();
       if (adoptId) {
-        await ensure_note_tag(adoptId);
         try {
           // Ensure registry exists
           const reg = await joplin.data.userDataGet<any>(ModelType.Note, adoptId, REGISTRY_KEY);
@@ -347,6 +357,8 @@ export async function ensure_catalog_note(): Promise<string> {
             log.warn('Failed to seed registry on adopted catalog', { noteId: adoptId, error: e });
           }
         }
+        // Tag the adopted catalog
+        await ensure_note_tag(adoptId);
         log.info('Adopted existing catalog note by title', { noteId: adoptId });
         return adoptId;
       }
@@ -355,8 +367,7 @@ export async function ensure_catalog_note(): Promise<string> {
   })();
 
   try {
-    const id = await inFlightCatalogCreation;
-    return id;
+    return await inFlightCatalogCreation;
   } finally {
     inFlightCatalogCreation = null;
   }

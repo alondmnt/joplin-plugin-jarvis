@@ -37,6 +37,8 @@ export interface PrepareUserDataParams {
   settings: JarvisSettings;
   store: EmbStore;
   targetBytes?: number;
+  catalogId?: string;  // Pre-resolved catalog ID to avoid per-note lookups
+  anchorId?: string;   // Pre-resolved anchor ID to avoid per-note lookups
 }
 
 export interface PreparedUserData {
@@ -114,8 +116,9 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
   // Handle IVF centroids if enabled
   if (settings.experimental_user_data_index) {
     try {
-      const catalogId = await ensure_catalog_note();
-      const anchorId = await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
+      // Use pre-resolved IDs if provided, otherwise resolve them (for backward compatibility)
+      const catalogId = params.catalogId ?? await ensure_catalog_note();
+      const anchorId = params.anchorId ?? await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
       const totalRows = count_corpus_rows(model, noteId, blocks.length);
       const desiredNlist = estimate_nlist(totalRows);
 

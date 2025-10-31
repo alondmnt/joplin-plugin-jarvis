@@ -40,10 +40,12 @@ export async function update_note_db(
 
   // Ensure catalog and model anchor once before processing notes to prevent
   // concurrent per-note creation races when the experimental userData index is enabled.
+  let catalogId: string | undefined;
+  let anchorId: string | undefined;
   if (settings.experimental_user_data_index && model?.id) {
     try {
-      const catalogId = await ensure_catalog_note();
-      await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
+      catalogId = await ensure_catalog_note();
+      anchorId = await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
       
       // Build centroid-to-note index during startup/full database update (§4 in task list)
       // Piggybacks on note scanning to populate index without additional overhead
@@ -84,14 +86,14 @@ export async function update_note_db(
       while (batch.length >= model.page_size && !abortController.signal.aborted) {
         // Flush in fixed-size chunks so we keep consistent throughput with the full scan path.
         const chunk = batch.splice(0, model.page_size);
-        await update_embeddings(chunk, model, settings, abortController, force);
+        await update_embeddings(chunk, model, settings, abortController, force, catalogId, anchorId);
         processed_notes += chunk.length;
         update_progress_bar(panel, Math.min(processed_notes, total_notes), total_notes, settings, 'Computing embeddings');
       }
     }
 
     if (batch.length > 0 && !abortController.signal.aborted) {
-      await update_embeddings(batch, model, settings, abortController, force);
+      await update_embeddings(batch, model, settings, abortController, force, catalogId, anchorId);
       processed_notes += batch.length;
       update_progress_bar(panel, Math.min(processed_notes, total_notes), total_notes, settings, 'Computing embeddings');
     }
@@ -114,7 +116,7 @@ export async function update_note_db(
       notes = await joplin.data.get(['notes'], { fields: noteFields, page: page, limit: model.page_size });
       if (notes.items) {
         console.debug(`Processing page ${page}: ${notes.items.length} notes`);
-        await update_embeddings(notes.items, model, settings, abortController, force);
+        await update_embeddings(notes.items, model, settings, abortController, force, catalogId, anchorId);
         processed_notes += notes.items.length;
         update_progress_bar(panel, processed_notes, total_notes, settings, 'Computing embeddings');
       }
