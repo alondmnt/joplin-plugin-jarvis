@@ -212,7 +212,13 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
   if (!note) {
     return;
   }
-  let selected = await joplin.commands.execute('selectedText');
+  let selected = '';
+  try {
+    selected = await joplin.commands.execute('selectedText');
+  } catch (error) {
+    // Routine error when editor runtime is not available, no need to log
+    selected = '';
+  }
   if (!selected || (selected.length === 0)) {
     selected = note.body;
   }
