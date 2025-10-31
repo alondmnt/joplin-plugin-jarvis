@@ -40,8 +40,8 @@ export async function update_panel(panel: string, nearest: NoteEmbedding[], sett
       `).join('')}
       </div>
     </details>
-  </div>
   `).join('')}
+  </div>
 `);
 }
 
