@@ -2,12 +2,12 @@ import joplin from 'api';
 import { find_nearest_notes, update_embeddings, build_centroid_index_on_startup } from '../notes/embeddings';
 import { ensure_catalog_note, ensure_model_anchor, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
-import { get_settings, mark_model_first_build_completed } from '../ux/settings';
+import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
 import { ModelError } from '../utils';
 import { assign_missing_centroids } from '../notes/centroidAssignment';
 import { UserDataEmbStore } from '../notes/userDataStore';
-
+import type { JarvisSettings } from '../ux/settings';
 
 /**
  * Refresh embeddings for either the entire notebook set or a specific list of notes.
@@ -19,6 +19,13 @@ import { UserDataEmbStore } from '../notes/userDataStore';
  *     Example: Note saved by user, incremental periodic sweeps
  *   - true: Skip only if content unchanged AND settings match AND model matches
  *     Example: Manual "Update DB", settings changed, validation dialog rebuild
+ * 
+ * @param incrementalSweep - When true, use timestamp-based early termination:
+ *   - Query notes ordered by updated_time DESC
+ *   - Stop when reaching notes older than model.lastIncrementalSweepTime
+ *   - Typical cost: ~50-100ms for 10-50 updated notes
+ *   - Used for: periodic background sweeps to catch sync changes
+ *   - Requires: force=false (thoroughness incompatible with early termination)
  * 
  * Smart rebuild: Both modes skip when up-to-date, but "up-to-date" means different things:
  *   - force=false: Content unchanged (backfills userData from SQLite if needed for migration)
@@ -33,10 +40,22 @@ export async function update_note_db(
   abortController: AbortController,
   noteIds?: string[],
   force: boolean = false,
+  incrementalSweep: boolean = false,
 ): Promise<void> {
   if (model.model === null) { return; }
 
   const settings = await get_settings();
+  
+  // Log update start with last sweep timestamp for debugging
+  const lastSweepTime = await get_model_last_sweep_time(model.id);
+  const lastSweepDate = lastSweepTime > 0 ? new Date(lastSweepTime).toISOString() : 'never';
+  const mode = noteIds && noteIds.length > 0 
+    ? `specific notes (${noteIds.length})` 
+    : incrementalSweep && !force 
+      ? 'incremental sweep' 
+      : 'full sweep';
+  console.info(`Jarvis: starting update (mode: ${mode}, force: ${force}, last sweep: ${lastSweepDate})`);
+
 
   // Ensure catalog and model anchor once before processing notes to prevent
   // concurrent per-note creation races when the experimental userData index is enabled.
@@ -65,6 +84,7 @@ export async function update_note_db(
   const isFullSweep = !noteIds || noteIds.length === 0;
 
   if (noteIds && noteIds.length > 0) {
+    // Mode 1: Specific note IDs (note saves, sync notifications)
     const uniqueIds = Array.from(new Set(noteIds));  // dedupe in case of repeated change events
     total_notes = uniqueIds.length;
     update_progress_bar(panel, 0, total_notes, settings, 'Computing embeddings');
@@ -83,25 +103,72 @@ export async function update_note_db(
         console.debug(`Skipping note ${noteId}:`, error);
       }
 
+      // Flush in fixed-size chunks for consistent throughput
       while (batch.length >= model.page_size && !abortController.signal.aborted) {
-        // Flush in fixed-size chunks so we keep consistent throughput with the full scan path.
         const chunk = batch.splice(0, model.page_size);
-        await update_embeddings(chunk, model, settings, abortController, force, catalogId, anchorId);
-        processed_notes += chunk.length;
-        update_progress_bar(panel, Math.min(processed_notes, total_notes), total_notes, settings, 'Computing embeddings');
+        await process_batch_and_update_progress(
+          chunk, model, settings, abortController, force, catalogId, anchorId, panel,
+          () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
+          (count) => { processed_notes += count; }
+        );
       }
     }
 
-    if (batch.length > 0 && !abortController.signal.aborted) {
-      await update_embeddings(batch, model, settings, abortController, force, catalogId, anchorId);
-      processed_notes += batch.length;
-      update_progress_bar(panel, Math.min(processed_notes, total_notes), total_notes, settings, 'Computing embeddings');
+    // Process remaining notes
+    if (!abortController.signal.aborted) {
+      await process_batch_and_update_progress(
+        batch, model, settings, abortController, force, catalogId, anchorId, panel,
+        () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
+        (count) => { processed_notes += count; }
+      );
     }
+  } else if (isFullSweep && incrementalSweep && !force) {
+    // Mode 2: Timestamp-based incremental sweep (optimized for periodic background updates)
+    // Queries notes ordered by updated_time DESC and stops at last sweep time from settings
+    let page = 1;
+    let hasMore = true;
+    let reachedOldNotes = false;
+    
+    while (hasMore && !reachedOldNotes && !abortController.signal.aborted) {
+      const notes = await joplin.data.get(['notes'], {
+        fields: [...noteFields, 'updated_time'],
+        page,
+        limit: model.page_size,
+        order_by: 'updated_time',
+        order_dir: 'DESC',
+      });
+      
+      const batch: any[] = [];
+      for (const note of notes.items) {
+        // Stop when we reach notes older than last sweep
+        if (note.updated_time <= lastSweepTime) {
+          reachedOldNotes = true;
+          console.debug(`Reached old notes at page ${page}, stopping early`);
+          break;
+        }
+        batch.push(note);
+      }
+      
+      await process_batch_and_update_progress(
+        batch, model, settings, abortController, force, catalogId, anchorId, panel,
+        () => ({ processed: processed_notes, total: total_notes }),
+        (count) => { processed_notes += count; total_notes += count; }  // Adjust estimate as we go
+      );
+      
+      hasMore = notes.has_more && !reachedOldNotes;
+      page++;
+      
+      await apply_rate_limit_if_needed(hasMore, page, model);
+    }
+    
+    console.info(`Jarvis: incremental sweep completed - ${processed_notes} notes processed`);
   } else {
+    // Mode 3: Full sweep (thorough scan of all notes)
+    // Used for: manual rebuild, force=true validation, first-time builds
     let notes: any;
     let page = 0;
 
-    // count all notes
+    // Count all notes for accurate progress bar
     do {
       page += 1;
       notes = await joplin.data.get(['notes'], { fields: ['id'], page: page });
@@ -110,22 +177,31 @@ export async function update_note_db(
     update_progress_bar(panel, 0, total_notes, settings, 'Computing embeddings');
 
     page = 0;
-    // iterate over all notes
+    // Iterate over all notes
     do {
       page += 1;
       notes = await joplin.data.get(['notes'], { fields: noteFields, page: page, limit: model.page_size });
       if (notes.items) {
         console.debug(`Processing page ${page}: ${notes.items.length} notes`);
-        await update_embeddings(notes.items, model, settings, abortController, force, catalogId, anchorId);
-        processed_notes += notes.items.length;
-        update_progress_bar(panel, processed_notes, total_notes, settings, 'Computing embeddings');
+        await process_batch_and_update_progress(
+          notes.items, model, settings, abortController, force, catalogId, anchorId, panel,
+          () => ({ processed: processed_notes, total: total_notes }),
+          (count) => { processed_notes += count; }
+        );
       }
-      // rate limiter
-      if (notes.has_more && (page % model.page_cycle) == 0) {
-        console.debug(`Waiting for ${model.wait_period} seconds...`);
-        await new Promise(res => setTimeout(res, model.wait_period * 1000));
-      }
+      
+      await apply_rate_limit_if_needed(notes.has_more, page, model);
     } while (notes.has_more);
+    
+    console.info(`Jarvis: full sweep completed - ${processed_notes} notes processed`);
+  }
+
+  // Update last sweep timestamp after successful completion of any full sweep
+  // (both incremental and thorough scans, but not specific note IDs)
+  if (!abortController.signal.aborted && isFullSweep) {
+    const timestamp = Date.now();
+    await set_model_last_sweep_time(model.id, timestamp);
+    console.debug(`Jarvis: updated last sweep time to ${new Date(timestamp).toISOString()}`);
   }
 
   // Check if centroids were trained/retrained during this sweep and assign centroid IDs immediately
@@ -201,6 +277,46 @@ export async function update_note_db(
   }
 
   find_notes(model, panel);
+}
+
+/**
+ * Process a batch of notes and update progress bar.
+ * Common helper to avoid duplication across sweep modes.
+ */
+async function process_batch_and_update_progress(
+  batch: any[],
+  model: TextEmbeddingModel,
+  settings: JarvisSettings,
+  abortController: AbortController,
+  force: boolean,
+  catalogId: string | undefined,
+  anchorId: string | undefined,
+  panel: string,
+  getProgress: () => { processed: number; total: number },
+  onProcessed: (count: number) => void,
+): Promise<void> {
+  if (batch.length === 0) {
+    return;
+  }
+  await update_embeddings(batch, model, settings, abortController, force, catalogId, anchorId);
+  onProcessed(batch.length);
+  const { processed, total } = getProgress();
+  update_progress_bar(panel, processed, total, settings, 'Computing embeddings');
+}
+
+/**
+ * Apply rate limiting if needed based on page cycle.
+ * Common helper to avoid duplication across sweep modes.
+ */
+async function apply_rate_limit_if_needed(
+  hasMore: boolean,
+  page: number,
+  model: TextEmbeddingModel,
+): Promise<void> {
+  if (hasMore && (page % model.page_cycle) === 0) {
+    console.debug(`Waiting for ${model.wait_period} seconds...`);
+    await new Promise(res => setTimeout(res, model.wait_period * 1000));
+  }
 }
 
 export async function find_notes(model: TextEmbeddingModel, panel: string) {

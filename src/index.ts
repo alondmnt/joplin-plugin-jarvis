@@ -11,7 +11,7 @@ import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
 import { find_nearest_notes } from './notes/embeddings';
 import { ensure_catalog_note, get_catalog_note_id, resolve_anchor_note_id } from './notes/catalog';
 import { register_panel, update_panel } from './ux/panel';
-import { get_settings, register_settings, set_folders, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
+import { get_settings, register_settings, set_folders, get_model_last_sweep_time, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
 import type { JarvisSettings } from './ux/settings';
 import { auto_complete } from './commands/complete';
 import { getLogger } from './utils/logger';
@@ -33,6 +33,7 @@ interface UpdateOptions {
   force?: boolean;
   noteIds?: string[];
   silent?: boolean;
+  incrementalSweep?: boolean;
 }
 
 interface PluginRuntime {
@@ -155,9 +156,9 @@ function create_update_manager(runtime: PluginRuntime): UpdateManager {
   };
 
   const start_update = async (options: UpdateOptions = {}) => {
-    const { force = false, noteIds, silent = false } = options;
+    const { force = false, noteIds, silent = false, incrementalSweep = false } = options;
     const targetIds = noteIds && noteIds.length > 0 ? Array.from(new Set(noteIds)) : undefined;
-    console.debug('start_update', is_update_in_progress(), force, targetIds?.length ?? 0);
+    console.debug('start_update', is_update_in_progress(), force, targetIds?.length ?? 0, 'incremental:', incrementalSweep);
 
     if (targetIds && targetIds.length === 0 && !force) {
       return;
@@ -182,7 +183,7 @@ function create_update_manager(runtime: PluginRuntime): UpdateManager {
     runtime.update_start_time = Date.now();
 
     try {
-      await update_note_db(runtime.model_embed, runtime.panel, runtime.update_abort_controller, targetIds, force);
+      await update_note_db(runtime.model_embed, runtime.panel, runtime.update_abort_controller, targetIds, force, incrementalSweep);
     } finally {
       runtime.update_abort_controller = null;
       runtime.update_start_time = null;
@@ -287,9 +288,12 @@ function schedule_full_sweep_timer(runtime: PluginRuntime, updates: UpdateManage
       }
       try {
         const refreshClaimed = await claim_centroid_refresh(runtime);
+        // Only use incremental sweep if database has been built before (check settings)
+        const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
+        const useIncremental = lastSweepTime > 0;
         const updateOptions: UpdateOptions = refreshClaimed
-          ? { force: true }
-          : { force: false, silent: true };
+          ? { force: true }  // Centroid refresh needs full scan
+          : { force: false, silent: true, incrementalSweep: useIncremental };
         await updates.start_update(updateOptions);
         runtime.pending_note_ids.clear();
         runtime.initial_sweep_completed = true;
@@ -314,9 +318,14 @@ async function run_initial_sweep(runtime: PluginRuntime, updates: UpdateManager)
       return;
     }
 
+    // Only use incremental sweep if database has been built before (check settings)
+    // First build needs full scan to populate database
+    const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
+    const useIncremental = lastSweepTime > 0;
+    
     const updateOptions: UpdateOptions = refreshClaimed
-      ? { force: true }
-      : { force: false, silent: true };
+      ? { force: true }  // Centroid refresh needs full scan
+      : { force: false, silent: true, incrementalSweep: useIncremental };
 
     await updates.start_update(updateOptions);
     runtime.pending_note_ids.clear();
@@ -674,7 +683,10 @@ async function register_workspace_listeners(
           return;
         }
         try {
-          await updates.start_update({ force: false, silent: true });
+          // Only use incremental sweep if database has been built before (check settings)
+          const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
+          const useIncremental = lastSweepTime > 0;
+          await updates.start_update({ force: false, silent: true, incrementalSweep: useIncremental });
           runtime.pending_note_ids.clear();
           runtime.initial_sweep_completed = true;
         } catch (error) {
@@ -844,9 +856,12 @@ async function register_settings_handler(
 
       if (runtime.model_embed.model && !skipUpdateAfterReload) {
         try {
+          // Only use incremental sweep if database has been built before (check settings)
+          const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
+          const useIncremental = lastSweepTime > 0;
           const updateOptions = forceUpdateAfterReload
-            ? { force: true }
-            : { force: false, silent: true };
+            ? { force: true }  // Model change needs full validation
+            : { force: false, silent: true, incrementalSweep: useIncremental };
           await updates.start_update(updateOptions);
           runtime.pending_note_ids.clear();
           runtime.initial_sweep_completed = true;
@@ -877,7 +892,10 @@ async function register_settings_handler(
             return;
           }
           try {
-            await updates.start_update({ force: false, silent: true });
+            // Only use incremental sweep if database has been built before (check settings)
+            const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
+            const useIncremental = lastSweepTime > 0;
+            await updates.start_update({ force: false, silent: true, incrementalSweep: useIncremental });
           runtime.pending_note_ids.clear();
           runtime.initial_sweep_completed = true;
           } catch (error) {

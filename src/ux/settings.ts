@@ -127,6 +127,7 @@ export interface JarvisSettings {
   notes_mobile_time_budget_ms?: number;
   notes_desktop_time_budget_ms?: number;
   notes_model_first_build_completed: Record<string, boolean>;
+  notes_model_last_sweep_time: Record<string, number>;  // Unix timestamp (ms) per model
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -280,7 +281,8 @@ export async function get_settings(): Promise<JarvisSettings> {
   const pubmed_api_key = await joplin.settings.value('pubmed_api_key');
 
   const rawProfileSetting = (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile');
-  const firstBuildCompleted = safeParseFirstBuildCompleted(await joplin.settings.value('notes_model_first_build_completed'));
+  const firstBuildCompleted = safe_parse_first_build_completed(await joplin.settings.value('notes_model_first_build_completed'));
+  const lastSweepTimes = safe_parse_last_sweep_time(await joplin.settings.value('notes_model_last_sweep_time'));
   let detectedPlatform = 'unknown';
   let inferredProfile: 'desktop' | 'mobile' = 'desktop';
   try {
@@ -380,7 +382,8 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_mobile_time_budget_ms: await joplin.settings.value('notes_mobile_time_budget_ms'),
     notes_desktop_time_budget_ms: await joplin.settings.value('notes_desktop_time_budget_ms'),
     notes_model_first_build_completed: firstBuildCompleted,
-    notes_anchor_cache: safeParseAnchorCache(await joplin.settings.value('notes_anchor_cache')),
+    notes_model_last_sweep_time: lastSweepTimes,
+    notes_anchor_cache: safe_parse_anchor_cache(await joplin.settings.value('notes_anchor_cache')),
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
@@ -1401,6 +1404,15 @@ export async function register_settings() {
       label: 'Notes: First build completion flags (internal)',
       description: 'Internal map tracking per-model first full builds (fresh or migrated from SQLite). Do not modify.',
     },
+    'notes_model_last_sweep_time': {
+      value: '{}',
+      type: SettingItemType.String,
+      section: 'jarvis.notes',
+      public: false,
+      advanced: true,
+      label: 'Notes: Last incremental sweep timestamps (internal)',
+      description: 'Internal map tracking per-model last successful incremental sweep (Unix timestamp ms). Do not modify.',
+    },
     'notes_anchor_cache': {
       value: '{}',
       type: SettingItemType.String,
@@ -1413,7 +1425,14 @@ export async function register_settings() {
   });
 }
 
-function safeParseAnchorCache(raw: any): Record<string, string> {
+/**
+ * Safely parse the notes_anchor_cache setting from JSON.
+ * Returns empty object on parse failure.
+ * 
+ * @param raw - Raw setting value (JSON string)
+ * @returns Map of anchor key to anchor note ID
+ */
+function safe_parse_anchor_cache(raw: any): Record<string, string> {
   if (typeof raw !== 'string' || !raw.trim()) {
     return {};
   }
@@ -1425,7 +1444,15 @@ function safeParseAnchorCache(raw: any): Record<string, string> {
   }
 }
 
-function safeParseFirstBuildCompleted(raw: any): Record<string, boolean> {
+/**
+ * Safely parse the notes_model_first_build_completed setting from JSON.
+ * Validates that values are boolean flags and ensures type safety.
+ * Returns empty object on parse failure.
+ * 
+ * @param raw - Raw setting value (JSON string)
+ * @returns Map of model ID to completion flag (true if first build completed)
+ */
+function safe_parse_first_build_completed(raw: any): Record<string, boolean> {
   if (typeof raw !== 'string' || !raw.trim()) {
     return {};
   }
@@ -1441,18 +1468,81 @@ function safeParseFirstBuildCompleted(raw: any): Record<string, boolean> {
   }
 }
 
+/**
+ * Safely parse the notes_model_last_sweep_time setting from JSON.
+ * Validates that values are numeric timestamps and filters out invalid entries.
+ * Returns empty object on parse failure.
+ * 
+ * @param raw - Raw setting value (JSON string)
+ * @returns Map of model ID to Unix timestamp (ms)
+ */
+function safe_parse_last_sweep_time(raw: any): Record<string, number> {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return Object.fromEntries(
+        Object.entries(parsed)
+          .map(([key, value]) => [key, Number(value)])
+          .filter(([_, value]) => !isNaN(value as number))
+      );
+    }
+    return {};
+  } catch (error) {
+    console.warn('Failed to parse notes_model_last_sweep_time; resetting');
+    return {};
+  }
+}
+
 export async function mark_model_first_build_completed(modelId: string): Promise<void> {
   if (!modelId) {
     return;
   }
   const raw = await joplin.settings.value('notes_model_first_build_completed');
-  const current = safeParseFirstBuildCompleted(raw);
+  const current = safe_parse_first_build_completed(raw);
   if (current[modelId]) {
     return;
   }
   current[modelId] = true;
   await joplin.settings.setValue('notes_model_first_build_completed', JSON.stringify(current));
   console.info('Jarvis: marked model first build completed', { modelId });
+}
+
+/**
+ * Get the timestamp (Unix ms) of the last successful incremental sweep for a model.
+ * Returns 0 if the model has never been swept (triggers full scan on first run).
+ * 
+ * @param modelId - The embedding model ID
+ * @returns Unix timestamp in milliseconds, or 0 if never swept
+ */
+export async function get_model_last_sweep_time(modelId: string): Promise<number> {
+  if (!modelId) {
+    return 0;
+  }
+  const raw = await joplin.settings.value('notes_model_last_sweep_time');
+  const times = safe_parse_last_sweep_time(raw);
+  return times[modelId] || 0;
+}
+
+/**
+ * Save the timestamp of a successful incremental sweep for a model.
+ * Used to track when the last sweep completed so future sweeps can use
+ * timestamp-based early termination (query notes updated since this time).
+ * 
+ * @param modelId - The embedding model ID
+ * @param timestamp - Unix timestamp in milliseconds
+ */
+export async function set_model_last_sweep_time(modelId: string, timestamp: number): Promise<void> {
+  if (!modelId) {
+    return;
+  }
+  const raw = await joplin.settings.value('notes_model_last_sweep_time');
+  const current = safe_parse_last_sweep_time(raw);
+  current[modelId] = timestamp;
+  await joplin.settings.setValue('notes_model_last_sweep_time', JSON.stringify(current));
+  console.debug('Jarvis: saved model last sweep time', { modelId, timestamp: new Date(timestamp).toISOString() });
 }
 
 export async function set_folders(exclude: boolean, folder_id: string, settings: JarvisSettings) {
