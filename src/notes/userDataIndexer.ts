@@ -147,9 +147,15 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
         const reason = refreshDecision.reason;
         const nowIso = new Date().toISOString();
         const deviceLabel = `${settings.notes_device_platform ?? 'unknown'}:${settings.notes_device_profile_effective}`;
-        const canTrainLocally = settings.notes_device_profile_effective !== 'mobile';
+        // Always train centroids locally - both desktop and mobile
+        const canTrainLocally = true;
 
         if (canTrainLocally) {
+          // Use same parameters on both mobile and desktop for consistency
+          // Mobile training may take a bit longer, but ensures quality parity
+          const trainingStartTime = Date.now();
+          console.info(`Jarvis: Training search index (${desiredNlist} centroids from ${totalRows} blocks)...`);
+          
           const sampleLimit = Math.min(totalRows, derive_sample_limit(desiredNlist));
           const samples = collect_centroid_samples(model, noteId, blocks, sampleLimit);
           const trained = train_centroids(samples, dim, { nlist: desiredNlist });
@@ -213,12 +219,14 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
               },
             });
             await write_centroids(anchorId, centroidPayload);
+            console.info(`Jarvis: Training complete - ${desiredNlist} centroids created in ${Date.now() - trainingStartTime}ms`);
             log.info('Rebuilt IVF centroids', {
               modelId: model.id,
               desiredNlist,
               totalRows,
               samples: samples.length,
               reason,
+              platform: settings.notes_device_profile_effective,
               ...(centroidStats ?? {}),
             });
             loaded = decode_centroids(centroidPayload);
@@ -241,17 +249,9 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
               lastAttemptAt: nowIso,
             });
           }
-        } else {
-          log.info('Centroid refresh deferred to desktop device', {
-            modelId: model.id,
-            reason,
-          });
-          refreshState = upsert_pending_refresh_state(refreshState, {
-            reason,
-            requestedAt: refreshState?.requestedAt ?? nowIso,
-            requestedBy: refreshState?.requestedBy ?? deviceLabel,
-          });
         }
+        // Note: Mobile now trains centroids locally with same parameters as desktop
+        // This ensures consistent quality across all devices
       } else if (refreshState && refreshState.status !== 'pending') {
         refreshState = undefined;
       }
