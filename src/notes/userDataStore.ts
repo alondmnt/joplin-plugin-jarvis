@@ -240,7 +240,7 @@ export class UserDataEmbStore implements EmbStore {
       }
       
       this.setCachedMeta(noteId, value);
-      log.debug(`userData meta cache miss resolved for note ${noteId}`);
+      // Cache miss resolved - now cached for subsequent reads
       return value;
     } catch (error) {
       // Parse failures (corrupt JSON, wrong types, etc.) - treat as no embeddings
@@ -293,7 +293,7 @@ export class UserDataEmbStore implements EmbStore {
     // Write metadata last (two-phase commit: shards first, then meta)
     // Other models' shards remain untouched to support multi-model coexistence
     await this.client.set<NoteEmbMeta>(noteId, EMB_META_KEY, meta);
-    log.info(`userData shards updated`, { noteId, modelId: activeModelId, epoch: modelMeta.current.epoch, shards: modelMeta.current.shards });
+    // Shard update complete
     this.setCachedMeta(noteId, meta);
   }
 
@@ -318,7 +318,7 @@ export class UserDataEmbStore implements EmbStore {
           await this.client.del(noteId, shardKey(modelId, i));
         }
       }
-      log.info('userData shards removed', { noteId, models: Object.keys(meta.models) });
+      // Shards removed for models: ${Object.keys(meta.models).join(', ')}
       this.setCachedMeta(noteId, null);
     }
   }

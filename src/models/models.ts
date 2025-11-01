@@ -319,8 +319,12 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
     model.disableDbLoad = isMobile || firstBuildCompleted;
     if (firstBuildCompleted) {
       console.info('Jarvis: skipping legacy SQLite load (first build completed)', { modelId: model?.id });
+    } else if (isMobile) {
+      console.info('Jarvis: skipping legacy SQLite load (mobile platform)', { modelId: model?.id, experimental: settings.experimental_user_data_index });
     }
     model.disableModelLoad = isMobile && !settings.experimental_user_data_index;
+    
+    console.info(`Jarvis: model load config - platform=${isMobile ? 'mobile' : 'desktop'}, firstBuild=${firstBuildCompleted}, disableDbLoad=${model.disableDbLoad}, disableModelLoad=${model.disableModelLoad}, experimental=${settings.experimental_user_data_index}`);
   }
 
   await model.initialize();
@@ -548,12 +552,20 @@ export class TextEmbeddingModel {
 
   // load embedding database
   async _load_db() {
-    if (this.disableDbLoad) { return; }
-    if ( this.model == null ) { return; }
+    if (this.disableDbLoad) {
+      console.info('Jarvis: _load_db skipped (disableDbLoad=true)', { modelId: this.id });
+      return;
+    }
+    if ( this.model == null ) {
+      console.info('Jarvis: _load_db skipped (model is null)', { modelId: this.id });
+      return;
+    }
 
+    console.info('Jarvis: Loading legacy SQLite embeddings', { modelId: this.id });
     this.db = await connect_to_db(this);
     await init_db(this.db, this);
     this.embeddings = await clear_deleted_notes(await get_all_embeddings(this.db), this.db);
+    console.info(`Jarvis: Loaded ${this.embeddings.length} embeddings from legacy SQLite`, { modelId: this.id });
   }
 }
 

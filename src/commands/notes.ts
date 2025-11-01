@@ -54,7 +54,7 @@ export async function update_note_db(
     : incrementalSweep && !force 
       ? 'incremental sweep' 
       : 'full sweep';
-  console.info(`Jarvis: starting update (mode: ${mode}, force: ${force}, last sweep: ${lastSweepDate})`);
+  console.info(`Jarvis: starting update (mode: ${mode}, force: ${force}, last sweep: ${lastSweepDate}, incrementalSweep: ${incrementalSweep})`);
 
 
   // Ensure catalog and model anchor once before processing notes to prevent
@@ -183,7 +183,7 @@ export async function update_note_db(
       page += 1;
       notes = await joplin.data.get(['notes'], { fields: noteFields, page: page, limit: model.page_size });
       if (notes.items) {
-        console.debug(`Processing page ${page}: ${notes.items.length} notes`);
+        console.debug(`Processing page ${page}: ${notes.items.length} notes, total so far: ${processed_notes}/${total_notes}`);
         await process_batch_and_update_progress(
           notes.items, model, settings, abortController, force, catalogId, anchorId, panel,
           () => ({ processed: processed_notes, total: total_notes }),
@@ -194,7 +194,10 @@ export async function update_note_db(
       await apply_rate_limit_if_needed(notes.has_more, page, model);
     } while (notes.has_more);
     
-    console.info(`Jarvis: full sweep completed - ${processed_notes} notes processed`);
+    console.info(`Jarvis: full sweep completed - ${processed_notes}/${total_notes} notes processed successfully`);
+    if (processed_notes < total_notes) {
+      console.warn(`Jarvis: ${total_notes - processed_notes} notes were skipped or failed during update`);
+    }
   }
 
   // Update last sweep timestamp after successful completion of any full sweep

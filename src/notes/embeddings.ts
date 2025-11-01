@@ -691,6 +691,7 @@ export async function update_embeddings(
   anchorId?: string,
 ): Promise<void> {
   const successfulNotes: Array<{ note: any; embeddings: BlockEmbedding[] }> = [];
+  const skippedNotes: string[] = [];
   let dialogQueue: Promise<unknown> = Promise.resolve();
   let fatalError: ModelError | null = null;
   const runSerialized = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -735,6 +736,7 @@ export async function update_embeddings(
 
         if (action === 'skip') {
           log.warn(`Skipping note ${note.id}: ${error.message}`, (error as any).cause ?? error);
+          skippedNotes.push(note.id);
           return;
         }
       }
@@ -744,6 +746,17 @@ export async function update_embeddings(
   });
 
   await Promise.all(notePromises);
+
+  if (notes.length > 0) {
+    const successCount = successfulNotes.length;
+    const skipCount = skippedNotes.length;
+    const failCount = notes.length - successCount - skipCount;
+    
+    log.info(`Batch complete: ${successCount} successful, ${skipCount} skipped, ${failCount} failed of ${notes.length} total`);
+    if (skipCount > 0) {
+      log.warn(`Skipped note IDs: ${skippedNotes.slice(0, 10).join(', ')}${skipCount > 10 ? ` ... and ${skipCount - 10} more` : ''}`);
+    }
+  }
 
   if (successfulNotes.length === 0) {
     return;
@@ -1010,6 +1023,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true):
     Promise<NoteEmbedding[]> {
 
+  log.info(`find_nearest_notes called: ${embeddings.length} initial embeddings, experimental=${settings.experimental_user_data_index}, currentId=${current_id}`);
   let combinedEmbeddings = embeddings;
 
   // convert HTML to Markdown if needed (must happen before hash calculation)
@@ -1080,16 +1094,19 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   const computeAllowedCentroids = async (queryVector: Float32Array, candidateCount: number): Promise<Set<number> | null> => {
     if (!settings.experimental_user_data_index || candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
+      log.info(`IVF disabled: experimental=${settings.experimental_user_data_index}, candidateCount=${candidateCount}, threshold=${MIN_TOTAL_ROWS_FOR_IVF}`);
       return null;
     }
     const centroids = await load_model_centroids(model.id);
     if (!centroids || centroids.dim !== queryVector.length || centroids.nlist <= 0) {
+      log.warn(`IVF unavailable: centroids=${!!centroids}, dim=${centroids?.dim}/${queryVector.length}, nlist=${centroids?.nlist || 0}`, { modelId: model.id });
       return null;
     }
     const nprobe = choose_nprobe(centroids.nlist, candidateCount, {
       min: tuning.minNprobe,
       smallSet: tuning.smallSetNprobe,
     });
+    log.info(`IVF configured: nlist=${centroids.nlist}, nprobe=${nprobe}, candidateCount=${candidateCount}, profile=${tuning.profile}`);
     if (nprobe <= 0) {
       return null;
     }
@@ -1116,10 +1133,13 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
               expanded.add(child);
             }
           }
+          log.info(`Mobile parent mapping: nprobe=${nprobe} → expanded to ${expanded.size} child centroids via ${selectedParents.size} parents`);
           if (expanded.size > 0 && expanded.size <= tuning.candidateLimit * 4) {
             return expanded;
           }
         }
+      } else {
+        log.warn(`Mobile parent map unavailable: map=${!!parentMap}, length=${parentMap?.length}/${centroids.nlist}`);
       }
     }
     return new Set(topIds);
@@ -1134,6 +1154,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     // If IVF is enabled and we have centroid IDs, use centroid-to-note index to filter candidates
     if (preloadAllowedCentroidIds && preloadAllowedCentroidIds.size > 0 && settings.experimental_user_data_index) {
       try {
+        log.info(`Attempting to use centroid index for IVF filtering: ${preloadAllowedCentroidIds.size} centroid IDs selected`);
         const centroidIndex = await get_or_init_centroid_index(model.id, settings);
         const topCentroidIds = Array.from(preloadAllowedCentroidIds);
         ivfCandidateNoteIds = centroidIndex.lookup(topCentroidIds);
@@ -1142,7 +1163,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         const diagnostics = centroidIndex.get_diagnostics();
         log.info(
           `CentroidIndex: IVF lookup found ${ivfCandidateNoteIds.size} candidate notes for ${topCentroidIds.length} centroids ` +
-          `(${diagnostics.uniqueCentroids} total centroids, ${diagnostics.estimatedMemoryKB}KB memory)`
+          `(${diagnostics.uniqueCentroids} total centroids, ${diagnostics.estimatedMemoryKB}KB memory, ` +
+          `${diagnostics.stats.notesWithEmbeddings} notes indexed, last updated: ${new Date(diagnostics.stats.lastUpdated).toISOString()})`
         );
         
         // Fallback to loading all notes if index returned no candidates (shouldn't happen but be safe)
@@ -1151,13 +1173,16 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
           ivfCandidateNoteIds = null;
         }
       } catch (error) {
-        log.warn('CentroidIndex: Failed to use index for candidate selection, falling back to full scan', error);
+        log.error('CentroidIndex: Failed to use index for candidate selection, falling back to full scan', error);
         ivfCandidateNoteIds = null;
       }
+    } else if (preloadAllowedCentroidIds && preloadAllowedCentroidIds.size > 0) {
+      log.info(`IVF centroids computed but index not used: experimental_user_data_index=${settings.experimental_user_data_index}`);
     }
   }
 
   if (settings.experimental_user_data_index) {
+    log.info(`Using userData embeddings path: modelId=${model.id}, platform=${tuning.profile}`);
     // Build candidate set: if IVF index lookup succeeded, use filtered candidates; otherwise load all
     const candidateIds = ivfCandidateNoteIds 
       ? ivfCandidateNoteIds
@@ -1221,6 +1246,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     });
 
     if (userBlocks.length > 0) {
+      log.info(`userData search found ${userBlocks.length} relevant blocks from ${replaceIds.size} notes`);
       // Don't pollute model.embeddings cache when experimental mode is on
       // userData has its own proper LRU cache in userDataStore
       const replaceIdsArray = Array.from(replaceIds);
@@ -1255,6 +1281,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     allowedCentroidIds = preloadAllowedCentroidIds;
   }
 
+  log.info(`Starting final block filtering: ${combinedEmbeddings.length} total blocks, IVF=${!!allowedCentroidIds ? `${allowedCentroidIds.size} centroids` : 'disabled'}`);
+
   const filtered: BlockEmbedding[] = [];
   for (const embed of combinedEmbeddings) {
     let similarity: number;
@@ -1279,6 +1307,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }
     filtered.push(embed);
   }
+
+  log.info(`Block filtering complete: ${filtered.length} blocks passed filters from ${combinedEmbeddings.length} candidates`);
 
   if (!return_grouped_notes) {
     // return the sorted list of block embeddings in a NoteEmbdedding[] object
@@ -1318,7 +1348,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   }, {});
 
   // sort the groups by their aggregated similarity
-  return (await Promise.all(Object.entries(grouped).map(async ([note_id, note_embed]) => {
+  const result = (await Promise.all(Object.entries(grouped).map(async ([note_id, note_embed]) => {
     const sorted_embed = note_embed.sort((a, b) => b.similarity - a.similarity);
 
     let agg_sim: number;
@@ -1341,6 +1371,9 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       similarity: agg_sim,
     };
     }))).sort((a, b) => b.similarity - a.similarity).slice(0, settings.notes_max_hits);
+  
+  log.info(`Returning ${result.length} notes (max: ${settings.notes_max_hits}), top similarity: ${result[0]?.similarity?.toFixed(3) || 'N/A'}`);
+  return result;
 }
 
 // calculate the cosine similarity between two embeddings
