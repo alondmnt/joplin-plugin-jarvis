@@ -23,6 +23,44 @@ const log = getLogger();
 // Global centroid-to-note index instance (initialized lazily)
 let globalCentroidIndex: CentroidNoteIndex | null = null;
 
+/**
+ * Get all note IDs that have embeddings in userData.
+ * Queries Joplin API for all notes, then filters to those with userData embeddings.
+ * Used for candidate selection when experimental userData index is enabled.
+ */
+async function get_all_note_ids_with_embeddings(): Promise<Set<string>> {
+  const noteIds = new Set<string>();
+  let page = 1;
+  let hasMore = true;
+  
+  while (hasMore) {
+    try {
+      const response = await joplin.data.get(['notes'], {
+        fields: ['id'],
+        page,
+        limit: 100,
+      });
+      
+      for (const note of response.items) {
+        // Check if this note has userData embeddings
+        const meta = await userDataStore.getMeta(note.id);
+        if (meta && meta.activeModelId) {
+          noteIds.add(note.id);
+        }
+      }
+      
+      hasMore = response.has_more;
+      page++;
+    } catch (error) {
+      log.warn('Failed to fetch note IDs for candidate selection', error);
+      break;
+    }
+  }
+  
+  log.info(`Candidate selection: found ${noteIds.size} notes with embeddings`);
+  return noteIds;
+}
+
 interface SearchTuning {
   profile: 'desktop' | 'mobile';
   candidateLimit: number;
@@ -1123,22 +1161,15 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     // Build candidate set: if IVF index lookup succeeded, use filtered candidates; otherwise load all
     const candidateIds = ivfCandidateNoteIds 
       ? ivfCandidateNoteIds
-      : new Set(combinedEmbeddings.map(embed => embed.id));
+      : await get_all_note_ids_with_embeddings();
     candidateIds.add(current_id);
     
     // Log candidate selection effectiveness
-    const totalNotes = combinedEmbeddings.length;
     const candidateCount = candidateIds.size;
     if (ivfCandidateNoteIds) {
-      const reductionPct = totalNotes > 0 
-        ? ((1 - candidateCount / totalNotes) * 100).toFixed(1) 
-        : '0.0';
-      log.info(
-        `CentroidIndex: IVF filtering - ${candidateCount}/${totalNotes} notes ` +
-        `(${reductionPct}% reduction, ~${Math.round(totalNotes / candidateCount)}x speedup)`
-      );
+      log.info(`CentroidIndex: IVF filtering reduced candidates to ${candidateCount} notes`);
     } else {
-      log.info(`CentroidIndex: No IVF filtering - loading all ${candidateCount} notes`);
+      log.info(`CentroidIndex: No IVF filtering - searching ${candidateCount} notes`);
     }
     
     const replaceIds = new Set<string>();
@@ -1190,11 +1221,11 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     });
 
     if (userBlocks.length > 0) {
+      // Don't pollute model.embeddings cache when experimental mode is on
+      // userData has its own proper LRU cache in userDataStore
       const replaceIdsArray = Array.from(replaceIds);
       const legacyBlocks = combinedEmbeddings.filter(embed => !replaceIds.has(embed.id));
       combinedEmbeddings = legacyBlocks.concat(userBlocks);
-      remove_note_embeddings(model.embeddings, replaceIdsArray);
-      model.embeddings.push(...userBlocks);
     }
     
     // After search completes, check if validation dialog should be shown
