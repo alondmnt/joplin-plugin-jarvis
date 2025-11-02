@@ -14,6 +14,8 @@ import { TopKHeap } from './topK';
 import { load_model_centroids, load_parent_map } from './centroidLoader';
 import { choose_nprobe, select_top_centroid_ids, MIN_TOTAL_ROWS_FOR_IVF } from './centroids';
 import { CentroidNoteIndex } from './centroidNoteIndex';
+import { read_anchor_meta_data } from './anchorStore';
+import { resolve_anchor_note_id, get_catalog_note_id } from './catalog';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
 const noteOcrCache = new Map<string, string>();
@@ -1023,7 +1025,6 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true):
     Promise<NoteEmbedding[]> {
 
-  log.info(`find_nearest_notes called: ${embeddings.length} initial embeddings, experimental=${settings.experimental_user_data_index}, currentId=${current_id}`);
   let combinedEmbeddings = embeddings;
 
   // convert HTML to Markdown if needed (must happen before hash calculation)
@@ -1094,7 +1095,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   const computeAllowedCentroids = async (queryVector: Float32Array, candidateCount: number): Promise<Set<number> | null> => {
     if (!settings.experimental_user_data_index || candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
-      log.info(`IVF disabled: experimental=${settings.experimental_user_data_index}, candidateCount=${candidateCount}, threshold=${MIN_TOTAL_ROWS_FOR_IVF}`);
+      log.debug(`IVF disabled: candidateCount=${candidateCount} < threshold=${MIN_TOTAL_ROWS_FOR_IVF}`);
       return null;
     }
     const centroids = await load_model_centroids(model.id);
@@ -1106,7 +1107,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       min: tuning.minNprobe,
       smallSet: tuning.smallSetNprobe,
     });
-    log.info(`IVF configured: nlist=${centroids.nlist}, nprobe=${nprobe}, candidateCount=${candidateCount}, profile=${tuning.profile}`);
+    log.debug(`IVF enabled: nlist=${centroids.nlist}, nprobe=${nprobe}, corpus=${candidateCount} blocks`);
     if (nprobe <= 0) {
       return null;
     }
@@ -1148,54 +1149,57 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   let preloadAllowedCentroidIds: Set<number> | null = null;
   let ivfCandidateNoteIds: Set<string> | null = null;
 
-  if (rep_embedding) {
-    preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, combinedEmbeddings.length);
-    
-    // If IVF is enabled and we have centroid IDs, use centroid-to-note index to filter candidates
-    if (preloadAllowedCentroidIds && preloadAllowedCentroidIds.size > 0 && settings.experimental_user_data_index) {
-      try {
-        log.info(`Attempting to use centroid index for IVF filtering: ${preloadAllowedCentroidIds.size} centroid IDs selected`);
-        const centroidIndex = await get_or_init_centroid_index(model.id, settings);
-        const topCentroidIds = Array.from(preloadAllowedCentroidIds);
-        ivfCandidateNoteIds = centroidIndex.lookup(topCentroidIds);
-        
-        // Log performance metrics (as specified in task list)
-        const diagnostics = centroidIndex.get_diagnostics();
-        log.info(
-          `CentroidIndex: IVF lookup found ${ivfCandidateNoteIds.size} candidate notes for ${topCentroidIds.length} centroids ` +
-          `(${diagnostics.uniqueCentroids} total centroids, ${diagnostics.estimatedMemoryKB}KB memory, ` +
-          `${diagnostics.stats.notesWithEmbeddings} notes indexed, last updated: ${new Date(diagnostics.stats.lastUpdated).toISOString()})`
-        );
-        
-        // Fallback to loading all notes if index returned no candidates (shouldn't happen but be safe)
-        if (ivfCandidateNoteIds.size === 0) {
-          log.warn('CentroidIndex: Lookup returned 0 candidates, falling back to full scan');
-          ivfCandidateNoteIds = null;
+  if (rep_embedding && settings.experimental_user_data_index) {
+    // On userData path, use corpus size from anchor metadata (not loaded embeddings count)
+    // This determines IVF suitability based on TOTAL corpus, not filtered results
+    let corpusSize = combinedEmbeddings.length; // fallback
+    try {
+      const catalogId = await get_catalog_note_id();
+      if (catalogId) {
+        const anchorId = await resolve_anchor_note_id(catalogId, model.id);
+        if (anchorId) {
+          const anchorMeta = await read_anchor_meta_data(anchorId);
+          if (anchorMeta?.rowCount) {
+            corpusSize = anchorMeta.rowCount;
+          }
         }
-      } catch (error) {
-        log.error('CentroidIndex: Failed to use index for candidate selection, falling back to full scan', error);
+      }
+    } catch (error) {
+      log.warn('Failed to read corpus size from anchor, using fallback', error);
+    }
+    
+    preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, corpusSize);
+  } else if (rep_embedding) {
+    // Legacy path: use loaded embeddings count
+    preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, combinedEmbeddings.length);
+  }
+  
+  // If IVF is enabled and we have centroid IDs, use centroid-to-note index to filter candidates
+  if (preloadAllowedCentroidIds && preloadAllowedCentroidIds.size > 0 && settings.experimental_user_data_index) {
+    try {
+      const centroidIndex = await get_or_init_centroid_index(model.id, settings);
+      const topCentroidIds = Array.from(preloadAllowedCentroidIds);
+      ivfCandidateNoteIds = centroidIndex.lookup(topCentroidIds);
+      
+      log.debug(`CentroidIndex: IVF selected ${ivfCandidateNoteIds.size} notes from ${topCentroidIds.length} centroids`);
+      
+      // Fallback to loading all notes if index returned no candidates (shouldn't happen but be safe)
+      if (ivfCandidateNoteIds.size === 0) {
+        log.warn('CentroidIndex: Lookup returned 0 candidates, falling back to full scan');
         ivfCandidateNoteIds = null;
       }
-    } else if (preloadAllowedCentroidIds && preloadAllowedCentroidIds.size > 0) {
-      log.info(`IVF centroids computed but index not used: experimental_user_data_index=${settings.experimental_user_data_index}`);
+    } catch (error) {
+      log.error('CentroidIndex: Failed to use index for candidate selection, falling back to full scan', error);
+      ivfCandidateNoteIds = null;
     }
   }
 
   if (settings.experimental_user_data_index) {
-    log.info(`Using userData embeddings path: modelId=${model.id}, platform=${tuning.profile}`);
     // Build candidate set: if IVF index lookup succeeded, use filtered candidates; otherwise load all
     const candidateIds = ivfCandidateNoteIds 
       ? ivfCandidateNoteIds
       : await get_all_note_ids_with_embeddings();
     candidateIds.add(current_id);
-    
-    // Log candidate selection effectiveness
-    const candidateCount = candidateIds.size;
-    if (ivfCandidateNoteIds) {
-      log.info(`CentroidIndex: IVF filtering reduced candidates to ${candidateCount} notes`);
-    } else {
-      log.info(`CentroidIndex: No IVF filtering - searching ${candidateCount} notes`);
-    }
     
     const replaceIds = new Set<string>();
     const userBlocksHeap = new TopKHeap<BlockEmbedding>(tuning.candidateLimit, {
@@ -1246,7 +1250,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     });
 
     if (userBlocks.length > 0) {
-      log.info(`userData search found ${userBlocks.length} relevant blocks from ${replaceIds.size} notes`);
+      log.debug(`userData search: ${userBlocks.length} blocks from ${replaceIds.size} notes (${candidateIds.size} candidates)`);
       // Don't pollute model.embeddings cache when experimental mode is on
       // userData has its own proper LRU cache in userDataStore
       const replaceIdsArray = Array.from(replaceIds);
@@ -1276,12 +1280,11 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }
   }
 
-  let allowedCentroidIds = await computeAllowedCentroids(rep_embedding, combinedEmbeddings.length);
-  if (!allowedCentroidIds) {
-    allowedCentroidIds = preloadAllowedCentroidIds;
-  }
+  // Use precomputed IVF decision (based on full corpus size, not filtered results)
+  // No need to recalculate - the corpus size doesn't change just because we filtered results
+  const allowedCentroidIds = preloadAllowedCentroidIds;
 
-  log.info(`Starting final block filtering: ${combinedEmbeddings.length} total blocks, IVF=${!!allowedCentroidIds ? `${allowedCentroidIds.size} centroids` : 'disabled'}`);
+  log.debug(`Final filtering: ${combinedEmbeddings.length} blocks, IVF=${allowedCentroidIds ? `${allowedCentroidIds.size} centroids` : 'off'}`);
 
   const filtered: BlockEmbedding[] = [];
   for (const embed of combinedEmbeddings) {
@@ -1308,7 +1311,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     filtered.push(embed);
   }
 
-  log.info(`Block filtering complete: ${filtered.length} blocks passed filters from ${combinedEmbeddings.length} candidates`);
+  log.debug(`Filtered to ${filtered.length} blocks (similarity >= ${settings.notes_min_similarity})`);
 
   if (!return_grouped_notes) {
     // return the sorted list of block embeddings in a NoteEmbdedding[] object
