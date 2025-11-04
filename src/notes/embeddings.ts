@@ -503,6 +503,19 @@ async function update_note(note: any,
       (note.deleted_time > 0)) {
     log.debug(`Excluding note ${note.id} from Jarvis`);
     delete_note_and_embeddings(model.db, note.id);
+    
+    // Delete all userData embeddings (for all models) and update centroid index
+    if (settings.experimental_user_data_index) {
+      try {
+        await userDataStore.gcOld(note.id, '', '');
+      } catch (error) {
+        log.warn(`Failed to delete userData for excluded note ${note.id}`, error);
+      }
+      
+      // Remove from centroid index (in-memory, synchronous)
+      remove_note_from_centroid_index(note.id, model.id);
+    }
+    
     return { embeddings: [] };
   }
 
@@ -1020,6 +1033,15 @@ export function reset_centroid_index(): void {
 export async function update_centroid_index_for_note(noteId: string, modelId: string): Promise<void> {
   if (globalCentroidIndex && globalCentroidIndex.get_model_id() === modelId) {
     await globalCentroidIndex.update_note(noteId);
+  }
+}
+
+/**
+ * Remove a note from the centroid-to-note index (called when note is excluded or deleted).
+ */
+function remove_note_from_centroid_index(noteId: string, modelId: string): void {
+  if (globalCentroidIndex && globalCentroidIndex.get_model_id() === modelId) {
+    globalCentroidIndex.remove_note(noteId);
   }
 }
 
