@@ -994,18 +994,19 @@ async function show_validation_dialog(
   // Mark dialog as shown for this session (prevents repeated dialogs)
   globalValidationTracker.mark_dialog_shown();
   
-  const message = `Some notes have mismatched embeddings: ${mismatchSummary}. Rebuild affected notes?`;
+  const message = `Some notes have mismatched embeddings: ${mismatchSummary}. Check all notes and rebuild mismatched ones?`;
   
   const choice = await joplin.views.dialogs.showMessageBox(message);
   
   if (choice === 0) {
     // User chose "Rebuild Now"
-    log.info(`User chose to rebuild ${mismatchedNoteIds.length} mismatched notes`);
+    log.info(`User chose to rebuild after detecting ${mismatchedNoteIds.length} mismatched notes in search`);
     
-    // Trigger rebuild for mismatched notes only
-    const uniqueNoteIds = Array.from(new Set(mismatchedNoteIds));
+    // Trigger full scan with force=true (no specific noteIds)
+    // This checks ALL notes for mismatches, not just the ones detected in this search
+    // Smart rebuild: only re-embeds notes with mismatched settings/model/version or changed content
     try {
-      await joplin.commands.execute('jarvis.notes.db.updateSubset', uniqueNoteIds);
+      await joplin.commands.execute('jarvis.notes.db.update');
       // Reset validation tracker so future searches re-validate against fresh metadata
       globalValidationTracker.reset();
     } catch (error) {
