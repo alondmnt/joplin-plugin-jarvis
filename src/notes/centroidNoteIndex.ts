@@ -49,7 +49,14 @@ export class CentroidNoteIndex {
   };
   private isBuilt: boolean = false;
 
-  constructor(private store: EmbStore, private activeModelId: string) {}
+  constructor(private store: EmbStore, private modelId: string) {}
+
+  /**
+   * Returns the model ID this index is tracking.
+   */
+  get_model_id(): string {
+    return this.modelId;
+  }
 
   /**
    * Returns true if the index has been built at least once.
@@ -93,20 +100,20 @@ export class CentroidNoteIndex {
     try {
       // Read metadata to check if note has embeddings
       const meta = await this.store.getMeta(noteId);
-      if (!meta || meta.activeModelId !== this.activeModelId) {
-        return; // No embeddings or wrong model
+      if (!meta) {
+        return; // No embeddings
       }
 
-      const modelMeta = meta.models[this.activeModelId];
+      const modelMeta = meta.models[this.modelId];
       if (!modelMeta) {
-        return; // No metadata for active model
+        return; // No metadata for this model
       }
 
       // Read single shard and extract centroid IDs (single-shard constraint)
       const centroids = new Set<number>();
       const decoder = new ShardDecoder();
 
-      const shard = await this.store.getShard(noteId, 0);
+      const shard = await this.store.getShard(noteId, this.modelId, 0);
       if (!shard || shard.epoch !== modelMeta.current.epoch) {
         return; // Stale or missing shard
       }

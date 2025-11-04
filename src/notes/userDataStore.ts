@@ -43,7 +43,6 @@ export interface ModelMetadata {
 }
 
 export interface NoteEmbMeta {
-  activeModelId: string;
   // L2 distance not yet supported, reserved for future use
   metric: 'cosine' | 'l2';
   models: { [modelId: string]: ModelMetadata };
@@ -77,8 +76,8 @@ export interface Q8Vectors {
 
 export interface EmbStore {
   getMeta(noteId: string): Promise<NoteEmbMeta | null>;
-  getShard(noteId: string, index: number): Promise<EmbShard | null>;
-  put(noteId: string, meta: NoteEmbMeta, shards: EmbShard[]): Promise<void>;
+  getShard(noteId: string, modelId: string, index: number): Promise<EmbShard | null>;
+  put(noteId: string, modelId: string, meta: NoteEmbMeta, shards: EmbShard[]): Promise<void>;
   gcOld(noteId: string, keepModelId: string, keepHash: string): Promise<void>;
 }
 
@@ -234,7 +233,7 @@ export class UserDataEmbStore implements EmbStore {
       
       // Basic sanity check: ensure it has the minimum required structure
       // If not, treat as no embeddings and it will be rebuilt on next update
-      if (!value.activeModelId || !value.models || typeof value.models !== 'object') {
+      if (!value.models || typeof value.models !== 'object') {
         log.warn(`Metadata for note ${noteId} has unexpected structure, treating as no embeddings. Will rebuild on next update.`);
         return null;
       }
@@ -249,12 +248,12 @@ export class UserDataEmbStore implements EmbStore {
     }
   }
 
-  async getShard(noteId: string, index: number): Promise<EmbShard | null> {
+  async getShard(noteId: string, modelId: string, index: number): Promise<EmbShard | null> {
     const meta = await this.getMeta(noteId);
-    if (!meta || !meta.activeModelId) {
+    if (!meta) {
       return null;
     }
-    const modelMeta = meta.models[meta.activeModelId];
+    const modelMeta = meta.models[modelId];
     if (!modelMeta) {
       return null;
     }
@@ -262,31 +261,29 @@ export class UserDataEmbStore implements EmbStore {
     if (index !== 0) {
       return null;
     }
-    const key = shardKey(meta.activeModelId, index);
+    const key = shardKey(modelId, index);
     return this.client.get<EmbShard>(noteId, key);
   }
 
-  async put(noteId: string, meta: NoteEmbMeta, shards: EmbShard[]): Promise<void> {
-    const activeModelId = meta.activeModelId;
-
-    if (!activeModelId) {
-      throw new Error('activeModelId is required in metadata');
+  async put(noteId: string, modelId: string, meta: NoteEmbMeta, shards: EmbShard[]): Promise<void> {
+    if (!modelId) {
+      throw new Error('modelId is required');
     }
 
-    const modelMeta = meta.models[activeModelId];
+    const modelMeta = meta.models[modelId];
     if (!modelMeta) {
-      throw new Error(`No model metadata found for activeModelId: ${activeModelId}`);
+      throw new Error(`No model metadata found for modelId: ${modelId}`);
     }
 
     if (shards.length !== modelMeta.current.shards) {
       throw new Error(`Shard count mismatch: meta expects ${modelMeta.current.shards}, got ${shards.length}`);
     }
 
-    // Write shards for the active model (single shard per note per model, always at index 0)
+    // Write shards for the specified model (single shard per note per model, always at index 0)
     // With single-shard constraint, we simply overwrite jarvis/v1/emb/<modelId>/live/0
     // Legacy multi-shards (if they exist) are harmless and don't need explicit cleanup
     for (let i = 0; i < shards.length; i += 1) {
-      const key = shardKey(activeModelId, i);
+      const key = shardKey(modelId, i);
       await this.client.set<EmbShard>(noteId, key, shards[i]);
     }
 

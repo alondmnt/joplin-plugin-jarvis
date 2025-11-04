@@ -13,7 +13,6 @@ const BYTES_PER_NOTE_ESTIMATE = 300 * 1024; // ≈300KB per note as documented
 interface ModelInventoryItem {
   modelId: string;
   noteCount: number;
-  activeNoteCount: number;
   approxBytes: number;
   lastUpdated?: string;
   modelVersions: string[];
@@ -82,7 +81,6 @@ async function collect_model_inventory(activeModelId: string): Promise<Inventory
   const noteIdsByModel = new Map<string, Set<string>>();
   const aggregates = new Map<string, {
     noteCount: number;
-    activeCount: number;
     approxBytes: number;
     lastUpdated?: string;
     lastUpdatedEpochMs: number;
@@ -138,7 +136,6 @@ async function collect_model_inventory(activeModelId: string): Promise<Inventory
         if (!agg) {
           agg = {
             noteCount: 0,
-            activeCount: 0,
             approxBytes: 0,
             lastUpdatedEpochMs: 0,
             modelVersions: new Set<string>(),
@@ -148,9 +145,6 @@ async function collect_model_inventory(activeModelId: string): Promise<Inventory
           aggregates.set(modelId, agg);
         }
         agg.noteCount += 1;
-        if (meta.activeModelId === modelId) {
-          agg.activeCount += 1;
-        }
         agg.approxBytes += BYTES_PER_NOTE_ESTIMATE;
         agg.modelVersions.add(modelMeta.modelVersion ?? 'unknown');
         agg.embeddingVersions.add(String(modelMeta.embeddingVersion ?? 'unknown'));
@@ -173,7 +167,6 @@ async function collect_model_inventory(activeModelId: string): Promise<Inventory
   const items: ModelInventoryItem[] = Array.from(aggregates.entries()).map(([modelId, agg]) => ({
     modelId,
     noteCount: agg.noteCount,
-    activeNoteCount: agg.activeCount,
     approxBytes: agg.approxBytes,
     lastUpdated: agg.lastUpdated,
     modelVersions: Array.from(agg.modelVersions).sort(),
@@ -225,10 +218,7 @@ async function delete_model_data(modelId: string, noteIds: string[]): Promise<De
         continue;
       }
 
-      if (meta.activeModelId === modelId) {
-        meta.activeModelId = remainingModels[0];
-      }
-
+      // No need to update activeModelId since it was removed - just save the updated metadata
       await joplin.data.userDataSet(ModelType.Note, noteId, EMB_META_KEY, meta);
       summary.updatedNotes += 1;
     } catch (error) {
@@ -265,9 +255,7 @@ function build_dialog_html(items: ModelInventoryItem[], activeModelId: string, m
     const versions = item.modelVersions.join(', ');
     const embeddings = item.embeddingVersions.join(', ');
     const activeBadge = item.isActiveModel ? '<span class="jarvis-model-manager__badge">Active</span>' : '';
-    const noteSummary = item.activeNoteCount === item.noteCount
-      ? `${item.noteCount}`
-      : `${item.noteCount} (active on ${item.activeNoteCount})`;
+    const noteSummary = `${item.noteCount}`;
     const checked = index === 0 ? 'checked' : '';
     return `
       <tr>

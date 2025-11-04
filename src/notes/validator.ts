@@ -100,27 +100,17 @@ function get_settings_diff(expected: EmbeddingSettings, actual: EmbeddingSetting
 export function validate_note_metadata(
   noteId: string,
   meta: NoteEmbMeta,
+  modelId: string,
   currentModel: TextEmbeddingModel,
   currentSettings: EmbeddingSettings
 ): ValidationResult {
   const mismatches: ValidationMismatch[] = [];
   
-  // Check if active model matches current model
-  if (meta.activeModelId !== currentModel.id) {
-    mismatches.push({
-      noteId,
-      mismatchType: 'model',
-      expected: currentModel.id,
-      actual: meta.activeModelId,
-    });
-  }
-  
-  // Get model metadata for active model
-  const modelMeta = meta.models[meta.activeModelId];
+  // Get model metadata for the specified model
+  const modelMeta = meta.models[modelId];
   if (!modelMeta) {
-    // Inconsistent metadata: has activeModelId but no model entry
-    log.warn(`Note ${noteId}: inconsistent metadata (activeModelId ${meta.activeModelId} not in models), skipping validation`);
-    return { isValid: false, mismatches: [] };
+    // No embeddings for this model - not a mismatch, just no data
+    return { isValid: true, mismatches: [] };
   }
   
   // Check embedding version
@@ -212,15 +202,15 @@ export class ValidationTracker {
    * Returns validation stats for logging/monitoring
    */
   validate_notes(
-    notesMeta: Array<{ noteId: string; meta: NoteEmbMeta }>,
+    notesMeta: Array<{ noteId: string; meta: NoteEmbMeta; modelId: string }>,
     currentModel: TextEmbeddingModel,
     currentSettings: EmbeddingSettings
   ): ValidationStats {
     const startTime = Date.now();
     const newMismatches: ValidationMismatch[] = [];
     
-    for (const { noteId, meta } of notesMeta) {
-      const result = validate_note_metadata(noteId, meta, currentModel, currentSettings);
+    for (const { noteId, meta, modelId } of notesMeta) {
+      const result = validate_note_metadata(noteId, meta, modelId, currentModel, currentSettings);
       newMismatches.push(...result.mismatches);
     }
     

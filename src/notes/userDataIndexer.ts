@@ -319,7 +319,6 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
   };
 
   const meta: NoteEmbMeta = {
-    activeModelId: model.id,
     metric: 'cosine',
     models,
   };

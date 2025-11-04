@@ -46,7 +46,7 @@ async function get_all_note_ids_with_embeddings(): Promise<Set<string>> {
       for (const note of response.items) {
         // Check if this note has userData embeddings
         const meta = await userDataStore.getMeta(note.id);
-        if (meta && meta.activeModelId) {
+        if (meta && meta.models && Object.keys(meta.models).length > 0) {
           noteIds.add(note.id);
         }
       }
@@ -538,7 +538,7 @@ async function update_note(note: any,
           let needsCompaction = false;
           if (!needsBackfill && existing && modelMeta && modelMeta.current?.shards > 0) {
             try {
-              const first = await userDataStore.getShard(note.id, 0);
+              const first = await userDataStore.getShard(note.id, model.id, 0);
               const row0 = first?.meta?.[0] as any;
               // Detect legacy rows by presence of duplicated per-row fields or blockId
               needsCompaction = Boolean(row0?.noteId || row0?.noteHash || row0?.blockId);
@@ -581,7 +581,7 @@ async function update_note(note: any,
     if (settings.experimental_user_data_index) {
       try {
         const userDataMeta = await userDataStore.getMeta(note.id);
-        if (userDataMeta && userDataMeta.activeModelId === model.id) {
+        if (userDataMeta && userDataMeta.models[model.id]) {
           const modelMeta = userDataMeta.models[model.id];
           const currentSettings = extract_embedding_settings_for_validation(settings);
           
@@ -973,7 +973,7 @@ async function get_or_init_centroid_index(
   settings: JarvisSettings
 ): Promise<CentroidNoteIndex> {
   // Initialize index if needed
-  if (!globalCentroidIndex || globalCentroidIndex['activeModelId'] !== modelId) {
+  if (!globalCentroidIndex || globalCentroidIndex.get_model_id() !== modelId) {
     log.info(`CentroidIndex: Initializing for model ${modelId}`);
     globalCentroidIndex = new CentroidNoteIndex(userDataStore, modelId);
   }
@@ -1018,7 +1018,7 @@ export function reset_centroid_index(): void {
  * Update a single note in the centroid-to-note index (called after embedding a note).
  */
 export async function update_centroid_index_for_note(noteId: string, modelId: string): Promise<void> {
-  if (globalCentroidIndex && globalCentroidIndex['activeModelId'] === modelId) {
+  if (globalCentroidIndex && globalCentroidIndex.get_model_id() === modelId) {
     await globalCentroidIndex.update_note(noteId);
   }
 }
@@ -1256,6 +1256,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     try {
       await read_user_data_embeddings({
         store: userDataStore,
+        modelId: model.id,
         noteIds: Array.from(candidateIds),
         maxRows: tuning.maxRows,
         allowedCentroidIds: preloadAllowedCentroidIds,
@@ -1567,7 +1568,7 @@ async function maybe_write_user_data_embeddings(
     if (!prepared) {
       return;
     }
-    await userDataStore.put(noteId, prepared.meta, prepared.shards);
+    await userDataStore.put(noteId, model.id, prepared.meta, prepared.shards);
   } catch (error) {
     log.warn(`Failed to persist userData embeddings for note ${noteId}`, error);
   }

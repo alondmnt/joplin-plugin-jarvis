@@ -8,6 +8,7 @@ import type { QuantizedRowView } from './q8';
 
 export interface ReadEmbeddingsOptions {
   store: EmbStore;
+  modelId: string;
   noteIds: string[];
   maxRows?: number;
   allowedCentroidIds?: Set<number> | null;
@@ -41,7 +42,7 @@ export interface NoteEmbeddingsResult {
  * mismatch). Caller can then show dialog after search completes with human-readable diffs.
  */
 export async function read_user_data_embeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
-  const { store, noteIds, maxRows, allowedCentroidIds, onBlock, currentModel, currentSettings, validationTracker } = options;
+  const { store, modelId, noteIds, maxRows, allowedCentroidIds, onBlock, currentModel, currentSettings, validationTracker } = options;
   const results: NoteEmbeddingsResult[] = [];
   const decoder = new ShardDecoder();
   const cache = new ShardLRUCache(4);
@@ -50,7 +51,7 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
   let stopAll = false;
   
   // Collect metadata for validation if validation is enabled
-  const notesMetaForValidation: Array<{ noteId: string; meta: NoteEmbMeta }> = [];
+  const notesMetaForValidation: Array<{ noteId: string; meta: NoteEmbMeta; modelId: string }> = [];
   const shouldValidate = currentModel && currentSettings && validationTracker;
 
   for (const noteId of noteIds) {
@@ -58,28 +59,28 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
       break;
     }
     const meta = await store.getMeta(noteId);
-    if (!meta || !meta.activeModelId) {
+    if (!meta) {
       continue;
     }
     
-    // Get active model metadata from multi-model structure
-    const modelMeta = meta.models[meta.activeModelId];
+    // Get model metadata for the specified model from multi-model structure
+    const modelMeta = meta.models[modelId];
     if (!modelMeta) {
       continue;
     }
     
     // Collect for validation (but continue processing regardless of validation result)
     if (shouldValidate) {
-      notesMetaForValidation.push({ noteId, meta });
+      notesMetaForValidation.push({ noteId, meta, modelId });
     }
 
     const blocks: BlockEmbedding[] = [];
     let rowsRead = 0;
     
     // Single-shard constraint: always fetch shard 0 (one shard per note per model)
-    const cacheKey = `${noteId}:${meta.activeModelId}:${modelMeta.current.epoch}:0`;
+    const cacheKey = `${noteId}:${modelId}:${modelMeta.current.epoch}:0`;
     let cached = allowedCentroidIds ? undefined : cache.get(cacheKey);
-    const shard = await store.getShard(noteId, 0);
+    const shard = await store.getShard(noteId, modelId, 0);
     if (!shard || shard.epoch !== modelMeta.current.epoch) {
       continue;
     }
