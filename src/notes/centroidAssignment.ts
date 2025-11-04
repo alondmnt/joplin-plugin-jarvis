@@ -201,7 +201,7 @@ async function assign_note_centroids(
   }
 
   // Read shard from userData (single-shard constraint: always at index 0)
-  const shard = await store.getShard(noteId, 0);
+  const shard = await store.getShard(noteId, modelId, 0);
   if (!shard) {
     log.warn('Note has metadata but no shard', { noteId, modelId });
     return false;
@@ -249,7 +249,7 @@ async function assign_note_centroids(
   // Write updated shard back to userData
   // Note: we use put() which updates both the shard and metadata
   // But we only want to update the shard, so we pass the existing metadata unchanged
-  await store.put(noteId, meta, [updatedShard]);
+  await store.put(noteId, modelId, meta, [updatedShard]);
 
   log.debug('Assigned centroids to note', { noteId, modelId, rows, centroidCount: centroidIds.length });
   return true;
