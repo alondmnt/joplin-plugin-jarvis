@@ -6,7 +6,7 @@ import { get_settings, mark_model_first_build_completed, get_model_last_sweep_ti
 import { TextEmbeddingModel } from '../models/models';
 import { ModelError } from '../utils';
 import { assign_missing_centroids } from '../notes/centroidAssignment';
-import { UserDataEmbStore } from '../notes/userDataStore';
+import { UserDataEmbStore, EmbeddingSettings } from '../notes/userDataStore';
 import type { JarvisSettings } from '../ux/settings';
 
 /**
@@ -292,31 +292,10 @@ export async function update_note_db(
       new Map(allSettingsMismatches.map(m => [m.noteId, m])).values()
     );
     
-    // Format human-readable summary of settings changes
-    const settingsDiffs: string[] = [];
-    for (const mismatch of uniqueMismatches.slice(0, 1)) { // Check first mismatch as representative
-      const current = mismatch.currentSettings;
-      const stored = mismatch.storedSettings;
-      
-      if (current.embedTitle !== stored.embedTitle) {
-        settingsDiffs.push(`embedTitle ${stored.embedTitle ? 'Yes' : 'No'}→${current.embedTitle ? 'Yes' : 'No'}`);
-      }
-      if (current.embedPath !== stored.embedPath) {
-        settingsDiffs.push(`embedPath ${stored.embedPath ? 'Yes' : 'No'}→${current.embedPath ? 'Yes' : 'No'}`);
-      }
-      if (current.embedHeading !== stored.embedHeading) {
-        settingsDiffs.push(`embedHeading ${stored.embedHeading ? 'Yes' : 'No'}→${current.embedHeading ? 'Yes' : 'No'}`);
-      }
-      if (current.embedTags !== stored.embedTags) {
-        settingsDiffs.push(`embedTags ${stored.embedTags ? 'Yes' : 'No'}→${current.embedTags ? 'Yes' : 'No'}`);
-      }
-      if (current.includeCode !== stored.includeCode) {
-        settingsDiffs.push(`includeCode ${stored.includeCode ? 'Yes' : 'No'}→${current.includeCode ? 'Yes' : 'No'}`);
-      }
-      if (current.maxTokens !== stored.maxTokens) {
-        settingsDiffs.push(`maxTokens ${stored.maxTokens}→${current.maxTokens}`);
-      }
-    }
+    // Format human-readable summary of settings changes (using first mismatch as representative)
+    const settingsDiffs = uniqueMismatches.length > 0
+      ? formatSettingsDiff(uniqueMismatches[0].currentSettings, uniqueMismatches[0].storedSettings)
+      : [];
     
     const message = `Found ${uniqueMismatches.length} note(s) with different embedding settings (likely synced from another device).\n\nSettings: ${settingsDiffs.join(', ')}\n\nRebuild these notes with current settings?`;
     
@@ -377,6 +356,37 @@ async function apply_rate_limit_if_needed(
     console.debug(`Waiting for ${model.wait_period} seconds...`);
     await new Promise(res => setTimeout(res, model.wait_period * 1000));
   }
+}
+
+/**
+ * Format differences between two sets of embedding settings into human-readable strings.
+ * Helper to avoid duplication when displaying settings changes to users.
+ * 
+ * @returns Array of strings describing each setting that differs (e.g. "embedTitle No→Yes")
+ */
+function formatSettingsDiff(current: EmbeddingSettings, stored: EmbeddingSettings): string[] {
+  const diffs: string[] = [];
+  const boolFields: Array<keyof EmbeddingSettings> = [
+    'embedTitle',
+    'embedPath',
+    'embedHeading',
+    'embedTags',
+    'includeCode'
+  ];
+  
+  for (const field of boolFields) {
+    if (current[field] !== stored[field]) {
+      const storedValue = stored[field] ? 'Yes' : 'No';
+      const currentValue = current[field] ? 'Yes' : 'No';
+      diffs.push(`${field} ${storedValue}→${currentValue}`);
+    }
+  }
+  
+  if (current.maxTokens !== stored.maxTokens) {
+    diffs.push(`maxTokens ${stored.maxTokens}→${current.maxTokens}`);
+  }
+  
+  return diffs;
 }
 
 export async function find_notes(model: TextEmbeddingModel, panel: string) {
