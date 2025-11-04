@@ -2,7 +2,7 @@ import joplin from 'api';
 import { createHash } from '../utils/crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
-import { UserDataEmbStore } from './userDataStore';
+import { UserDataEmbStore, EmbeddingSettings } from './userDataStore';
 import { prepare_user_data_embeddings } from './userDataIndexer';
 import { read_user_data_embeddings } from './userDataReader';
 import { globalValidationTracker, extract_embedding_settings_for_validation, settings_equal } from './validator';
@@ -271,6 +271,15 @@ export interface NoteEmbedding {
   similarity: number;  // representative similarity to the query
 }
 
+export interface UpdateNoteResult {
+  embeddings: BlockEmbedding[];
+  settingsMismatch?: {
+    noteId: string;
+    currentSettings: EmbeddingSettings;
+    storedSettings: EmbeddingSettings;
+  };
+}
+
 /**
  * Calculate embeddings for a note while preserving the legacy normalization pipeline.
  *
@@ -452,7 +461,10 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
  * Update embeddings for a single note.
  * 
  * @param force - Controls rebuild behavior:
- *   - false (note save): Skip if content unchanged (only checks contentHash)
+ *   - false (note save/sweep): Skip if content unchanged, BUT validate settings
+ *     - If content unchanged AND settings match → skip (return existing embeddings)
+ *     - If content unchanged AND settings mismatch → return mismatch info (for dialog)
+ *     - If content changed → rebuild with current settings
  *     - Backfills userData from SQLite if needed (migration convenience)
  *     - Used for: incremental updates when user saves a note, periodic background sweeps
  *   - true (manual rebuild/settings change): Skip only if content unchanged AND settings match AND model matches
@@ -461,22 +473,22 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
  *     - Used for: manual "Update DB", settings changes, validation dialog rebuilds
  * 
  * Smart rebuild: Both modes skip when up-to-date, but "up-to-date" means different things:
- *   - force=false: Content unchanged (backfills userData from SQLite if needed)
+ *   - force=false: Content unchanged (but tracks settings mismatch for dialog)
  *   - force=true: Content unchanged AND userData matches current settings/model/version
  * 
  * Multi-device benefit: When Device A syncs embeddings with new settings to Device B,
  * Device B's force=true rebuild will detect already-updated notes and skip them, saving API quota.
  * 
- * @returns BlockEmbedding[] - Array of embeddings for this note (may be from cache if skipped)
+ * @returns UpdateNoteResult - Embeddings and optional settings mismatch info
  */
 async function update_note(note: any,
     model: TextEmbeddingModel, settings: JarvisSettings,
-    abortSignal: AbortSignal, force: boolean = false, catalogId?: string, anchorId?: string): Promise<BlockEmbedding[]> {
+    abortSignal: AbortSignal, force: boolean = false, catalogId?: string, anchorId?: string): Promise<UpdateNoteResult> {
   if (abortSignal.aborted) {
     throw new ModelError("Operation cancelled");
   }
   if (note.is_conflict) {
-    return [];
+    return { embeddings: [] };
   }
   let note_tags: string[];
   try {
@@ -491,7 +503,7 @@ async function update_note(note: any,
       (note.deleted_time > 0)) {
     log.debug(`Excluding note ${note.id} from Jarvis`);
     delete_note_and_embeddings(model.db, note.id);
-    return [];
+    return { embeddings: [] };
   }
 
   // convert HTML to Markdown if needed (must happen before hash calculation)
@@ -514,8 +526,8 @@ async function update_note(note: any,
     // Content unchanged - decide whether to skip based on force parameter
     
     if (!force) {
-      // force=false (note save): Skip if content unchanged, backfill userData if needed
-      // This is for incremental updates when user saves a note
+      // force=false (note save/sweep): Skip if content unchanged, but validate settings
+      // This is for incremental updates when user saves a note or background sweeps
       if (settings.experimental_user_data_index) {
         try {
           const existing = await userDataStore.getMeta(note.id);
@@ -537,11 +549,31 @@ async function update_note(note: any,
           if (needsBackfill || needsCompaction) {
             await maybe_write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId, anchorId);
           }
+          
+          // Validate settings even when content unchanged (catches synced mismatches)
+          // Check if this note has embeddings for OUR model, regardless of which model is "active"
+          if (existing && modelMeta) {
+            const currentSettings = extract_embedding_settings_for_validation(settings);
+            
+            // Check if settings match for our model's embeddings
+            if (!settings_equal(currentSettings, modelMeta.settings)) {
+              // Settings mismatch - return mismatch info for dialog
+              log.debug(`Note ${note.id}: settings mismatch detected during sweep for model ${model.id}`);
+              return {
+                embeddings: old_embd,
+                settingsMismatch: {
+                  noteId: note.id,
+                  currentSettings,
+                  storedSettings: modelMeta.settings,
+                },
+              };
+            }
+          }
         } catch (error) {
-          log.warn(`Failed to ensure userData embeddings for unchanged note ${note.id}`, error);
+          log.warn(`Failed to check userData for unchanged note ${note.id}`, error);
         }
       }
-      return old_embd; // Skip - content unchanged
+      return { embeddings: old_embd }; // Skip - content unchanged, settings match
     }
     
     // force=true: Check if userData matches current settings/model before skipping
@@ -560,7 +592,7 @@ async function update_note(note: any,
               settings_equal(currentSettings, modelMeta.settings)) {
             // Everything up-to-date: content, settings, and model all match
             log.debug(`Skipping note ${note.id} - already up-to-date (force=true, all checks passed)`);
-            return old_embd;
+            return { embeddings: old_embd };
           }
           // userData exists but outdated (settings or model changed) - fall through to rebuild
           log.debug(`Rebuilding note ${note.id} - userData outdated (force=true)`);
@@ -574,7 +606,7 @@ async function update_note(note: any,
       }
     } else {
       // experimental_user_data_index disabled - skip since content unchanged
-      return old_embd;
+      return { embeddings: old_embd };
     }
   }
 
@@ -594,7 +626,7 @@ async function update_note(note: any,
       });
     }
 
-    return new_embd;
+    return { embeddings: new_embd };
   } catch (error) {
     throw ensure_model_error(error, note);
   }
@@ -677,11 +709,13 @@ async function promptEmbeddingError(
  * Update embeddings for multiple notes.
  * 
  * @param force - Controls rebuild behavior for all notes:
- *   - false: Skip notes where content unchanged (only checks contentHash)
+ *   - false: Skip notes where content unchanged, but validate settings (returns mismatches)
  *   - true: Skip only if content unchanged AND settings match AND model matches
  * 
  * Processes notes in batches, handling errors per-note with retry/skip/abort prompts.
  * Updates in-memory model.embeddings array after successful batch completion.
+ * 
+ * @returns Array of settings mismatches found during processing (for dialog)
  */
 export async function update_embeddings(
   notes: any[],
@@ -691,9 +725,10 @@ export async function update_embeddings(
   force: boolean = false,
   catalogId?: string,
   anchorId?: string,
-): Promise<void> {
+): Promise<Array<{ noteId: string; currentSettings: EmbeddingSettings; storedSettings: EmbeddingSettings }>> {
   const successfulNotes: Array<{ note: any; embeddings: BlockEmbedding[] }> = [];
   const skippedNotes: string[] = [];
+  const settingsMismatches: Array<{ noteId: string; currentSettings: EmbeddingSettings; storedSettings: EmbeddingSettings }> = [];
   let dialogQueue: Promise<unknown> = Promise.resolve();
   let fatalError: ModelError | null = null;
   const runSerialized = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -706,8 +741,13 @@ export async function update_embeddings(
     let attempt = 0;
     while (!abortController.signal.aborted) {
       try {
-        const embeddings = await update_note(note, model, settings, abortController.signal, force, catalogId, anchorId);
-        successfulNotes.push({ note, embeddings });
+        const result = await update_note(note, model, settings, abortController.signal, force, catalogId, anchorId);
+        successfulNotes.push({ note, embeddings: result.embeddings });
+        
+        // Collect settings mismatches (only during force=false sweeps)
+        if (result.settingsMismatch) {
+          settingsMismatches.push(result.settingsMismatch);
+        }
         return;
       } catch (rawError) {
         const error = ensure_model_error(rawError, note);
@@ -761,7 +801,7 @@ export async function update_embeddings(
   }
 
   if (successfulNotes.length === 0) {
-    return;
+    return settingsMismatches;
   }
 
   remove_note_embeddings(
@@ -771,6 +811,8 @@ export async function update_embeddings(
 
   const mergedEmbeddings = successfulNotes.flatMap(result => result.embeddings);
   model.embeddings.push(...mergedEmbeddings);
+  
+  return settingsMismatches;
 }
 
 // function to remove all embeddings of the given notes from an array of embeddings in-place

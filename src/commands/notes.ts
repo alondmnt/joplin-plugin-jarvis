@@ -80,6 +80,7 @@ export async function update_note_db(
   const noteFields = ['id', 'title', 'body', 'is_conflict', 'parent_id', 'deleted_time', 'markup_language'];
   let total_notes = 0;
   let processed_notes = 0;
+  const allSettingsMismatches: Array<{ noteId: string; currentSettings: any; storedSettings: any }> = [];
 
   const isFullSweep = !noteIds || noteIds.length === 0;
 
@@ -106,21 +107,23 @@ export async function update_note_db(
       // Flush in fixed-size chunks for consistent throughput
       while (batch.length >= model.page_size && !abortController.signal.aborted) {
         const chunk = batch.splice(0, model.page_size);
-        await process_batch_and_update_progress(
+        const mismatches = await process_batch_and_update_progress(
           chunk, model, settings, abortController, force, catalogId, anchorId, panel,
           () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
           (count) => { processed_notes += count; }
         );
+        allSettingsMismatches.push(...mismatches);
       }
     }
 
     // Process remaining notes
     if (!abortController.signal.aborted) {
-      await process_batch_and_update_progress(
+      const mismatches = await process_batch_and_update_progress(
         batch, model, settings, abortController, force, catalogId, anchorId, panel,
         () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
         (count) => { processed_notes += count; }
       );
+      allSettingsMismatches.push(...mismatches);
     }
   } else if (isFullSweep && incrementalSweep && !force) {
     // Mode 2: Timestamp-based incremental sweep (optimized for periodic background updates)
@@ -150,11 +153,12 @@ export async function update_note_db(
         batch.push(note);
       }
       
-      await process_batch_and_update_progress(
+      const mismatches = await process_batch_and_update_progress(
         batch, model, settings, abortController, force, catalogId, anchorId, panel,
         () => ({ processed: processed_notes, total: total_notes }),
         (count) => { processed_notes += count; total_notes += count; }  // Adjust estimate as we go
       );
+      allSettingsMismatches.push(...mismatches);
       
       hasMore = notes.has_more && !reachedOldNotes;
       page++;
@@ -184,11 +188,12 @@ export async function update_note_db(
       notes = await joplin.data.get(['notes'], { fields: noteFields, page: page, limit: model.page_size });
       if (notes.items) {
         console.debug(`Processing page ${page}: ${notes.items.length} notes, total so far: ${processed_notes}/${total_notes}`);
-        await process_batch_and_update_progress(
+        const mismatches = await process_batch_and_update_progress(
           notes.items, model, settings, abortController, force, catalogId, anchorId, panel,
           () => ({ processed: processed_notes, total: total_notes }),
           (count) => { processed_notes += count; }
         );
+        allSettingsMismatches.push(...mismatches);
       }
       
       await apply_rate_limit_if_needed(notes.has_more, page, model);
@@ -280,12 +285,62 @@ export async function update_note_db(
     console.info('Jarvis: first userData build completed, disabled legacy SQLite access', { modelId: model.id });
   }
 
+  // Show settings mismatch dialog if mismatches were found during sweep (only for force=false sweeps)
+  if (!force && allSettingsMismatches.length > 0 && settings.experimental_user_data_index) {
+    // Deduplicate by noteId
+    const uniqueMismatches = Array.from(
+      new Map(allSettingsMismatches.map(m => [m.noteId, m])).values()
+    );
+    
+    // Format human-readable summary of settings changes
+    const settingsDiffs: string[] = [];
+    for (const mismatch of uniqueMismatches.slice(0, 1)) { // Check first mismatch as representative
+      const current = mismatch.currentSettings;
+      const stored = mismatch.storedSettings;
+      
+      if (current.embedTitle !== stored.embedTitle) {
+        settingsDiffs.push(`embedTitle ${stored.embedTitle ? 'Yes' : 'No'}→${current.embedTitle ? 'Yes' : 'No'}`);
+      }
+      if (current.embedPath !== stored.embedPath) {
+        settingsDiffs.push(`embedPath ${stored.embedPath ? 'Yes' : 'No'}→${current.embedPath ? 'Yes' : 'No'}`);
+      }
+      if (current.embedHeading !== stored.embedHeading) {
+        settingsDiffs.push(`embedHeading ${stored.embedHeading ? 'Yes' : 'No'}→${current.embedHeading ? 'Yes' : 'No'}`);
+      }
+      if (current.embedTags !== stored.embedTags) {
+        settingsDiffs.push(`embedTags ${stored.embedTags ? 'Yes' : 'No'}→${current.embedTags ? 'Yes' : 'No'}`);
+      }
+      if (current.includeCode !== stored.includeCode) {
+        settingsDiffs.push(`includeCode ${stored.includeCode ? 'Yes' : 'No'}→${current.includeCode ? 'Yes' : 'No'}`);
+      }
+      if (current.maxTokens !== stored.maxTokens) {
+        settingsDiffs.push(`maxTokens ${stored.maxTokens}→${current.maxTokens}`);
+      }
+    }
+    
+    const message = `Found ${uniqueMismatches.length} note(s) with different embedding settings (likely synced from another device).\n\nSettings: ${settingsDiffs.join(', ')}\n\nRebuild these notes with current settings?`;
+    
+    const choice = await joplin.views.dialogs.showMessageBox(message);
+    
+    if (choice === 0) {
+      // User chose to rebuild
+      console.info(`Jarvis: User chose to rebuild ${uniqueMismatches.length} notes with mismatched settings`);
+      // Trigger full scan with force=true to rebuild all mismatched notes
+      await joplin.commands.execute('jarvis.notes.db.update');
+      return; // Don't call find_notes, the rebuild will do it
+    } else {
+      // User chose to skip
+      console.info(`Jarvis: User declined to rebuild ${uniqueMismatches.length} notes with mismatched settings`);
+    }
+  }
+
   find_notes(model, panel);
 }
 
 /**
  * Process a batch of notes and update progress bar.
  * Common helper to avoid duplication across sweep modes.
+ * Returns settings mismatches found during processing.
  */
 async function process_batch_and_update_progress(
   batch: any[],
@@ -298,14 +353,15 @@ async function process_batch_and_update_progress(
   panel: string,
   getProgress: () => { processed: number; total: number },
   onProcessed: (count: number) => void,
-): Promise<void> {
+): Promise<Array<{ noteId: string; currentSettings: any; storedSettings: any }>> {
   if (batch.length === 0) {
-    return;
+    return [];
   }
-  await update_embeddings(batch, model, settings, abortController, force, catalogId, anchorId);
+  const mismatches = await update_embeddings(batch, model, settings, abortController, force, catalogId, anchorId);
   onProcessed(batch.length);
   const { processed, total } = getProgress();
   update_progress_bar(panel, processed, total, settings, 'Computing embeddings');
+  return mismatches;
 }
 
 /**
