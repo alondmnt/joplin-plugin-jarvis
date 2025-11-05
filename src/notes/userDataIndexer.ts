@@ -39,6 +39,7 @@ export interface PrepareUserDataParams {
   targetBytes?: number;
   catalogId?: string;  // Pre-resolved catalog ID to avoid per-note lookups
   anchorId?: string;   // Pre-resolved anchor ID to avoid per-note lookups
+  corpusRowCountAccumulator?: { current: number };  // Running total during sweep (mutable)
 }
 
 export interface PreparedUserData {
@@ -119,10 +120,9 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
       // Use pre-resolved IDs if provided, otherwise resolve them (for backward compatibility)
       const catalogId = params.catalogId ?? await ensure_catalog_note();
       const anchorId = params.anchorId ?? await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
-      const totalRows = count_corpus_rows(model, noteId, blocks.length);
-      const desiredNlist = estimate_nlist(totalRows);
-
       const anchorMeta = await read_anchor_meta_data(anchorId);
+      const totalRows = count_corpus_rows(model, noteId, blocks.length, previousMeta, model.id, params.corpusRowCountAccumulator);
+      const desiredNlist = estimate_nlist(totalRows);
       let centroidPayload = await read_centroids(anchorId);
       let loaded = decode_centroids(centroidPayload);
       let centroids = loaded?.data ?? null;
@@ -396,8 +396,27 @@ function upsert_pending_refresh_state(
 /**
  * Count total rows participating in the corpus after substituting the current
  * note's new blocks. Old embeddings for the same note id are excluded.
+ * 
+ * In userData mode, uses accumulator (initialized from anchor metadata at sweep start)
+ * and updates it as notes are processed.
  */
-function count_corpus_rows(model: TextEmbeddingModel, excludeNoteId: string, newRows: number): number {
+function count_corpus_rows(
+  model: TextEmbeddingModel, 
+  excludeNoteId: string, 
+  newRows: number,
+  previousNoteMeta: NoteEmbMeta | null,
+  modelId: string,
+  corpusRowCountAccumulator?: { current: number },
+): number {
+  // In userData mode, use running accumulator updated during sweep
+  if (corpusRowCountAccumulator) {
+    const previousNoteRows = previousNoteMeta?.models?.[modelId]?.rowCount ?? 0;
+    // Update accumulator: subtract old rows, add new rows
+    corpusRowCountAccumulator.current = Math.max(0, corpusRowCountAccumulator.current - previousNoteRows + newRows);
+    return corpusRowCountAccumulator.current;
+  }
+  
+  // Legacy mode: count from model.embeddings (when userData index disabled)
   let total = Math.max(newRows, 0);
   for (const embedding of model.embeddings) {
     if (embedding.id === excludeNoteId) {

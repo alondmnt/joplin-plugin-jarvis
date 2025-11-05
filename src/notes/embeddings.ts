@@ -14,7 +14,7 @@ import { TopKHeap } from './topK';
 import { load_model_centroids, load_parent_map } from './centroidLoader';
 import { choose_nprobe, select_top_centroid_ids, MIN_TOTAL_ROWS_FOR_IVF } from './centroids';
 import { CentroidNoteIndex } from './centroidNoteIndex';
-import { read_anchor_meta_data } from './anchorStore';
+import { read_anchor_meta_data, write_anchor_metadata } from './anchorStore';
 import { resolve_anchor_note_id, get_catalog_note_id } from './catalog';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
@@ -29,9 +29,16 @@ let globalCentroidIndex: CentroidNoteIndex | null = null;
  * Get all note IDs that have embeddings in userData.
  * Queries Joplin API for all notes, then filters to those with userData embeddings.
  * Used for candidate selection when experimental userData index is enabled.
+ * 
+ * @param modelId - Optional model ID to count blocks for a specific model
+ * @returns Object with noteIds set and optional totalBlocks count
  */
-async function get_all_note_ids_with_embeddings(): Promise<Set<string>> {
+async function get_all_note_ids_with_embeddings(modelId?: string): Promise<{ 
+  noteIds: Set<string>; 
+  totalBlocks?: number;
+}> {
   const noteIds = new Set<string>();
+  let totalBlocks = 0;
   let page = 1;
   let hasMore = true;
   
@@ -50,6 +57,11 @@ async function get_all_note_ids_with_embeddings(): Promise<Set<string>> {
         const meta = await userDataStore.getMeta(note.id);
         if (meta && meta.models && Object.keys(meta.models).length > 0) {
           noteIds.add(note.id);
+          
+          // Count blocks for specific model if requested
+          if (modelId && meta.models[modelId]) {
+            totalBlocks += meta.models[modelId].current.rows ?? 0;
+          }
         }
       }
       
@@ -61,8 +73,79 @@ async function get_all_note_ids_with_embeddings(): Promise<Set<string>> {
     }
   }
   
-  log.info(`Candidate selection: found ${noteIds.size} notes with embeddings`);
-  return noteIds;
+  log.info(`Candidate selection: found ${noteIds.size} notes with embeddings${modelId ? `, ${totalBlocks} blocks for model ${modelId}` : ''}`);
+  return { noteIds, totalBlocks: modelId ? totalBlocks : undefined };
+}
+
+/**
+ * Validate and correct anchor metadata on startup by scanning all notes with embeddings.
+ * This catches drift from aborted sweeps or other issues.
+ * Only updates if drift exceeds 15% threshold.
+ * 
+ * @param modelId - Model ID to validate
+ * @param settings - Jarvis settings
+ */
+export async function validate_anchor_metadata_on_startup(modelId: string, settings: JarvisSettings): Promise<void> {
+  if (!settings.experimental_user_data_index) {
+    return;
+  }
+  
+  try {
+    const catalogId = await get_catalog_note_id();
+    if (!catalogId) {
+      return;
+    }
+    
+    const anchorId = await resolve_anchor_note_id(catalogId, modelId);
+    if (!anchorId) {
+      return;
+    }
+    
+    const anchorMeta = await read_anchor_meta_data(anchorId);
+    if (!anchorMeta || !anchorMeta.rowCount) {
+      log.debug('Startup validation: no anchor metadata to validate');
+      return;
+    }
+    
+    log.info('Startup validation: scanning corpus to validate anchor metadata...');
+    const scanStart = Date.now();
+    const result = await get_all_note_ids_with_embeddings(modelId);
+    const actualRowCount = result.totalBlocks ?? 0;
+    const anchorRowCount = anchorMeta.rowCount;
+    
+    if (actualRowCount === 0) {
+      log.debug('Startup validation: no embeddings found for model', { modelId });
+      return;
+    }
+    
+    // Check if drift exceeds 15% threshold (same as anchor_metadata_changed)
+    const percentDiff = Math.abs(actualRowCount - anchorRowCount) / anchorRowCount;
+    
+    if (percentDiff >= 0.15) {
+      log.warn('Startup validation: anchor metadata drift detected, correcting...', {
+        modelId,
+        anchorRowCount,
+        actualRowCount,
+        drift: `${(percentDiff * 100).toFixed(1)}%`,
+        scanTimeMs: Date.now() - scanStart,
+      });
+      
+      await write_anchor_metadata(anchorId, {
+        ...anchorMeta,
+        rowCount: actualRowCount,
+        updatedAt: new Date().toISOString(),
+      });
+    } else {
+      log.info('Startup validation: anchor metadata accurate', {
+        modelId,
+        rowCount: anchorRowCount,
+        drift: `${(percentDiff * 100).toFixed(1)}%`,
+        scanTimeMs: Date.now() - scanStart,
+      });
+    }
+  } catch (error) {
+    log.warn('Startup validation: failed to validate anchor metadata', error);
+  }
 }
 
 interface SearchTuning {
@@ -740,6 +823,7 @@ export async function update_embeddings(
   force: boolean = false,
   catalogId?: string,
   anchorId?: string,
+  corpusRowCountAccumulator?: { current: number },
 ): Promise<{
   settingsMismatches: Array<{ noteId: string; currentSettings: EmbeddingSettings; storedSettings: EmbeddingSettings }>;
   totalRows: number;
@@ -1278,9 +1362,10 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   if (settings.experimental_user_data_index) {
     // Build candidate set: if IVF index lookup succeeded, use filtered candidates; otherwise load all
-    const candidateIds = ivfCandidateNoteIds 
-      ? ivfCandidateNoteIds
+    const candidateResult = ivfCandidateNoteIds 
+      ? { noteIds: ivfCandidateNoteIds }
       : await get_all_note_ids_with_embeddings();
+    const candidateIds = candidateResult.noteIds;
     candidateIds.add(current_id);
     
     const replaceIds = new Set<string>();

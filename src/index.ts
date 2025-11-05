@@ -8,7 +8,7 @@ import { find_notes, update_note_db, skip_db_init_dialog } from './commands/note
 import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
-import { find_nearest_notes } from './notes/embeddings';
+import { find_nearest_notes, validate_anchor_metadata_on_startup } from './notes/embeddings';
 import { ensure_catalog_note, get_catalog_note_id, resolve_anchor_note_id } from './notes/catalog';
 import { register_panel, update_panel } from './ux/panel';
 import { get_settings, register_settings, set_folders, get_model_last_sweep_time, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
@@ -69,6 +69,12 @@ joplin.plugins.register({
 
     if (runtime.model_embed.model) {
       find_notes_debounce(runtime.model_embed, runtime.panel);
+    }
+
+    // Validate anchor metadata on startup to catch and correct any drift
+    // This runs before the initial sweep to ensure accurate baseline
+    if (runtime.model_embed.id && runtime.settings.experimental_user_data_index) {
+      await validate_anchor_metadata_on_startup(runtime.model_embed.id, runtime.settings);
     }
 
     await run_initial_sweep(runtime, updates);

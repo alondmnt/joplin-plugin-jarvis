@@ -40,6 +40,7 @@ export interface ModelMetadata {
   maxBlockSize: number;
   settings: EmbeddingSettings;
   current: NoteEmbMetaCurrent;
+  rowCount?: number;
 }
 
 export interface NoteEmbMeta {

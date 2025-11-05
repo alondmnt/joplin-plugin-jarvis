@@ -84,12 +84,30 @@ export async function update_note_db(
   let processed_notes = 0;
   const allSettingsMismatches: Array<{ noteId: string; currentSettings: any; storedSettings: any }> = [];
 
+  const isFullSweep = !noteIds || noteIds.length === 0;
+
   // Track total embedding rows created during sweep (for userData anchor metadata)
   // This avoids loading all embeddings into memory to count them
   let totalEmbeddingRows = 0;
   let embeddingDim = 0;  // Track dimension from first batch (needed when model.embeddings is empty)
-
-  const isFullSweep = !noteIds || noteIds.length === 0;
+  
+  // Initialize corpus row count accumulator from anchor metadata (for userData mode)
+  // Used for ALL sweeps (full and incremental) to track running corpus size
+  // Updated at end of sweep to keep anchor metadata accurate
+  let corpusRowCountAccumulator: { current: number } | undefined;
+  if (settings.experimental_user_data_index && anchorId) {
+    try {
+      const anchorMeta = await read_anchor_meta_data(anchorId);
+      corpusRowCountAccumulator = { current: anchorMeta?.rowCount ?? 0 };
+      console.debug('Jarvis: initialized corpus row count accumulator', {
+        modelId: model.id,
+        initialCount: corpusRowCountAccumulator.current,
+        sweepType: isFullSweep ? (incrementalSweep ? 'incremental' : 'full') : 'specific',
+      });
+    } catch (error) {
+      console.warn('Failed to initialize corpus row count accumulator', error);
+    }
+  }
 
   if (noteIds && noteIds.length > 0) {
     // Mode 1: Specific note IDs (note saves, sync notifications)
@@ -117,7 +135,8 @@ export async function update_note_db(
         const result = await process_batch_and_update_progress(
           chunk, model, settings, abortController, force, catalogId, anchorId, panel,
           () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
-          (count) => { processed_notes += count; }
+          (count) => { processed_notes += count; },
+          corpusRowCountAccumulator
         );
         allSettingsMismatches.push(...result.settingsMismatches);
         totalEmbeddingRows += result.totalRows;
@@ -130,7 +149,8 @@ export async function update_note_db(
       const result = await process_batch_and_update_progress(
         batch, model, settings, abortController, force, catalogId, anchorId, panel,
         () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
-        (count) => { processed_notes += count; }
+        (count) => { processed_notes += count; },
+        corpusRowCountAccumulator
       );
       allSettingsMismatches.push(...result.settingsMismatches);
       totalEmbeddingRows += result.totalRows;
@@ -167,7 +187,8 @@ export async function update_note_db(
       const result = await process_batch_and_update_progress(
         batch, model, settings, abortController, force, catalogId, anchorId, panel,
         () => ({ processed: processed_notes, total: total_notes }),
-        (count) => { processed_notes += count; total_notes += count; }  // Adjust estimate as we go
+        (count) => { processed_notes += count; total_notes += count; },  // Adjust estimate as we go
+        corpusRowCountAccumulator
       );
       allSettingsMismatches.push(...result.settingsMismatches);
       totalEmbeddingRows += result.totalRows;
@@ -215,7 +236,8 @@ export async function update_note_db(
         const result = await process_batch_and_update_progress(
           notes.items, model, settings, abortController, force, catalogId, anchorId, panel,
           () => ({ processed: processed_notes, total: total_notes }),
-          (count) => { processed_notes += count; }
+          (count) => { processed_notes += count; },
+          corpusRowCountAccumulator
         );
         allSettingsMismatches.push(...result.settingsMismatches);
         totalEmbeddingRows += result.totalRows;
@@ -240,12 +262,15 @@ export async function update_note_db(
   }
 
   // Update anchor metadata with final stats after sweep completes
+  // Updates after ALL sweeps (full and incremental) to keep anchor accurate
+  // Uses 15% threshold to avoid excessive writes when counts change minimally
   // This replaces the per-note updates that were causing excessive log spam
-  // Uses accumulated totalEmbeddingRows for memory efficiency (avoids counting model.embeddings)
-  if (!abortController.signal.aborted && settings.experimental_user_data_index && anchorId && model?.id) {
+  if (!abortController.signal.aborted && settings.experimental_user_data_index && anchorId && model?.id && corpusRowCountAccumulator) {
     try {
       const currentMetadata = await read_anchor_meta_data(anchorId);
-      const newMetadata = await compute_final_anchor_metadata(model, settings, anchorId, totalEmbeddingRows, embeddingDim);
+      // Use accumulator value (running total) instead of totalEmbeddingRows (delta)
+      const finalRowCount = corpusRowCountAccumulator.current;
+      const newMetadata = await compute_final_anchor_metadata(model, settings, anchorId, finalRowCount, embeddingDim);
       
       if (newMetadata && anchor_metadata_changed(currentMetadata, newMetadata)) {
         await write_anchor_metadata(anchorId, newMetadata);
@@ -253,11 +278,13 @@ export async function update_note_db(
           modelId: model.id,
           rowCount: newMetadata.rowCount,
           nlist: newMetadata.nlist,
+          sweepType: isFullSweep ? (incrementalSweep ? 'incremental' : 'full') : 'specific',
         });
       } else if (newMetadata) {
-        console.debug('Jarvis: anchor metadata unchanged, skipping update', {
+        console.debug('Jarvis: anchor metadata unchanged (<15% change), skipping update', {
           modelId: model.id,
           rowCount: newMetadata.rowCount,
+          oldRowCount: currentMetadata?.rowCount,
         });
       }
     } catch (error) {
@@ -387,6 +414,7 @@ async function process_batch_and_update_progress(
   panel: string,
   getProgress: () => { processed: number; total: number },
   onProcessed: (count: number) => void,
+  corpusRowCountAccumulator?: { current: number },
 ): Promise<{
   settingsMismatches: Array<{ noteId: string; currentSettings: any; storedSettings: any }>;
   totalRows: number;
@@ -395,7 +423,7 @@ async function process_batch_and_update_progress(
   if (batch.length === 0) {
     return { settingsMismatches: [], totalRows: 0, dim: 0 };
   }
-  const result = await update_embeddings(batch, model, settings, abortController, force, catalogId, anchorId);
+  const result = await update_embeddings(batch, model, settings, abortController, force, catalogId, anchorId, corpusRowCountAccumulator);
   onProcessed(batch.length);
   const { processed, total } = getProgress();
   update_progress_bar(panel, processed, total, settings, 'Computing embeddings');
