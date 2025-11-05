@@ -575,6 +575,7 @@ async function update_catalog_body(catalogNoteId: string, registry: ModelRegistr
 
 /**
  * Ensure the anchor note metadata matches the current model and version.
+ * Preserves existing metadata fields to avoid conflicts with sweep updates.
  *
  * @param anchorId - Anchor identifier to update.
  * @param modelId - Model identifier expected in the metadata.
@@ -585,7 +586,9 @@ async function ensure_anchor_metadata(anchorId: string, modelId: string, modelVe
   if (meta?.modelId === modelId && meta.version === modelVersion) {
     return;
   }
+  // Preserve existing metadata fields to avoid overwriting sweep-updated stats
   await write_anchor_metadata(anchorId, {
+    ...meta,
     modelId,
     version: modelVersion,
     dim: meta?.dim ?? 0,

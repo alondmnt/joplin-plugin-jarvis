@@ -8,6 +8,8 @@ import { ModelError } from '../utils';
 import { assign_missing_centroids } from '../notes/centroidAssignment';
 import { UserDataEmbStore, EmbeddingSettings } from '../notes/userDataStore';
 import type { JarvisSettings } from '../ux/settings';
+import { compute_final_anchor_metadata, anchor_metadata_changed } from '../notes/userDataIndexer';
+import { read_anchor_meta_data, write_anchor_metadata } from '../notes/anchorStore';
 
 /**
  * Refresh embeddings for either the entire notebook set or a specific list of notes.
@@ -82,6 +84,11 @@ export async function update_note_db(
   let processed_notes = 0;
   const allSettingsMismatches: Array<{ noteId: string; currentSettings: any; storedSettings: any }> = [];
 
+  // Track total embedding rows created during sweep (for userData anchor metadata)
+  // This avoids loading all embeddings into memory to count them
+  let totalEmbeddingRows = 0;
+  let embeddingDim = 0;  // Track dimension from first batch (needed when model.embeddings is empty)
+
   const isFullSweep = !noteIds || noteIds.length === 0;
 
   if (noteIds && noteIds.length > 0) {
@@ -107,23 +114,27 @@ export async function update_note_db(
       // Flush in fixed-size chunks for consistent throughput
       while (batch.length >= model.page_size && !abortController.signal.aborted) {
         const chunk = batch.splice(0, model.page_size);
-        const mismatches = await process_batch_and_update_progress(
+        const result = await process_batch_and_update_progress(
           chunk, model, settings, abortController, force, catalogId, anchorId, panel,
           () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
           (count) => { processed_notes += count; }
         );
-        allSettingsMismatches.push(...mismatches);
+        allSettingsMismatches.push(...result.settingsMismatches);
+        totalEmbeddingRows += result.totalRows;
+        if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
       }
     }
 
     // Process remaining notes
     if (!abortController.signal.aborted) {
-      const mismatches = await process_batch_and_update_progress(
+      const result = await process_batch_and_update_progress(
         batch, model, settings, abortController, force, catalogId, anchorId, panel,
         () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
         (count) => { processed_notes += count; }
       );
-      allSettingsMismatches.push(...mismatches);
+      allSettingsMismatches.push(...result.settingsMismatches);
+      totalEmbeddingRows += result.totalRows;
+      if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
     }
   } else if (isFullSweep && incrementalSweep && !force) {
     // Mode 2: Timestamp-based incremental sweep (optimized for periodic background updates)
@@ -153,12 +164,14 @@ export async function update_note_db(
         batch.push(note);
       }
       
-      const mismatches = await process_batch_and_update_progress(
+      const result = await process_batch_and_update_progress(
         batch, model, settings, abortController, force, catalogId, anchorId, panel,
         () => ({ processed: processed_notes, total: total_notes }),
         (count) => { processed_notes += count; total_notes += count; }  // Adjust estimate as we go
       );
-      allSettingsMismatches.push(...mismatches);
+      allSettingsMismatches.push(...result.settingsMismatches);
+      totalEmbeddingRows += result.totalRows;
+      if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
       
       hasMore = notes.has_more && !reachedOldNotes;
       page++;
@@ -188,12 +201,14 @@ export async function update_note_db(
       notes = await joplin.data.get(['notes'], { fields: noteFields, page: page, limit: model.page_size });
       if (notes.items) {
         console.debug(`Processing page ${page}: ${notes.items.length} notes, total so far: ${processed_notes}/${total_notes}`);
-        const mismatches = await process_batch_and_update_progress(
+        const result = await process_batch_and_update_progress(
           notes.items, model, settings, abortController, force, catalogId, anchorId, panel,
           () => ({ processed: processed_notes, total: total_notes }),
           (count) => { processed_notes += count; }
         );
-        allSettingsMismatches.push(...mismatches);
+        allSettingsMismatches.push(...result.settingsMismatches);
+        totalEmbeddingRows += result.totalRows;
+        if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
       }
       
       await apply_rate_limit_if_needed(notes.has_more, page, model);
@@ -211,6 +226,35 @@ export async function update_note_db(
     const timestamp = Date.now();
     await set_model_last_sweep_time(model.id, timestamp);
     console.debug(`Jarvis: updated last sweep time to ${new Date(timestamp).toISOString()}`);
+  }
+
+  // Update anchor metadata with final stats after sweep completes
+  // This replaces the per-note updates that were causing excessive log spam
+  // Uses accumulated totalEmbeddingRows for memory efficiency (avoids counting model.embeddings)
+  if (!abortController.signal.aborted && settings.experimental_user_data_index && anchorId && model?.id) {
+    try {
+      const currentMetadata = await read_anchor_meta_data(anchorId);
+      const newMetadata = await compute_final_anchor_metadata(model, settings, anchorId, totalEmbeddingRows, embeddingDim);
+      
+      if (newMetadata && anchor_metadata_changed(currentMetadata, newMetadata)) {
+        await write_anchor_metadata(anchorId, newMetadata);
+        console.debug('Jarvis: anchor metadata updated after sweep', {
+          modelId: model.id,
+          rowCount: newMetadata.rowCount,
+          nlist: newMetadata.nlist,
+        });
+      } else if (newMetadata) {
+        console.debug('Jarvis: anchor metadata unchanged, skipping update', {
+          modelId: model.id,
+          rowCount: newMetadata.rowCount,
+        });
+      }
+    } catch (error) {
+      console.warn('Jarvis: failed to update anchor metadata after sweep', {
+        modelId: model.id,
+        error: String((error as any)?.message ?? error),
+      });
+    }
   }
 
   // Check if centroids were trained/retrained during this sweep and assign centroid IDs immediately
@@ -319,7 +363,7 @@ export async function update_note_db(
 /**
  * Process a batch of notes and update progress bar.
  * Common helper to avoid duplication across sweep modes.
- * Returns settings mismatches found during processing.
+ * Returns settings mismatches and total embedding rows processed.
  */
 async function process_batch_and_update_progress(
   batch: any[],
@@ -332,15 +376,19 @@ async function process_batch_and_update_progress(
   panel: string,
   getProgress: () => { processed: number; total: number },
   onProcessed: (count: number) => void,
-): Promise<Array<{ noteId: string; currentSettings: any; storedSettings: any }>> {
+): Promise<{
+  settingsMismatches: Array<{ noteId: string; currentSettings: any; storedSettings: any }>;
+  totalRows: number;
+  dim: number;
+}> {
   if (batch.length === 0) {
-    return [];
+    return { settingsMismatches: [], totalRows: 0, dim: 0 };
   }
-  const mismatches = await update_embeddings(batch, model, settings, abortController, force, catalogId, anchorId);
+  const result = await update_embeddings(batch, model, settings, abortController, force, catalogId, anchorId);
   onProcessed(batch.length);
   const { processed, total } = getProgress();
   update_progress_bar(panel, processed, total, settings, 'Computing embeddings');
-  return mismatches;
+  return result;
 }
 
 /**

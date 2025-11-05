@@ -728,7 +728,7 @@ async function promptEmbeddingError(
  * Processes notes in batches, handling errors per-note with retry/skip/abort prompts.
  * Updates in-memory model.embeddings array after successful batch completion.
  * 
- * @returns Array of settings mismatches found during processing (for dialog)
+ * @returns Object containing settings mismatches and total embedding rows processed
  */
 export async function update_embeddings(
   notes: any[],
@@ -738,7 +738,11 @@ export async function update_embeddings(
   force: boolean = false,
   catalogId?: string,
   anchorId?: string,
-): Promise<Array<{ noteId: string; currentSettings: EmbeddingSettings; storedSettings: EmbeddingSettings }>> {
+): Promise<{
+  settingsMismatches: Array<{ noteId: string; currentSettings: EmbeddingSettings; storedSettings: EmbeddingSettings }>;
+  totalRows: number;
+  dim: number;
+}> {
   const successfulNotes: Array<{ note: any; embeddings: BlockEmbedding[] }> = [];
   const skippedNotes: string[] = [];
   const settingsMismatches: Array<{ noteId: string; currentSettings: EmbeddingSettings; storedSettings: EmbeddingSettings }> = [];
@@ -814,18 +818,29 @@ export async function update_embeddings(
   }
 
   if (successfulNotes.length === 0) {
-    return settingsMismatches;
+    return { settingsMismatches, totalRows: 0, dim: 0 };
   }
 
-  remove_note_embeddings(
-    model.embeddings,
-    successfulNotes.map(result => result.note.id),
-  );
-
-  const mergedEmbeddings = successfulNotes.flatMap(result => result.embeddings);
-  model.embeddings.push(...mergedEmbeddings);
+  // Only populate model.embeddings when userData index is disabled (legacy mode)
+  // When userData is enabled, search reads directly from userData (memory efficient)
+  if (!settings.experimental_user_data_index) {
+    const mergedEmbeddings = successfulNotes.flatMap(result => result.embeddings);
+    remove_note_embeddings(
+      model.embeddings,
+      successfulNotes.map(result => result.note.id),
+    );
+    model.embeddings.push(...mergedEmbeddings);
+    const dim = mergedEmbeddings[0]?.embedding?.length ?? 0;
+    return { settingsMismatches, totalRows: mergedEmbeddings.length, dim };
+  }
   
-  return settingsMismatches;
+  // Count total embedding rows without creating temporary array (memory efficient)
+  const totalRows = successfulNotes.reduce((sum, result) => sum + result.embeddings.length, 0);
+  
+  // Get dimension from first embedding (needed for anchor metadata when model.embeddings is empty)
+  const dim = successfulNotes[0]?.embeddings[0]?.embedding?.length ?? 0;
+  
+  return { settingsMismatches, totalRows, dim };
 }
 
 // function to remove all embeddings of the given notes from an array of embeddings in-place

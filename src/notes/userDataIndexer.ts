@@ -260,23 +260,9 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
         centroidIds = assign_centroid_ids(centroids, dim, blockVectors);
       }
 
-      const anchorMetadata: AnchorMetadata = {
-        modelId: model.id,
-        dim,
-        version: model.version ?? 'unknown',
-        settings: embeddingSettings, // Store actual settings instead of hash
-        updatedAt,
-        rowCount: totalRows,
-        nlist: (loaded?.nlist ?? desiredNlist) > 0 ? (loaded?.nlist ?? desiredNlist) : undefined,
-        centroidUpdatedAt: centroidPayload?.updatedAt ?? loaded?.updatedAt,
-        centroidHash: centroidPayload?.hash ?? loaded?.hash,
-      };
-
-      if (refreshState) {
-        anchorMetadata.refresh = refreshState;
-      }
-
-      await write_anchor_metadata(anchorId, anchorMetadata);
+      // Note: Anchor metadata update moved to end of sweep in update_note_db()
+      // This avoids updating anchor metadata for every single note, which was causing
+      // excessive log spam and unnecessary writes. We now update once at sweep end.
     } catch (error) {
       log.warn('Failed to update model anchor metadata', { modelId: model.id, error });
     }
@@ -448,4 +434,132 @@ function collect_centroid_samples(
     }
   }
   return reservoir_sample_vectors(iterate(), { limit });
+}
+
+/**
+ * Compute final anchor metadata after a sweep completes.
+ * 
+ * @param model - The embedding model
+ * @param settings - Jarvis settings for extracting embedding configuration
+ * @param anchorId - Anchor note ID to read existing metadata from
+ * @param totalRows - Total embedding rows (blocks) counted during sweep (for memory efficiency)
+ * @param dim - Embedding dimension captured from sweep (avoids accessing model.embeddings)
+ * @returns AnchorMetadata object ready to be persisted
+ */
+export async function compute_final_anchor_metadata(
+  model: TextEmbeddingModel,
+  settings: JarvisSettings,
+  anchorId: string,
+  totalRows: number,
+  dim: number,
+): Promise<AnchorMetadata | null> {
+  try {
+    const embeddingSettings = extract_embedding_settings(settings);
+    
+    // Use provided totalRows from sweep accumulation instead of counting model.embeddings
+    // This avoids loading all embeddings into memory
+    if (totalRows === 0) {
+      return null; // No embeddings yet
+    }
+    
+    // Use provided dim from sweep (avoids accessing model.embeddings which is empty in userData mode)
+    // Fallback to anchor metadata if dim not provided
+    const anchorMeta = await read_anchor_meta_data(anchorId);
+    const finalDim = dim > 0 ? dim : (anchorMeta?.dim ?? 0);
+    if (finalDim === 0) {
+      return null; // No dimension information available
+    }
+    
+    const desiredNlist = estimate_nlist(totalRows);
+    const centroidPayload = await read_centroids(anchorId);
+    const loaded = decode_centroids(centroidPayload);
+    
+    const metadata: AnchorMetadata = {
+      modelId: model.id,
+      dim: finalDim,
+      version: model.version ?? 'unknown',
+      settings: embeddingSettings,
+      updatedAt: new Date().toISOString(),
+      rowCount: totalRows,
+      nlist: (loaded?.nlist ?? desiredNlist) > 0 ? (loaded?.nlist ?? desiredNlist) : undefined,
+      centroidUpdatedAt: centroidPayload?.updatedAt ?? loaded?.updatedAt,
+      centroidHash: centroidPayload?.hash ?? loaded?.hash,
+    };
+    
+    // Preserve existing refresh state if present
+    if (anchorMeta?.refresh) {
+      metadata.refresh = anchorMeta.refresh;
+    }
+    
+    return metadata;
+  } catch (error) {
+    log.warn('Failed to compute anchor metadata', { modelId: model.id, error });
+    return null;
+  }
+}
+
+/**
+ * Compare two anchor metadata objects to see if they meaningfully differ.
+ * Ignores updatedAt timestamp since that always changes.
+ * For count stats (rowCount, nlist), requires at least 15% change to be considered different.
+ * 
+ * @param a - First metadata object
+ * @param b - Second metadata object
+ * @param countChangeThreshold - Minimum percentage change (0-1) required for count stats (default 0.15 = 15%)
+ * @returns true if metadata has meaningfully changed, false otherwise
+ */
+export function anchor_metadata_changed(
+  a: AnchorMetadata | null,
+  b: AnchorMetadata | null,
+  countChangeThreshold: number = 0.15,
+): boolean {
+  if (!a || !b) {
+    return true; // If either is missing, consider it changed
+  }
+  
+  /**
+   * Check if two count values differ by at least the threshold percentage.
+   * Handles undefined values and prevents division by zero.
+   */
+  const countDiffersSignificantly = (oldVal?: number, newVal?: number): boolean => {
+    if (oldVal === undefined && newVal === undefined) return false;
+    if (oldVal === undefined || newVal === undefined) return true;
+    if (oldVal === 0 && newVal === 0) return false;
+    if (oldVal === 0) return true; // Any change from 0 is significant
+    
+    const percentChange = Math.abs(newVal - oldVal) / oldVal;
+    return percentChange >= countChangeThreshold;
+  };
+  
+  // Compare critical fields that always trigger updates
+  if (a.modelId !== b.modelId) return true;
+  if (a.dim !== b.dim) return true;
+  if (a.version !== b.version) return true;
+  if (a.centroidUpdatedAt !== b.centroidUpdatedAt) return true;
+  if (a.centroidHash !== b.centroidHash) return true;
+  if (a.format !== b.format) return true;
+  
+  // Compare count stats with threshold (only update if changed significantly)
+  if (countDiffersSignificantly(a.rowCount, b.rowCount)) return true;
+  if (countDiffersSignificantly(a.nlist, b.nlist)) return true;
+  
+  // Compare settings
+  if (!a.settings || !b.settings) {
+    if (a.settings !== b.settings) return true;
+  } else if (!settings_equal(a.settings, b.settings)) {
+    return true;
+  }
+  
+  // Compare refresh state
+  if (!a.refresh || !b.refresh) {
+    if (a.refresh !== b.refresh) return true;
+  } else {
+    if (a.refresh.status !== b.refresh.status) return true;
+    if (a.refresh.reason !== b.refresh.reason) return true;
+    if (a.refresh.requestedAt !== b.refresh.requestedAt) return true;
+    if (a.refresh.requestedBy !== b.refresh.requestedBy) return true;
+    if (a.refresh.lastAttemptAt !== b.refresh.lastAttemptAt) return true;
+  }
+  
+  return false; // No meaningful changes
 }
