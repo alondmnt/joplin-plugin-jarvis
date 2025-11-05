@@ -149,7 +149,13 @@ async function reservoir_sample_note_ids(sampleSize: number): Promise<{ total: n
     page += 1;
     let response: any;
     try {
-      response = await joplin.data.get(['notes'], { fields: ['id'], limit: NOTE_PAGE_LIMIT, page });
+      response = await joplin.data.get(['notes'], { 
+        fields: ['id'], 
+        limit: NOTE_PAGE_LIMIT, 
+        page,
+        order_by: 'user_updated_time',
+        order_dir: 'DESC',
+      });
     } catch (error) {
       log.warn('Failed to fetch note ids during coverage sampling', { page, error });
       break;

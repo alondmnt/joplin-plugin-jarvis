@@ -41,6 +41,8 @@ async function get_all_note_ids_with_embeddings(): Promise<Set<string>> {
         fields: ['id'],
         page,
         limit: 100,
+        order_by: 'user_updated_time',
+        order_dir: 'DESC',
       });
       
       for (const note of response.items) {

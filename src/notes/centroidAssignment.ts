@@ -88,7 +88,13 @@ export async function assign_missing_centroids(
         log.info('Centroid assignment aborted during counting', { modelId });
         return result;
       }
-      const notes = await joplin.data.get(['notes'], { fields: ['id'], page, limit: 100 });
+      const notes = await joplin.data.get(['notes'], { 
+        fields: ['id'], 
+        page, 
+        limit: 100,
+        order_by: 'user_updated_time',
+        order_dir: 'DESC',
+      });
       result.totalNotes += notes.items?.length ?? 0;
       if (!notes.has_more) break;
       page += 1;
@@ -111,7 +117,13 @@ export async function assign_missing_centroids(
     }
 
     // Fetch batch of note IDs
-    const notes = await joplin.data.get(['notes'], { fields: ['id'], page, limit: 100 });
+    const notes = await joplin.data.get(['notes'], { 
+      fields: ['id'], 
+      page, 
+      limit: 100,
+      order_by: 'user_updated_time',
+      order_dir: 'DESC',
+    });
     const noteIds: string[] = (notes.items ?? []).map((n: any) => n.id).filter(Boolean);
 
     if (noteIds.length === 0) {

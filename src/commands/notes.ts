@@ -189,7 +189,12 @@ export async function update_note_db(
     // Count all notes for accurate progress bar
     do {
       page += 1;
-      notes = await joplin.data.get(['notes'], { fields: ['id'], page: page });
+      notes = await joplin.data.get(['notes'], { 
+        fields: ['id'], 
+        page: page,
+        order_by: 'user_updated_time',
+        order_dir: 'DESC',
+      });
       total_notes += notes.items.length;
     } while (notes.has_more);
     update_progress_bar(panel, 0, total_notes, settings, 'Computing embeddings');
@@ -198,7 +203,13 @@ export async function update_note_db(
     // Iterate over all notes
     do {
       page += 1;
-      notes = await joplin.data.get(['notes'], { fields: noteFields, page: page, limit: model.page_size });
+      notes = await joplin.data.get(['notes'], { 
+        fields: noteFields, 
+        page: page, 
+        limit: model.page_size,
+        order_by: 'user_updated_time',
+        order_dir: 'DESC',
+      });
       if (notes.items) {
         console.debug(`Processing page ${page}: ${notes.items.length} notes, total so far: ${processed_notes}/${total_notes}`);
         const result = await process_batch_and_update_progress(

@@ -98,6 +98,8 @@ async function collect_model_inventory(activeModelId: string): Promise<Inventory
       fields: ['id'],
       page,
       limit: PAGE_SIZE,
+      order_by: 'user_updated_time',
+      order_dir: 'DESC',
     });
     const items = response?.items ?? [];
     for (const item of items) {

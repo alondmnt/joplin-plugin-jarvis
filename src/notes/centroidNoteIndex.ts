@@ -198,6 +198,8 @@ export class CentroidNoteIndex {
           fields: ['id'],
           page,
           limit: 100, // Joplin API max per page
+          order_by: 'user_updated_time',
+          order_dir: 'DESC',
         });
 
         const noteIds: string[] = result.items.map((item: any) => item.id);
@@ -270,22 +272,22 @@ export class CentroidNoteIndex {
     let refreshedCount = 0;
     let reachedOldNotes = false;
 
-    // Query notes ordered by updated_time descending (most recent first)
+    // Query notes ordered by user_updated_time descending (most recent first)
     while (hasMore && !reachedOldNotes) {
       try {
         const result = await joplin.data.get(['notes'], {
-          fields: ['id', 'updated_time'],
+          fields: ['id', 'user_updated_time'],
           page,
           limit: 100,
-          order_by: 'updated_time',
+          order_by: 'user_updated_time',
           order_dir: 'DESC',
         });
 
-        const notes: Array<{ id: string; updated_time: number }> = result.items;
+        const notes: Array<{ id: string; user_updated_time: number }> = result.items;
 
         for (const note of notes) {
           // Check if we've reached notes older than last refresh
-          if (note.updated_time <= lastUpdated) {
+          if (note.user_updated_time <= lastUpdated) {
             reachedOldNotes = true;
             break;
           }
