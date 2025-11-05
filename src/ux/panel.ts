@@ -7,7 +7,7 @@ export async function register_panel(panel: string, settings: JarvisSettings, mo
   if (model.model === null) {
     model_str = 'Model could not be loaded.'
     if (!model.online) {
-      model_str += `Note that ${model.id} runs completely locally, but requires network access in order to load the model.`;
+      model_str += ` Note that ${model.id} runs completely locally, but requires network access in order to load the model.`;
     }
   }
   await joplin.views.panels.addScript(panel, 'ux/webview.css');
