@@ -363,6 +363,7 @@ export interface UpdateNoteResult {
     currentSettings: EmbeddingSettings;
     storedSettings: EmbeddingSettings;
   };
+  skippedUnchanged?: boolean; // True if note was skipped due to matching hash and settings
 }
 
 /**
@@ -575,6 +576,10 @@ async function update_note(note: any,
   if (note.is_conflict) {
     return { embeddings: [] };
   }
+  
+  // NOTE: Tag-based exclusion is now handled by early filtering in update_note_db
+  // This check is kept as a safety fallback in case notes slip through
+  // (e.g., tags added/changed during processing, or direct update_note calls)
   let note_tags: string[];
   try {
     note_tags = (await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] }))
@@ -586,7 +591,12 @@ async function update_note(note: any,
   if (note_tags.includes('jarvis-exclude') || note_tags.includes('exclude.from.jarvis') ||
       settings.notes_exclude_folders.has(note.parent_id) ||
       (note.deleted_time > 0)) {
-    log.debug(`Excluding note ${note.id} from Jarvis`);
+    // Log why this note is excluded (helps identify repeated processing or filter bypass)
+    const excludeReason = note_tags.includes('jarvis-exclude') ? 'jarvis-exclude tag' :
+                         note_tags.includes('exclude.from.jarvis') ? 'exclude.from.jarvis tag' :
+                         settings.notes_exclude_folders.has(note.parent_id) ? 'excluded folder' :
+                         'deleted';
+    log.info(`[REPEATED-UPDATE-DEBUG] Late exclusion (safety check): note ${note.id} (${note.title?.substring(0, 30)}...) - reason: ${excludeReason}`);
     delete_note_and_embeddings(model.db, note.id);
     
     // Delete all userData embeddings (for all models) and update centroid index
@@ -619,92 +629,111 @@ async function update_note(note: any,
   const hash = calc_hash(note.body);
   const old_embd = model.embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);
 
-  // Check if content unchanged (in SQLite)
-  if ((old_embd.length > 0) && (old_embd[0].hash === hash)) {
+  // Fetch userData meta once and cache it for this update (avoid multiple reads)
+  let userDataMeta: Awaited<ReturnType<typeof userDataStore.getMeta>> | null = null;
+  if (settings.experimental_user_data_index) {
+    try {
+      userDataMeta = await userDataStore.getMeta(note.id);
+    } catch (error) {
+      log.debug(`Failed to fetch userData for note ${note.id}`, error);
+    }
+  }
+
+  // Check if content unchanged (check both SQLite and userData)
+  let hashMatch = (old_embd.length > 0) && (old_embd[0].hash === hash);
+  let userDataHashMatch = false;
+  
+  // When userData is enabled and SQLite is empty, check userData for existing hash
+  if (!hashMatch && userDataMeta && old_embd.length === 0) {
+    const modelMeta = userDataMeta?.models?.[model.id];
+    if (modelMeta && modelMeta.current?.contentHash === hash) {
+      hashMatch = true;
+      userDataHashMatch = true;
+    }
+  }
+  
+  if (hashMatch) {
     // Content unchanged - decide whether to skip based on force parameter
     
     if (!force) {
       // force=false (note save/sweep): Skip if content unchanged, but validate settings
       // This is for incremental updates when user saves a note or background sweeps
-      if (settings.experimental_user_data_index) {
-        try {
-          const existing = await userDataStore.getMeta(note.id);
-          const modelMeta = existing?.models?.[model.id];
-          const needsBackfill = !existing
-            || !modelMeta
-            || modelMeta.current?.contentHash !== hash;
-          let needsCompaction = false;
-          if (!needsBackfill && existing && modelMeta && modelMeta.current?.shards > 0) {
-            try {
-              const first = await userDataStore.getShard(note.id, model.id, 0);
-              const row0 = first?.meta?.[0] as any;
-              // Detect legacy rows by presence of duplicated per-row fields or blockId
-              needsCompaction = Boolean(row0?.noteId || row0?.noteHash || row0?.blockId);
-            } catch (e) {
-              // Ignore shard read issues during compact check
-            }
+      if (userDataMeta) {
+        const modelMeta = userDataMeta?.models?.[model.id];
+        const needsBackfill = !userDataMeta
+          || !modelMeta
+          || modelMeta.current?.contentHash !== hash;
+        let needsCompaction = false;
+        if (!needsBackfill && userDataMeta && modelMeta && modelMeta.current?.shards > 0) {
+          try {
+            const first = await userDataStore.getShard(note.id, model.id, 0);
+            const row0 = first?.meta?.[0] as any;
+            // Detect legacy rows by presence of duplicated per-row fields or blockId
+            needsCompaction = Boolean(row0?.noteId || row0?.noteHash || row0?.blockId);
+          } catch (e) {
+            // Ignore shard read issues during compact check
           }
-          if (needsBackfill || needsCompaction) {
-            await maybe_write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId, anchorId);
-          }
+        }
+        if (needsBackfill || needsCompaction) {
+          log.debug(`Note ${note.id} needs backfill/compaction - needsBackfill=${needsBackfill}, needsCompaction=${needsCompaction}`);
+          await maybe_write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId, anchorId);
+        }
+        
+        // Validate settings even when content unchanged (catches synced mismatches)
+        // Check if this note has embeddings for OUR model, regardless of which model is "active"
+        if (userDataMeta && modelMeta) {
+          const currentSettings = extract_embedding_settings_for_validation(settings);
           
-          // Validate settings even when content unchanged (catches synced mismatches)
-          // Check if this note has embeddings for OUR model, regardless of which model is "active"
-          if (existing && modelMeta) {
-            const currentSettings = extract_embedding_settings_for_validation(settings);
-            
-            // Check if settings match for our model's embeddings
-            if (!settings_equal(currentSettings, modelMeta.settings)) {
-              // Settings mismatch - return mismatch info for dialog
-              log.debug(`Note ${note.id}: settings mismatch detected during sweep for model ${model.id}`);
-              return {
-                embeddings: old_embd,
-                settingsMismatch: {
-                  noteId: note.id,
-                  currentSettings,
-                  storedSettings: modelMeta.settings,
-                },
-              };
-            }
+          // Check if settings match for our model's embeddings
+          if (!settings_equal(currentSettings, modelMeta.settings)) {
+            // Settings mismatch - return mismatch info for dialog
+            log.info(`Note ${note.id}: settings mismatch detected during sweep for model ${model.id}`);
+            return {
+              embeddings: old_embd,
+              settingsMismatch: {
+                noteId: note.id,
+                currentSettings,
+                storedSettings: modelMeta.settings,
+              },
+            };
           }
-        } catch (error) {
-          log.warn(`Failed to check userData for unchanged note ${note.id}`, error);
         }
       }
-      return { embeddings: old_embd }; // Skip - content unchanged, settings match
+      return { embeddings: old_embd, skippedUnchanged: true }; // Skip - content unchanged, settings match
     }
     
     // force=true: Check if userData matches current settings/model before skipping
     // This is for manual "Update DB", settings changes, or validation dialog rebuilds
-    if (settings.experimental_user_data_index) {
-      try {
-        const userDataMeta = await userDataStore.getMeta(note.id);
-        if (userDataMeta && userDataMeta.models[model.id]) {
-          const modelMeta = userDataMeta.models[model.id];
-          const currentSettings = extract_embedding_settings_for_validation(settings);
-          
-          if (modelMeta && 
-              modelMeta.current.contentHash === hash &&
-              modelMeta.modelVersion === (model.version ?? 'unknown') &&
-              modelMeta.embeddingVersion === (model.embedding_version ?? 0) &&
-              settings_equal(currentSettings, modelMeta.settings)) {
-            // Everything up-to-date: content, settings, and model all match
-            log.debug(`Skipping note ${note.id} - already up-to-date (force=true, all checks passed)`);
-            return { embeddings: old_embd };
-          }
-          // userData exists but outdated (settings or model changed) - fall through to rebuild
-          log.debug(`Rebuilding note ${note.id} - userData outdated (force=true)`);
-        } else {
-          // userData missing or wrong model - fall through to rebuild
-          log.debug(`Rebuilding note ${note.id} - userData missing or wrong model (force=true)`);
+    if (userDataMeta) {
+      if (userDataMeta.models[model.id]) {
+        const modelMeta = userDataMeta.models[model.id];
+        const currentSettings = extract_embedding_settings_for_validation(settings);
+        
+        const hashMatches = modelMeta.current.contentHash === hash;
+        const modelVersionMatches = modelMeta.modelVersion === (model.version ?? 'unknown');
+        const embeddingVersionMatches = modelMeta.embeddingVersion === (model.embedding_version ?? 0);
+        const settingsMatch = settings_equal(currentSettings, modelMeta.settings);
+        
+        if (modelMeta && hashMatches && modelVersionMatches && embeddingVersionMatches && settingsMatch) {
+          // Everything up-to-date: content, settings, and model all match
+          log.debug(`Skipping note ${note.id} - already up-to-date (force=true)`);
+          // Note: old_embd may be empty when userData is enabled (embeddings stored in userData, not SQLite)
+          return { embeddings: old_embd, skippedUnchanged: true };
         }
-      } catch (error) {
-        log.warn(`Failed to check userData for note ${note.id}, will rebuild`, error);
-        // Fall through to rebuild on error
+        // userData exists but outdated (settings or model changed) - fall through to rebuild
+        log.debug(`Rebuilding note ${note.id} - userData outdated (force=true)`);
+      } else {
+        // userData missing or wrong model - fall through to rebuild
+        log.debug(`Rebuilding note ${note.id} - userData wrong model (force=true)`);
       }
     } else {
+      // userData missing - fall through to rebuild
+      log.debug(`Rebuilding note ${note.id} - userData missing (force=true)`);
+    }
+    
+    if (!settings.experimental_user_data_index) {
       // experimental_user_data_index disabled - skip since content unchanged
-      return { embeddings: old_embd };
+      return { embeddings: old_embd, skippedUnchanged: true };
     }
   }
 
@@ -831,6 +860,7 @@ export async function update_embeddings(
 }> {
   const successfulNotes: Array<{ note: any; embeddings: BlockEmbedding[] }> = [];
   const skippedNotes: string[] = [];
+  const skippedUnchangedNotes: string[] = []; // Notes skipped due to matching hash and settings
   const settingsMismatches: Array<{ noteId: string; currentSettings: EmbeddingSettings; storedSettings: EmbeddingSettings }> = [];
   let dialogQueue: Promise<unknown> = Promise.resolve();
   let fatalError: ModelError | null = null;
@@ -846,6 +876,11 @@ export async function update_embeddings(
       try {
         const result = await update_note(note, model, settings, abortController.signal, force, catalogId, anchorId);
         successfulNotes.push({ note, embeddings: result.embeddings });
+        
+        // Track notes that were skipped due to matching hash and settings
+        if (result.skippedUnchanged) {
+          skippedUnchangedNotes.push(note.id);
+        }
         
         // Collect settings mismatches (only during force=false sweeps)
         if (result.settingsMismatch) {
@@ -895,9 +930,11 @@ export async function update_embeddings(
   if (notes.length > 0) {
     const successCount = successfulNotes.length;
     const skipCount = skippedNotes.length;
+    const unchangedCount = skippedUnchangedNotes.length;
     const failCount = notes.length - successCount - skipCount;
     
-    log.info(`Batch complete: ${successCount} successful, ${skipCount} skipped, ${failCount} failed of ${notes.length} total`);
+    log.info(`Batch complete: ${successCount} successful (${unchangedCount} unchanged), ${skipCount} skipped, ${failCount} failed of ${notes.length} total`);
+    
     if (skipCount > 0) {
       log.warn(`Skipped note IDs: ${skippedNotes.slice(0, 10).join(', ')}${skipCount > 10 ? ` ... and ${skipCount - 10} more` : ''}`);
     }
@@ -1055,6 +1092,8 @@ export async function add_note_title(embeddings: BlockEmbedding[]): Promise<Bloc
  * Build centroid-to-note index during startup or full database update.
  * Piggybacks on note scanning to populate index without additional overhead.
  * Called from update_note_db before processing notes.
+ * 
+ * If index already built, just refreshes it (fast timestamp query).
  */
 export async function build_centroid_index_on_startup(
   modelId: string,
@@ -1065,6 +1104,16 @@ export async function build_centroid_index_on_startup(
   }
 
   try {
+    // Check if index already exists and is built
+    if (globalCentroidIndex && globalCentroidIndex.get_model_id() === modelId && globalCentroidIndex.is_built()) {
+      log.info('[REPEATED-UPDATE-DEBUG] CentroidIndex: Already built, refreshing...');
+      const startTime = Date.now();
+      await globalCentroidIndex.refresh();
+      const refreshTime = Date.now() - startTime;
+      log.info(`[REPEATED-UPDATE-DEBUG] CentroidIndex: Refresh took ${refreshTime}ms`);
+      return;
+    }
+
     log.info('CentroidIndex: Building during startup database update');
     const index = await get_or_init_centroid_index(modelId, settings);
     const diagnostics = index.get_diagnostics();

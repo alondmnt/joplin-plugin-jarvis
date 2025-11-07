@@ -56,6 +56,8 @@ export async function update_note_db(
     : incrementalSweep && !force 
       ? 'incremental sweep' 
       : 'full sweep';
+  console.info(`[REPEATED-UPDATE-DEBUG] ========== UPDATE DB STARTED ==========`);
+  console.info(`[REPEATED-UPDATE-DEBUG] Mode: ${mode}, Force: ${force}, Last sweep: ${lastSweepDate}, Model: ${model.id}, needsCentroidReassignment: ${model.needsCentroidReassignment ?? false}`);
   console.info(`Jarvis: starting update (mode: ${mode}, force: ${force}, last sweep: ${lastSweepDate}, incrementalSweep: ${incrementalSweep})`);
 
 
@@ -181,6 +183,7 @@ export async function update_note_db(
           console.debug(`Reached old notes at page ${page}, stopping early`);
           break;
         }
+        
         batch.push(note);
       }
       
@@ -273,6 +276,9 @@ export async function update_note_db(
       const newMetadata = await compute_final_anchor_metadata(model, settings, anchorId, finalRowCount, embeddingDim);
       
       if (newMetadata && anchor_metadata_changed(currentMetadata, newMetadata)) {
+        const oldRowCount = currentMetadata?.rowCount ?? 0;
+        const percentChange = oldRowCount > 0 ? Math.abs(finalRowCount - oldRowCount) / oldRowCount : 1.0;
+        console.info(`[REPEATED-UPDATE-DEBUG] Anchor metadata will be updated - rowCount: ${oldRowCount} -> ${finalRowCount} (${(percentChange * 100).toFixed(1)}% change), nlist: ${currentMetadata?.nlist} -> ${newMetadata.nlist}`);
         await write_anchor_metadata(anchorId, newMetadata);
         console.debug('Jarvis: anchor metadata updated after sweep', {
           modelId: model.id,
@@ -281,6 +287,9 @@ export async function update_note_db(
           sweepType: isFullSweep ? (incrementalSweep ? 'incremental' : 'full') : 'specific',
         });
       } else if (newMetadata) {
+        const oldRowCount = currentMetadata?.rowCount ?? 0;
+        const percentChange = oldRowCount > 0 ? Math.abs(finalRowCount - oldRowCount) / oldRowCount : 0.0;
+        console.info(`[REPEATED-UPDATE-DEBUG] Anchor metadata unchanged - rowCount: ${finalRowCount} (${(percentChange * 100).toFixed(1)}% change from ${oldRowCount}), below 15% threshold`);
         console.debug('Jarvis: anchor metadata unchanged (<15% change), skipping update', {
           modelId: model.id,
           rowCount: newMetadata.rowCount,
@@ -304,6 +313,7 @@ export async function update_note_db(
     && model?.id
     && model.needsCentroidReassignment
   ) {
+    console.info(`[REPEATED-UPDATE-DEBUG] Centroid reassignment triggered - needsCentroidReassignment=${model.needsCentroidReassignment} for model ${model.id}`);
     console.info('Jarvis: centroids were trained/retrained, assigning centroid IDs to all notes', { modelId: model.id });
     try {
       const store = new UserDataEmbStore();
@@ -323,6 +333,7 @@ export async function update_note_db(
         ...result,
       });
       // Clear the flag so we don't reassign again unless centroids are retrained
+      console.info(`[REPEATED-UPDATE-DEBUG] Clearing needsCentroidReassignment flag for model ${model.id}`);
       model.needsCentroidReassignment = false;
     } catch (error) {
       console.warn('Jarvis: centroid assignment failed', {
@@ -395,7 +406,83 @@ export async function update_note_db(
     }
   }
 
+  console.info(`[REPEATED-UPDATE-DEBUG] ========== UPDATE DB COMPLETED ==========`);
+  console.info(`[REPEATED-UPDATE-DEBUG] Processed: ${processed_notes}/${total_notes} notes, Model: ${model.id}, needsCentroidReassignment: ${model.needsCentroidReassignment ?? false}`);
+  
   find_notes(model, panel);
+}
+
+/**
+ * Filter out notes that should be excluded from processing.
+ * This happens BEFORE the main update pipeline to avoid unnecessary work.
+ * 
+ * Filters applied:
+ * - Deleted notes (deleted_time > 0)
+ * - Notes in excluded folders (settings.notes_exclude_folders)
+ * - Notes with jarvis-exclude or exclude.from.jarvis tags
+ * 
+ * Note: Catalog note is automatically excluded via jarvis-exclude tag
+ * 
+ * @returns Filtered batch with excluded notes removed
+ */
+async function filter_excluded_notes(
+  batch: any[],
+  settings: JarvisSettings,
+  catalogId: string | undefined,
+): Promise<any[]> {
+  if (batch.length === 0) {
+    return [];
+  }
+  
+  const filtered: any[] = [];
+  let excludedCount = 0;
+  
+  // Fetch tags for all notes in batch (parallel for efficiency)
+  const tagPromises = batch.map(async (note) => {
+    try {
+      const tags = await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] });
+      return { noteId: note.id, tags: tags.items.map((t: any) => t.title) };
+    } catch (error) {
+      // If tag fetch fails, assume no tags (note will be processed)
+      return { noteId: note.id, tags: [] };
+    }
+  });
+  
+  const tagResults = await Promise.all(tagPromises);
+  const tagsByNoteId = new Map(tagResults.map(r => [r.noteId, r.tags]));
+  
+  for (const note of batch) {
+    // Skip deleted notes
+    if (note.deleted_time > 0) {
+      console.debug(`[REPEATED-UPDATE-DEBUG] Early skip: note ${note.id} (${note.title?.substring(0, 30)}...) - deleted`);
+      excludedCount++;
+      continue;
+    }
+    
+    // Skip notes in excluded folders
+    if (settings.notes_exclude_folders.has(note.parent_id)) {
+      console.debug(`[REPEATED-UPDATE-DEBUG] Early skip: note ${note.id} (${note.title?.substring(0, 30)}...) - excluded folder`);
+      excludedCount++;
+      continue;
+    }
+    
+    // Skip notes with exclusion tags (includes catalog note which has jarvis-exclude tag)
+    const noteTags = tagsByNoteId.get(note.id) || [];
+    if (noteTags.includes('jarvis-exclude') || noteTags.includes('exclude.from.jarvis')) {
+      const tag = noteTags.includes('jarvis-exclude') ? 'jarvis-exclude' : 'exclude.from.jarvis';
+      console.debug(`[REPEATED-UPDATE-DEBUG] Early skip: note ${note.id} (${note.title?.substring(0, 30)}...) - ${tag} tag`);
+      excludedCount++;
+      continue;
+    }
+    
+    filtered.push(note);
+  }
+  
+  if (excludedCount > 0) {
+    console.info(`[REPEATED-UPDATE-DEBUG] Early filtering: excluded ${excludedCount} notes from batch of ${batch.length}, processing ${filtered.length}`);
+  }
+  
+  return filtered;
 }
 
 /**
@@ -423,7 +510,15 @@ async function process_batch_and_update_progress(
   if (batch.length === 0) {
     return { settingsMismatches: [], totalRows: 0, dim: 0 };
   }
-  const result = await update_embeddings(batch, model, settings, abortController, force, catalogId, anchorId, corpusRowCountAccumulator);
+  
+  // Filter out excluded notes early to avoid unnecessary processing
+  const filteredBatch = await filter_excluded_notes(batch, settings, catalogId);
+  
+  // Process only the filtered batch
+  const result = await update_embeddings(filteredBatch, model, settings, abortController, force, catalogId, anchorId, corpusRowCountAccumulator);
+  
+  // Report progress based on original batch size (includes excluded notes)
+  // This ensures progress bar advances correctly even when notes are excluded
   onProcessed(batch.length);
   const { processed, total } = getProgress();
   update_progress_bar(panel, processed, total, settings, 'Computing embeddings');

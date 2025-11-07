@@ -145,6 +145,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
 
       if (refreshDecision) {
         const reason = refreshDecision.reason;
+        log.info(`[REPEATED-UPDATE-DEBUG] Centroid refresh needed for note ${noteId} - reason: ${reason}, totalRows: ${totalRows}, desiredNlist: ${desiredNlist}, previousRows: ${anchorMeta?.rowCount ?? 0}`);
         const nowIso = new Date().toISOString();
         const deviceLabel = `${settings.notes_device_platform ?? 'unknown'}:${settings.notes_device_profile_effective}`;
         // Always train centroids locally - both desktop and mobile
@@ -234,6 +235,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
             
             // Flag that centroid reassignment is needed after this sweep completes
             // This flag will be checked in update_note_db() to trigger immediate reassignment
+            log.info(`[REPEATED-UPDATE-DEBUG] Setting needsCentroidReassignment=true for model ${model.id} - centroids were retrained`);
             model.needsCentroidReassignment = true;
           } else {
             log.debug('Skipped centroid training due to insufficient samples', {
@@ -411,8 +413,12 @@ function count_corpus_rows(
   // In userData mode, use running accumulator updated during sweep
   if (corpusRowCountAccumulator) {
     const previousNoteRows = previousNoteMeta?.models?.[modelId]?.rowCount ?? 0;
+    const oldValue = corpusRowCountAccumulator.current;
     // Update accumulator: subtract old rows, add new rows
     corpusRowCountAccumulator.current = Math.max(0, corpusRowCountAccumulator.current - previousNoteRows + newRows);
+    if (previousNoteRows !== newRows) {
+      log.debug(`[REPEATED-UPDATE-DEBUG] Corpus row count changed for note ${excludeNoteId}: ${oldValue} -> ${corpusRowCountAccumulator.current} (was ${previousNoteRows} rows, now ${newRows} rows)`);
+    }
     return corpusRowCountAccumulator.current;
   }
   
