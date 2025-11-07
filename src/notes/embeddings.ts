@@ -18,7 +18,6 @@ import { read_anchor_meta_data, write_anchor_metadata } from './anchorStore';
 import { resolve_anchor_note_id, get_catalog_note_id } from './catalog';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
-const noteOcrCache = new Map<string, string>();
 const userDataStore = new UserDataEmbStore();
 const log = getLogger();
 
@@ -299,9 +298,7 @@ async function append_ocr_text_to_body(note: any): Promise<void> {
   const noteId = typeof note.id === 'string' ? note.id : undefined;
   let ocrText = '';
 
-  if (noteId && noteOcrCache.has(noteId)) {
-    ocrText = noteOcrCache.get(noteId) ?? '';
-  } else if (noteId) {
+  if (noteId) {
     const snippets: string[] = [];
     try {
       let page = 0;
@@ -321,10 +318,9 @@ async function append_ocr_text_to_body(note: any): Promise<void> {
         }
       } while (resourcesPage?.has_more);
     } catch (error) {
-    log.debug(`Failed to retrieve OCR text for note ${noteId}:`, error);
+      log.debug(`Failed to retrieve OCR text for note ${noteId}:`, error);
     }
     ocrText = snippets.join('\n\n');
-    noteOcrCache.set(noteId, ocrText);
   }
 
   if (ocrText) {
@@ -1000,6 +996,10 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
   let selected: BlockEmbedding[] = [];
   let note_idx = 0;
   let last_title = '';
+  
+  // Cache for note objects (including processed body + OCR text)
+  // Prevents redundant API calls when same note appears multiple times
+  const noteCache = new Map<string, any>();
 
   for (let i=0; i<embeddings.length; i++) {
     embd = embeddings[i];
@@ -1010,20 +1010,31 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
     }
 
     let note: any;
-    try {
-      note = await joplin.data.get(['notes', embd.id], { fields: ['id', 'title', 'body', 'markup_language'] });
-      if (note.markup_language === 2) {
-        try {
-          note.body = await htmlToText(note.body);
-        } catch (error) {
-          log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error);
+    
+    // Check cache first
+    if (noteCache.has(embd.id)) {
+      note = noteCache.get(embd.id);
+    } else {
+      // Load note and process it (HTML conversion + OCR)
+      try {
+        note = await joplin.data.get(['notes', embd.id], { fields: ['id', 'title', 'body', 'markup_language'] });
+        if (note.markup_language === 2) {
+          try {
+            note.body = await htmlToText(note.body);
+          } catch (error) {
+            log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error);
+          }
         }
+        await append_ocr_text_to_body(note);
+        
+        // Cache the fully processed note
+        noteCache.set(embd.id, note);
+      } catch (error) {
+        log.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
+        continue;
       }
-      await append_ocr_text_to_body(note);
-    } catch (error) {
-      log.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
-      continue;
     }
+    
     const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
     embd = Object.assign({}, embd);  // copy to avoid in-place modification
     if (embd.title !== note.title) {
@@ -1055,6 +1066,8 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
       selected.push(embd);
     }
   };
+  
+  // Cache is automatically garbage collected when function exits
   return [text, selected];
 }
 
