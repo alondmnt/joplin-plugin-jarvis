@@ -176,80 +176,43 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
     ?? (settings.notes_device_profile === 'mobile' ? 'mobile' : 'desktop');
   const profile: 'desktop' | 'mobile' = requestedProfile === 'mobile' ? 'mobile' : 'desktop';
 
-  const generalCandidateSetting = Number(settings.notes_ivf_candidate_limit ?? 0);
-  const mobileCandidateSetting = Number(settings.notes_mobile_candidate_limit ?? 0);
+  const candidateOverride = Number(settings.notes_search_candidate_limit ?? 0);
   const candidateFloor = profile === 'mobile' ? 320 : 1024;
   const candidateCeil = profile === 'mobile' ? 960 : 8192;
-  const candidateOverrideCap = profile === 'mobile' ? 4000 : 20000;
   const candidateMultiplier = profile === 'mobile' ? 24 : 64;
   const computedCandidate = baseHits * candidateMultiplier;
   const defaultCandidate = clamp(computedCandidate, candidateFloor, candidateCeil);
-  let candidateLimit = defaultCandidate;
-  if (profile === 'mobile') {
-    if (mobileCandidateSetting > 0) {
-      candidateLimit = clamp(mobileCandidateSetting, candidateFloor, candidateOverrideCap);
-    } else if (generalCandidateSetting > 0) {
-      candidateLimit = clamp(generalCandidateSetting, candidateFloor, candidateOverrideCap);
-    }
-  } else if (generalCandidateSetting > 0) {
-    candidateLimit = clamp(generalCandidateSetting, candidateFloor, candidateOverrideCap);
-  }
+  let candidateLimit = candidateOverride > 0
+    ? clamp(candidateOverride, 1, 10000)
+    : defaultCandidate;
 
+  const minNprobeOverride = Number(settings.notes_search_min_nprobe ?? 0);
   const defaultMinNprobe = profile === 'mobile'
     ? (baseHits >= 20 ? 14 : 12)
     : (baseHits >= 20 ? 20 : 16);
-  const generalMinNprobeSetting = Number(settings.notes_ivf_min_nprobe ?? 0);
-  const mobileMinNprobeSetting = Number(settings.notes_mobile_min_nprobe ?? 0);
-  let minNprobe = defaultMinNprobe;
-  if (profile === 'mobile') {
-    if (mobileMinNprobeSetting > 0) {
-      minNprobe = Math.max(1, mobileMinNprobeSetting);
-    } else if (generalMinNprobeSetting > 0) {
-      minNprobe = Math.max(1, generalMinNprobeSetting);
-    }
-  } else if (generalMinNprobeSetting > 0) {
-    minNprobe = Math.max(1, generalMinNprobeSetting);
-  }
+  let minNprobe = minNprobeOverride > 0
+    ? Math.max(1, minNprobeOverride)
+    : defaultMinNprobe;
 
+  const smallSetOverride = Number(settings.notes_search_small_set_nprobe ?? 0);
   const defaultSmallSet = Math.max(4, Math.round(minNprobe / 2));
-  const generalSmallSetSetting = Number(settings.notes_ivf_small_set_nprobe ?? 0);
-  const mobileSmallSetSetting = Number(settings.notes_mobile_small_set_nprobe ?? 0);
-  let smallSetNprobe = defaultSmallSet;
-  if (profile === 'mobile') {
-    if (mobileSmallSetSetting > 0) {
-      smallSetNprobe = Math.max(1, mobileSmallSetSetting);
-    } else if (generalSmallSetSetting > 0) {
-      smallSetNprobe = Math.max(1, generalSmallSetSetting);
-    }
-  } else if (generalSmallSetSetting > 0) {
-    smallSetNprobe = Math.max(1, generalSmallSetSetting);
-  }
-  smallSetNprobe = clamp(smallSetNprobe, 1, minNprobe);
+  let smallSetNprobe = smallSetOverride > 0
+    ? clamp(smallSetOverride, 1, minNprobe)
+    : defaultSmallSet;
 
-  const mobileMaxRowsSetting = Number(settings.notes_mobile_max_rows ?? 0);
-  const maxRowsCap = profile === 'mobile' ? 4000 : 20000;
-  const defaultMaxRowsTarget = profile === 'mobile'
-    ? Math.max(candidateLimit * 3, 1200)
-    : Math.max(candidateLimit * 4, 6000);
-  const maxRowsClampHigh = clamp(candidateLimit * (profile === 'mobile' ? 4 : 6), candidateLimit, maxRowsCap);
-  let maxRows = clamp(defaultMaxRowsTarget, candidateLimit, maxRowsClampHigh);
-  if (profile === 'mobile' && mobileMaxRowsSetting > 0) {
-    maxRows = clamp(mobileMaxRowsSetting, candidateLimit, maxRowsCap);
-  } else if (profile === 'desktop') {
-    maxRows = clamp(maxRows, candidateLimit, maxRowsCap);
-  }
+  const maxRowsOverride = Number(settings.notes_search_max_rows ?? 0);
+  const defaultMaxRows = profile === 'mobile'
+    ? clamp(candidateLimit * 3, 1200, 4000)
+    : clamp(candidateLimit * 4, 6000, 20000);
+  let maxRows = maxRowsOverride > 0
+    ? Math.max(candidateLimit, maxRowsOverride)
+    : defaultMaxRows;
 
-  const generalTimeBudget = Number(settings.notes_ivf_time_budget_ms ?? 0);
+  const timeBudgetOverride = Number(settings.notes_search_time_budget_ms ?? 0);
   const defaultTimeBudget = profile === 'mobile' ? 150 : 350;
-  let timeBudgetMs = generalTimeBudget > 0 ? generalTimeBudget : defaultTimeBudget;
-  const mobileTimeBudget = Number(settings.notes_mobile_time_budget_ms ?? 0);
-  if (profile === 'mobile' && mobileTimeBudget > 0) {
-    timeBudgetMs = mobileTimeBudget;
-  }
-  const desktopTimeBudget = Number(settings.notes_desktop_time_budget_ms ?? 0);
-  if (profile === 'desktop' && desktopTimeBudget > 0) {
-    timeBudgetMs = desktopTimeBudget;
-  }
+  let timeBudgetMs = timeBudgetOverride > 0
+    ? timeBudgetOverride
+    : defaultTimeBudget;
 
   const parentTargetSize = profile === 'mobile' ? 256 : 0;
 
