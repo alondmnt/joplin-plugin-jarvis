@@ -36,7 +36,6 @@ export interface PrepareUserDataParams {
   model: TextEmbeddingModel;
   settings: JarvisSettings;
   store: EmbStore;
-  targetBytes?: number;
   catalogId?: string;  // Pre-resolved catalog ID to avoid per-note lookups
   anchorId?: string;   // Pre-resolved anchor ID to avoid per-note lookups
   corpusRowCountAccumulator?: { current: number };  // Running total during sweep (mutable)
@@ -275,7 +274,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
     quantized,
     meta: metaRows,
     centroidIds,
-    targetBytes: params.targetBytes,
+    maxShardBytes: settings.notes_max_shard_bytes,
   });
 
   // Build the new multi-model metadata structure

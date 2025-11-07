@@ -9,17 +9,16 @@ export interface BuildShardsOptions {
   quantized: QuantizeResult;
   meta: BlockRowMeta[];
   centroidIds?: Uint16Array;
-  targetBytes?: number;
+  maxShardBytes?: number;
 }
 
-const DEFAULT_TARGET_BYTES = 300_000; // stay under conservative sync limits (~300 KB per shard)
-const MAX_SHARD_BYTES = 500_000; // hard cap per shard (~220 blocks with 1536-dim embeddings)
+const DEFAULT_MAX_SHARD_BYTES = 500_000; // ~220 blocks with 1536-dim embeddings
 
 /**
  * Chunk quantized vectors + metadata into base64 shards sized for userData. Each
  * shard is encoded independently so readers can stream them on demand.
  * 
- * Enforces single-shard-per-note constraint: if estimated size exceeds MAX_SHARD_BYTES (500KB),
+ * Enforces single-shard-per-note constraint: if estimated size exceeds maxShardBytes,
  * only the first N blocks that fit are included. Caller should check and warn user if needed.
  */
 export function build_shards(options: BuildShardsOptions): EmbShard[] {
@@ -34,13 +33,12 @@ export function build_shards(options: BuildShardsOptions): EmbShard[] {
   }
 
   const dim = quantized.dim;
-  const targetBytes = Math.min(
-    Math.max(options.targetBytes ?? DEFAULT_TARGET_BYTES, 1024),
-    MAX_SHARD_BYTES
-  );
+  const maxShardBytes = options.maxShardBytes && options.maxShardBytes > 0
+    ? options.maxShardBytes
+    : DEFAULT_MAX_SHARD_BYTES;
 
-  // Estimate how many rows fit within the target (capped at MAX_SHARD_BYTES)
-  const maxRowsEstimate = Math.max(1, Math.floor(targetBytes / approximate_bytes_per_row(dim, Boolean(options.centroidIds))));
+  // Estimate how many rows fit within the max
+  const maxRowsEstimate = Math.max(1, Math.floor(maxShardBytes / approximate_bytes_per_row(dim, Boolean(options.centroidIds))));
 
   // Single-shard constraint: take at most maxRowsEstimate rows
   let shardRows = Math.min(rows, maxRowsEstimate);
@@ -48,7 +46,7 @@ export function build_shards(options: BuildShardsOptions): EmbShard[] {
   // Shrink if necessary to stay under cap
   while (shardRows > 1) {
     const estimatedSize = estimate_shard_size(dim, shardRows, Boolean(options.centroidIds));
-    if (estimatedSize <= targetBytes) {
+    if (estimatedSize <= maxShardBytes) {
       break;
     }
     shardRows -= 1;
@@ -57,6 +55,7 @@ export function build_shards(options: BuildShardsOptions): EmbShard[] {
   // Log metrics for monitoring
   const estimatedSize = estimate_shard_size(dim, shardRows, Boolean(options.centroidIds));
   const estimatedKB = Math.round(estimatedSize / 1024);
+  const capKB = Math.round(maxShardBytes / 1024);
   
   if (shardRows < rows) {
     // Some blocks were truncated
@@ -64,11 +63,11 @@ export function build_shards(options: BuildShardsOptions): EmbShard[] {
       totalBlocks: rows,
       includedBlocks: shardRows,
       estimatedKB,
-      capKB: Math.round(MAX_SHARD_BYTES / 1024),
+      capKB,
     });
-  } else if (estimatedSize > 400_000) {
-    // Approaching cap but still fits
-    log.info(`Note approaching shard cap: ${rows} blocks, ${estimatedKB}KB (cap: 500KB)`);
+  } else if (estimatedSize > maxShardBytes * 0.8) {
+    // Approaching cap but still fits (warn at 80%)
+    log.info(`Note approaching shard cap: ${rows} blocks, ${estimatedKB}KB (cap: ${capKB}KB)`);
   }
 
   const vectorSlice = quantized.vectors.subarray(0, shardRows * dim);

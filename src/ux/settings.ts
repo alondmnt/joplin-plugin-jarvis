@@ -126,6 +126,7 @@ export interface JarvisSettings {
   notes_mobile_max_rows?: number;
   notes_mobile_time_budget_ms?: number;
   notes_desktop_time_budget_ms?: number;
+  notes_max_shard_bytes?: number;
   notes_model_first_build_completed: Record<string, boolean>;
   notes_model_last_sweep_time: Record<string, number>;  // Unix timestamp (ms) per model
   // annotations
@@ -381,6 +382,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_mobile_max_rows: await joplin.settings.value('notes_mobile_max_rows'),
     notes_mobile_time_budget_ms: await joplin.settings.value('notes_mobile_time_budget_ms'),
     notes_desktop_time_budget_ms: await joplin.settings.value('notes_desktop_time_budget_ms'),
+    notes_max_shard_bytes: await joplin.settings.value('notes_max_shard_bytes'),
     notes_model_first_build_completed: firstBuildCompleted,
     notes_model_last_sweep_time: lastSweepTimes,
     notes_anchor_cache: safe_parse_anchor_cache(await joplin.settings.value('notes_anchor_cache')),
@@ -872,6 +874,18 @@ export async function register_settings() {
       advanced: true,
       label: 'Experimental: Desktop time budget (ms)',
       description: 'Decode time budget override for desktop profile. Set to 0 to keep profile defaults (350 ms).',
+    },
+    'notes_max_shard_bytes': {
+      value: 0,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 2000000,
+      step: 50000,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Experimental: Max shard size (bytes)',
+      description: 'Maximum size per note embedding shard. Notes with more blocks will be truncated. Set to 0 to use default (500000 bytes ≈ 220 blocks for 1536-dim embeddings). Increase carefully as larger shards may impact sync performance.',
     },
     'notes_embed_title': {
       value: true,
