@@ -592,7 +592,7 @@ async function update_note(note: any,
                          note_tags.includes('exclude.from.jarvis') ? 'exclude.from.jarvis tag' :
                          settings.notes_exclude_folders.has(note.parent_id) ? 'excluded folder' :
                          'deleted';
-    log.info(`[REPEATED-UPDATE-DEBUG] Late exclusion (safety check): note ${note.id} (${note.title?.substring(0, 30)}...) - reason: ${excludeReason}`);
+    log.debug(`Late exclusion (safety check): note ${note.id} - reason: ${excludeReason}`);
     delete_note_and_embeddings(model.db, note.id);
     
     // Delete all userData embeddings (for all models) and update centroid index
@@ -1127,11 +1127,9 @@ export async function build_centroid_index_on_startup(
   try {
     // Check if index already exists and is built
     if (globalCentroidIndex && globalCentroidIndex.get_model_id() === modelId && globalCentroidIndex.is_built()) {
-      log.info('[REPEATED-UPDATE-DEBUG] CentroidIndex: Already built, refreshing...');
-      const startTime = Date.now();
+      log.debug('CentroidIndex: Already built, refreshing...');
       await globalCentroidIndex.refresh();
-      const refreshTime = Date.now() - startTime;
-      log.info(`[REPEATED-UPDATE-DEBUG] CentroidIndex: Refresh took ${refreshTime}ms`);
+      log.debug('CentroidIndex: Refresh completed');
       return;
     }
 
