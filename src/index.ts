@@ -465,6 +465,7 @@ async function register_commands_and_menus(
   await joplin.commands.register({
     name: 'jarvis.notes.db.update',
     label: 'Update Jarvis note DB',
+    iconName: 'fas fa-sync-alt',
     execute: async () => {
       if (runtime.model_embed.model === null) {
         await runtime.model_embed.initialize();
@@ -634,6 +635,17 @@ async function register_commands_and_menus(
       continue;
     }
     await joplin.views.toolbarButtons.create(button.id, button.command, ToolbarButtonLocation.EditorToolbar);
+  }
+
+  // On mobile, add "Update Jarvis note DB" button to NoteToolbar
+  // This is needed because imported notes with old timestamps won't be caught by incremental sweeps
+  // and mobile doesn't have easy access to the Tools menu
+  if (runtime.settings.notes_device_profile_effective === 'mobile') {
+    await joplin.views.toolbarButtons.create(
+      'jarvis.toolbar.notes.db.update',
+      'jarvis.notes.db.update',
+      ToolbarButtonLocation.NoteToolbar
+    );
   }
 
   await joplin.views.menuItems.create('jarvis.context.notes.find', 'jarvis.notes.find', MenuItemLocation.EditorContextMenu);
