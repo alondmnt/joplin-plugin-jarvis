@@ -177,8 +177,8 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
   const profile: 'desktop' | 'mobile' = requestedProfile === 'mobile' ? 'mobile' : 'desktop';
 
   const candidateOverride = Number(settings.notes_search_candidate_limit ?? 0);
-  const candidateFloor = profile === 'mobile' ? 320 : 1024;
-  const candidateCeil = profile === 'mobile' ? 960 : 8192;
+  const candidateFloor = profile === 'mobile' ? 320 : 1536;  // Desktop: 1024 → 1536 (better CPU utilization)
+  const candidateCeil = profile === 'mobile' ? 800 : 8192;   // Mobile: 960 → 800 (reduce memory pressure)
   const candidateMultiplier = profile === 'mobile' ? 24 : 64;
   const computedCandidate = baseHits * candidateMultiplier;
   const defaultCandidate = clamp(computedCandidate, candidateFloor, candidateCeil);
@@ -188,8 +188,8 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
 
   const minNprobeOverride = Number(settings.notes_search_min_nprobe ?? 0);
   const defaultMinNprobe = profile === 'mobile'
-    ? (baseHits >= 20 ? 14 : 12)
-    : (baseHits >= 20 ? 20 : 16);
+    ? (baseHits >= 20 ? 14 : 12)  // Mobile unchanged (already optimal for memory safety)
+    : (baseHits >= 20 ? 24 : 20);  // Desktop: 20→24, 16→20 (better recall on medium corpora)
   let minNprobe = minNprobeOverride > 0
     ? Math.max(1, minNprobeOverride)
     : defaultMinNprobe;
@@ -202,14 +202,14 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
 
   const maxRowsOverride = Number(settings.notes_search_max_rows ?? 0);
   const defaultMaxRows = profile === 'mobile'
-    ? clamp(candidateLimit * 3, 1200, 4000)
-    : clamp(candidateLimit * 4, 6000, 20000);
+    ? clamp(candidateLimit * 3, 1200, 4000)     // Mobile unchanged
+    : clamp(candidateLimit * 4, 6000, 24000);   // Desktop: 20000 → 24000 (better recall for large result sets)
   let maxRows = maxRowsOverride > 0
     ? Math.max(candidateLimit, maxRowsOverride)
     : defaultMaxRows;
 
   const timeBudgetOverride = Number(settings.notes_search_time_budget_ms ?? 0);
-  const defaultTimeBudget = profile === 'mobile' ? 150 : 350;
+  const defaultTimeBudget = profile === 'mobile' ? 120 : 500;  // Mobile: 150→120ms (snappier), Desktop: 350→500ms (thorough)
   let timeBudgetMs = timeBudgetOverride > 0
     ? timeBudgetOverride
     : defaultTimeBudget;
