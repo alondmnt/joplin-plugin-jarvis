@@ -3,6 +3,7 @@ import { ModelType } from 'api/types';
 import { getLogger } from '../utils/logger';
 import { write_anchor_metadata, read_anchor_meta_data } from './anchorStore';
 import { get_cached_anchor, set_cached_anchor, remove_cached_anchor } from './anchorCache';
+import { clearApiResponse, clearObjectReferences } from '../utils';
 
 const log = getLogger();
 
@@ -126,29 +127,37 @@ export async function get_catalog_note_id(): Promise<string | null> {
     const candidates: any[] = [];
     let page = 1;
     while (true) {
-      const res = await joplin.data.get(['search'], {
-        query: `tag:${CATALOG_TAG}`,
-        type: 'note',
-        fields: ['id', 'title', 'created_time', 'deleted_time'],
-        page,
-        limit: 50,
-      });
-      const items = res?.items ?? [];
-      for (const it of items) {
-        const id = it?.id as string | undefined;
-        const deleted_time = typeof it?.deleted_time === 'number' ? it.deleted_time : 0;
-        if (!id || deleted_time > 0) continue;
-        try {
-          const reg = await joplin.data.userDataGet<any>(ModelType.Note, id, REGISTRY_KEY);
-          if (reg && typeof reg === 'object') {
-            candidates.push(it);
+      let res: any = null;
+      try {
+        res = await joplin.data.get(['search'], {
+          query: `tag:${CATALOG_TAG}`,
+          type: 'note',
+          fields: ['id', 'title', 'created_time', 'deleted_time'],
+          page,
+          limit: 50,
+        });
+        const items = res?.items ?? [];
+        for (const it of items) {
+          const id = it?.id as string | undefined;
+          const deleted_time = typeof it?.deleted_time === 'number' ? it.deleted_time : 0;
+          if (!id || deleted_time > 0) continue;
+          try {
+            const reg = await joplin.data.userDataGet<any>(ModelType.Note, id, REGISTRY_KEY);
+            if (reg && typeof reg === 'object') {
+              candidates.push(it);
+            }
+          } catch (_) {
+            // Missing userData or inaccessible – not a catalog candidate
           }
-        } catch (_) {
-          // Missing userData or inaccessible – not a catalog candidate
         }
+        const hasMore = res?.has_more;
+        clearApiResponse(res);
+        if (!hasMore) break;
+        page += 1;
+      } catch (err) {
+        clearApiResponse(res);
+        throw err;
       }
-      if (!res?.has_more) break;
-      page += 1;
     }
     if (!candidates.length) {
       // Fallback: locate by exact title irrespective of tag, then let ensure_catalog_note tag/seed userData
@@ -158,7 +167,12 @@ export async function get_catalog_note_id(): Promise<string | null> {
       return null;
     }
     candidates.sort((a: any, b: any) => (a.created_time ?? 0) - (b.created_time ?? 0));
-    return candidates[0].id ?? null;
+    const catalogId = candidates[0].id ?? null;
+    
+    // Clear candidates array
+    clearObjectReferences(candidates);
+    
+    return catalogId;
   } catch (error) {
     log.error('Failed to locate catalog note', error);
     return null;
@@ -176,26 +190,39 @@ async function find_catalog_by_title(): Promise<string | null> {
     let page = 1;
     const matches: any[] = [];
     while (true) {
-      const res = await joplin.data.get(['search'], {
-        query: `"${CATALOG_NOTE_TITLE}"`,
-        type: 'note',
-        fields: ['id', 'title', 'created_time', 'deleted_time'],
-        page,
-        limit: 50,
-      });
-      const items = res?.items ?? [];
-      for (const it of items) {
-        const deleted_time = typeof it?.deleted_time === 'number' ? it.deleted_time : 0;
-        if (it?.title === CATALOG_NOTE_TITLE && deleted_time === 0) {
-          matches.push(it);
+      let res: any = null;
+      try {
+        res = await joplin.data.get(['search'], {
+          query: `"${CATALOG_NOTE_TITLE}"`,
+          type: 'note',
+          fields: ['id', 'title', 'created_time', 'deleted_time'],
+          page,
+          limit: 50,
+        });
+        const items = res?.items ?? [];
+        for (const it of items) {
+          const deleted_time = typeof it?.deleted_time === 'number' ? it.deleted_time : 0;
+          if (it?.title === CATALOG_NOTE_TITLE && deleted_time === 0) {
+            matches.push(it);
+          }
         }
+        const hasMore = res?.has_more;
+        clearApiResponse(res);
+        if (!hasMore) break;
+        page += 1;
+      } catch (err) {
+        clearApiResponse(res);
+        throw err;
       }
-      if (!res?.has_more) break;
-      page += 1;
     }
     if (!matches.length) return null;
     matches.sort((a: any, b: any) => (a.created_time ?? 0) - (b.created_time ?? 0));
-    return matches[0].id ?? null;
+    const catalogId = matches[0].id ?? null;
+    
+    // Clear matches array
+    clearObjectReferences(matches);
+    
+    return catalogId;
   } catch (error) {
     log.warn('Fallback title search for catalog failed', error);
     return null;

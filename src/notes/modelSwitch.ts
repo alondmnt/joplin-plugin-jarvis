@@ -2,6 +2,7 @@ import joplin from 'api';
 import { getLogger } from '../utils/logger';
 import type { JarvisSettings } from '../ux/settings';
 import { NoteEmbMeta, UserDataEmbStore } from './userDataStore';
+import { clearApiResponse } from '../utils';
 
 const log = getLogger();
 
@@ -147,7 +148,7 @@ async function reservoir_sample_note_ids(sampleSize: number): Promise<{ total: n
 
   while (hasMore) {
     page += 1;
-    let response: any;
+    let response: any = null;
     try {
       response = await joplin.data.get(['notes'], { 
         fields: ['id'], 
@@ -156,32 +157,35 @@ async function reservoir_sample_note_ids(sampleSize: number): Promise<{ total: n
         order_by: 'user_updated_time',
         order_dir: 'DESC',
       });
+
+      const items: Array<{ id?: string }> = response?.items ?? [];
+      hasMore = Boolean(response?.has_more);
+
+      for (const item of items) {
+        const id = typeof item?.id === 'string' ? item.id : '';
+        if (!id) {
+          continue;
+        }
+        total += 1;
+        if (sample.length < sampleSize) {
+          sample.push(id);
+          continue;
+        }
+        const index = Math.floor(Math.random() * total);
+        if (index < sampleSize) {
+          sample[index] = id;
+        }
+      }
+
+      if (items.length === 0) {
+        break;
+      }
     } catch (error) {
       log.warn('Failed to fetch note ids during coverage sampling', { page, error });
       break;
-    }
-
-    const items: Array<{ id?: string }> = response?.items ?? [];
-    hasMore = Boolean(response?.has_more);
-
-    for (const item of items) {
-      const id = typeof item?.id === 'string' ? item.id : '';
-      if (!id) {
-        continue;
-      }
-      total += 1;
-      if (sample.length < sampleSize) {
-        sample.push(id);
-        continue;
-      }
-      const index = Math.floor(Math.random() * total);
-      if (index < sampleSize) {
-        sample[index] = id;
-      }
-    }
-
-    if (items.length === 0) {
-      break;
+    } finally {
+      // Clear API response to help GC
+      clearApiResponse(response);
     }
   }
 

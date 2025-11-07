@@ -8,7 +8,7 @@ import { read_user_data_embeddings } from './userDataReader';
 import { globalValidationTracker, extract_embedding_settings_for_validation, settings_equal } from './validator';
 import { getLogger } from '../utils/logger';
 import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
-import { search_keywords, ModelError, htmlToText } from '../utils';
+import { search_keywords, ModelError, htmlToText, clearObjectReferences, clearApiResponse } from '../utils';
 import { quantize_vector_to_q8, cosine_similarity_q8, QuantizedRowView } from './q8';
 import { TopKHeap } from './topK';
 import { load_model_centroids, load_parent_map } from './centroidLoader';
@@ -42,8 +42,9 @@ async function get_all_note_ids_with_embeddings(modelId?: string): Promise<{
   let hasMore = true;
   
   while (hasMore) {
+    let response: any = null;
     try {
-      const response = await joplin.data.get(['notes'], {
+      response = await joplin.data.get(['notes'], {
         fields: ['id'],
         page,
         limit: 100,
@@ -69,6 +70,9 @@ async function get_all_note_ids_with_embeddings(modelId?: string): Promise<{
     } catch (error) {
       log.warn('Failed to fetch note IDs for candidate selection', error);
       break;
+    } finally {
+      // Clear API response to help GC
+      clearApiResponse(response);
     }
   }
   
@@ -279,7 +283,11 @@ async function append_ocr_text_to_body(note: any): Promise<void> {
             snippets.push(`\n\n## resource: ${resource.title}\n\n${text}`);
           }
         }
-      } while (resourcesPage?.has_more);
+        const hasMore = resourcesPage?.has_more;
+        // Clear API response before next iteration
+        clearApiResponse(resourcesPage);
+        if (!hasMore) break;
+      } while (true);
     } catch (error) {
       log.debug(`Failed to retrieve OCR text for note ${noteId}:`, error);
     }
@@ -540,10 +548,13 @@ async function update_note(note: any,
   // This check is kept as a safety fallback in case notes slip through
   // (e.g., tags added/changed during processing, or direct update_note calls)
   let note_tags: string[];
+  let tagsResponse: any = null;
   try {
-    note_tags = (await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] }))
-      .items.map((t: any) => t.title);
+    tagsResponse = await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] });
+    note_tags = tagsResponse.items.map((t: any) => t.title);
+    clearApiResponse(tagsResponse);
   } catch (error) {
+    clearApiResponse(tagsResponse);
     note_tags = ['jarvis-exclude'];
   }
   // Support both new tag (jarvis-exclude) and old tag (exclude.from.jarvis) for backward compatibility
@@ -629,6 +640,13 @@ async function update_note(note: any,
             const row0 = first?.meta?.[0] as any;
             // Detect legacy rows by presence of duplicated per-row fields or blockId
             needsCompaction = Boolean(row0?.noteId || row0?.noteHash || row0?.blockId);
+            
+            // Clear base64 strings from shard after inspection
+            if (first) {
+              delete (first as any).vectorsB64;
+              delete (first as any).scalesB64;
+              delete (first as any).centroidIdsB64;
+            }
           } catch (e) {
             // Ignore shard read issues during compact check
           }
@@ -921,6 +939,15 @@ export async function update_embeddings(
     );
     model.embeddings.push(...mergedEmbeddings);
     const dim = mergedEmbeddings[0]?.embedding?.length ?? 0;
+    
+    // Help GC by clearing the batch data (note bodies can be large)
+    for (const item of successfulNotes) {
+      if (item.note) {
+        clearObjectReferences(item.note);
+      }
+    }
+    clearObjectReferences(successfulNotes);
+    
     return { settingsMismatches, totalRows: mergedEmbeddings.length, dim };
   }
   
@@ -929,6 +956,14 @@ export async function update_embeddings(
   
   // Get dimension from first embedding (needed for anchor metadata when model.embeddings is empty)
   const dim = successfulNotes[0]?.embeddings[0]?.embedding?.length ?? 0;
+  
+  // Help GC by clearing batch data (note bodies can be large)
+  for (const item of successfulNotes) {
+    if (item.note) {
+      clearObjectReferences(item.note);
+    }
+  }
+  clearObjectReferences(successfulNotes);
   
   return { settingsMismatches, totalRows, dim };
 }
@@ -990,7 +1025,7 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
         }
         await append_ocr_text_to_body(note);
         
-        // Cache the fully processed note
+        // Cache the fully processed note (will be cleared at end of function)
         noteCache.set(embd.id, note);
       } catch (error) {
         log.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
@@ -1030,7 +1065,12 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
     }
   };
   
-  // Cache is automatically garbage collected when function exits
+  // Aggressively clear noteCache to help GC (can hold large note bodies)
+  for (const note of noteCache.values()) {
+    clearObjectReferences(note);
+  }
+  noteCache.clear();
+  
   return [text, selected];
 }
 
@@ -1238,10 +1278,13 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   if ((query_embeddings.length == 0) || (query_embeddings[0].hash !== calc_hash(query))) {
     // re-calculate embedding of the query
     let note_tags: string[];
+    let tagsResponse: any = null;
     try {
-      note_tags = (await joplin.data.get(['notes', current_id, 'tags'], { fields: ['title'] }))
-        .items.map((t: any) => t.title);
+      tagsResponse = await joplin.data.get(['notes', current_id, 'tags'], { fields: ['title'] });
+      note_tags = tagsResponse.items.map((t: any) => t.title);
+      clearApiResponse(tagsResponse);
     } catch (error) {
+      clearApiResponse(tagsResponse);
       note_tags = [];
     }
     const abortController = new AbortController();
@@ -1574,9 +1617,13 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       agg_sim = sorted_embed.reduce((acc, embd) => acc + embd.similarity, 0) / sorted_embed.length;
     }
     let title: string;
+    let noteResponse: any = null;
     try {
-      title = (await joplin.data.get(['notes', note_id], {fields: ['title']})).title;
+      noteResponse = await joplin.data.get(['notes', note_id], {fields: ['title']});
+      title = noteResponse.title;
+      clearObjectReferences(noteResponse);
     } catch (error) {
+      clearObjectReferences(noteResponse);
       title = 'Unknown';
     }
 
@@ -1728,6 +1775,10 @@ async function write_user_data_embeddings(
       return;
     }
     await userDataStore.put(noteId, model.id, prepared.meta, prepared.shards);
+    
+    // Clear large shard data after PUT (shards contain quantized vectors - can be large)
+    // clearObjectReferences will set shards array length to 0, releasing all shard references
+    clearObjectReferences(prepared);
   } catch (error) {
     log.warn(`Failed to persist userData embeddings for note ${noteId}`, error);
   }

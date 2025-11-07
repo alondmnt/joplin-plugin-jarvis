@@ -3,7 +3,7 @@ import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks } from '../notes/embeddings';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
-import { split_by_tokens } from '../utils';
+import { split_by_tokens, clearApiResponse } from '../utils';
 
 
 export async function chat_with_jarvis(model_gen: TextGenerationModel) {
@@ -95,9 +95,16 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
     sub_embeds.push(...model_embed.embeddings.filter((embd) => prompt.notes.has(embd.id)));
   }
   if (prompt.search) {
-    const search_res = await joplin.data.get(['search'], { query: prompt.search, field: ['id'] });
-    const search_ids = new Set(search_res.items.map((item) => item.id));
-    sub_embeds.push(...model_embed.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));
+    let search_res: any = null;
+    try {
+      search_res = await joplin.data.get(['search'], { query: prompt.search, field: ['id'] });
+      const search_ids = new Set(search_res.items.map((item) => item.id));
+      sub_embeds.push(...model_embed.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));
+      clearApiResponse(search_res);
+    } catch (error) {
+      clearApiResponse(search_res);
+      throw error;
+    }
   }
   if (sub_embeds.length === 0) {
     sub_embeds = model_embed.embeddings;

@@ -86,6 +86,13 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
     }
     if (!cached) {
       const decoded = decoder.decode(shard);
+      
+      // Clear large base64 strings after decoding (they're now duplicated in TypedArrays)
+      // These base64 strings can be 100KB+ per shard and are held by Joplin's API cache
+      delete (shard as any).vectorsB64;
+      delete (shard as any).scalesB64;
+      delete (shard as any).centroidIdsB64;
+      
       if (useCallback) {
         cached = {
           key: cacheKey,

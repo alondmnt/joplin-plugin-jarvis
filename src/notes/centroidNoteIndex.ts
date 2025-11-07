@@ -20,6 +20,7 @@ import joplin from 'api';
 import { getLogger } from '../utils/logger';
 import { EmbStore, NoteEmbMeta } from './userDataStore';
 import { ShardDecoder } from './shardDecoder';
+import { clearApiResponse } from '../utils';
 
 const log = getLogger();
 
@@ -119,6 +120,11 @@ export class CentroidNoteIndex {
       }
 
       const decoded = decoder.decode(shard);
+      
+      // Clear large base64 strings after decoding to free memory
+      delete (shard as any).vectorsB64;
+      delete (shard as any).scalesB64;
+      delete (shard as any).centroidIdsB64;
       if (decoded.centroidIds) {
         // Collect unique centroid IDs from the shard
         for (let i = 0; i < decoded.centroidIds.length; i++) {
@@ -193,8 +199,9 @@ export class CentroidNoteIndex {
 
     // Query ALL notes in batches (no tag filter - notes with embeddings are not specially tagged)
     while (hasMore) {
+      let result: any = null;
       try {
-        const result = await joplin.data.get(['notes'], {
+        result = await joplin.data.get(['notes'], {
           fields: ['id'],
           page,
           limit: 100, // Joplin API max per page
@@ -222,7 +229,10 @@ export class CentroidNoteIndex {
 
         hasMore = result.has_more;
         page++;
+        // Clear API response immediately after processing
+        clearApiResponse(result);
       } catch (error) {
+        clearApiResponse(result);
         log.error(`CentroidIndex: Failed to fetch notes page ${page}`, error);
         break;
       }
@@ -274,8 +284,9 @@ export class CentroidNoteIndex {
 
     // Query notes ordered by user_updated_time descending (most recent first)
     while (hasMore && !reachedOldNotes) {
+      let result: any = null;
       try {
-        const result = await joplin.data.get(['notes'], {
+        result = await joplin.data.get(['notes'], {
           fields: ['id', 'user_updated_time'],
           page,
           limit: 100,
@@ -299,7 +310,10 @@ export class CentroidNoteIndex {
 
         hasMore = result.has_more;
         page++;
+        // Clear API response immediately after processing
+        clearApiResponse(result);
       } catch (error) {
+        clearApiResponse(result);
         log.error(`CentroidIndex: Failed to fetch updated notes page ${page}`, error);
         break;
       }

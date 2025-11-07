@@ -4,6 +4,7 @@ import { getLogger } from '../utils/logger';
 import { UserDataEmbStore, EMB_META_KEY, NoteEmbMeta } from '../notes/userDataStore';
 import { remove_model_from_catalog } from '../notes/catalog';
 import { clear_centroid_cache } from '../notes/centroidLoader';
+import { clearApiResponse } from '../utils';
 
 const log = getLogger();
 
@@ -164,6 +165,8 @@ async function collect_model_inventory(activeModelId: string): Promise<Inventory
 
     hasMore = !!response?.has_more;
     page += 1;
+    // Clear API response to help GC
+    clearApiResponse(response);
   }
 
   const items: ModelInventoryItem[] = Array.from(aggregates.entries()).map(([modelId, agg]) => ({

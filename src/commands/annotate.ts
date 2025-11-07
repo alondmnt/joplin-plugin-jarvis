@@ -2,7 +2,7 @@ import joplin from 'api';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { find_nearest_notes } from '../notes/embeddings';
 import { JarvisSettings } from '../ux/settings';
-import { get_all_tags, split_by_tokens } from '../utils';
+import { get_all_tags, split_by_tokens, clearApiResponse, clearObjectReferences } from '../utils';
 
 
 export async function annotate_title(model_gen: TextGenerationModel,
@@ -128,11 +128,18 @@ export async function annotate_tags(model_gen: TextGenerationModel, model_embed:
     // generate examples
     let notes: string[] = [];
     for (const n of nearest) {
-      const tags = (await joplin.data.get(['notes', n.id, 'tags'], { fields: ['title'] }))
-        .items.map(t => t.title);
-      if (tags.length > 0) {
-        tag_list = tag_list.concat(tags);
-        notes = notes.concat(`The note "${n.title}" has the keywords: ${tags.join(', ')}.`);
+      let tagsResponse: any = null;
+      try {
+        tagsResponse = await joplin.data.get(['notes', n.id, 'tags'], { fields: ['title'] });
+        const tags = tagsResponse.items.map(t => t.title);
+        clearApiResponse(tagsResponse);
+        if (tags.length > 0) {
+          tag_list = tag_list.concat(tags);
+          notes = notes.concat(`The note "${n.title}" has the keywords: ${tags.join(', ')}.`);
+        }
+      } catch (error) {
+        clearApiResponse(tagsResponse);
+        // Skip this note if tags can't be fetched
       }
     }
     if (tag_list.length == 0) { return; }
@@ -157,10 +164,20 @@ export async function annotate_tags(model_gen: TextGenerationModel, model_embed:
 
   // add existing tags
   if (settings.annotate_tags_existing) {
-    const existing_tags = (await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] }))
-      .items.map(t => t.title);
-    tags = tags.concat(existing_tags.filter(t => !tags.includes(t)));
+    let existingTagsResponse: any = null;
+    try {
+      existingTagsResponse = await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] });
+      const existing_tags = existingTagsResponse.items.map(t => t.title);
+      clearApiResponse(existingTagsResponse);
+      tags = tags.concat(existing_tags.filter(t => !tags.includes(t)));
+    } catch (error) {
+      clearApiResponse(existingTagsResponse);
+      // Skip adding existing tags if fetch fails
+    }
   }
 
   await joplin.data.put(['notes', note.id], null, { tags: tags.join(', ') });
+  
+  // Clear note body after use
+  clearObjectReferences(note);
 }

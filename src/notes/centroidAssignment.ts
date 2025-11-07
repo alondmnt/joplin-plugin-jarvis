@@ -17,6 +17,7 @@ import { UserDataEmbStore, decode_q8_vectors, encode_q8_vectors, EmbShard } from
 import { load_model_centroids } from './centroidLoader';
 import { assign_centroid_ids } from './centroids';
 import { TextEmbeddingModel } from '../models/models';
+import { clearApiResponse } from '../utils';
 
 const log = getLogger();
 
@@ -88,16 +89,23 @@ export async function assign_missing_centroids(
         log.info('Centroid assignment aborted during counting', { modelId });
         return result;
       }
-      const notes = await joplin.data.get(['notes'], { 
-        fields: ['id'], 
-        page, 
-        limit: 100,
-        order_by: 'user_updated_time',
-        order_dir: 'DESC',
-      });
-      result.totalNotes += notes.items?.length ?? 0;
-      if (!notes.has_more) break;
-      page += 1;
+      let notes: any = null;
+      try {
+        notes = await joplin.data.get(['notes'], { 
+          fields: ['id'], 
+          page, 
+          limit: 100,
+          order_by: 'user_updated_time',
+          order_dir: 'DESC',
+        });
+        result.totalNotes += notes.items?.length ?? 0;
+        const hasMore = notes.has_more;
+        clearApiResponse(notes);
+        if (!hasMore) break;
+        page += 1;
+      } finally {
+        clearApiResponse(notes);
+      }
     }
   } catch (error) {
     log.warn('Failed to count notes for centroid assignment', { modelId, error });
@@ -117,14 +125,23 @@ export async function assign_missing_centroids(
     }
 
     // Fetch batch of note IDs
-    const notes = await joplin.data.get(['notes'], { 
-      fields: ['id'], 
-      page, 
-      limit: 100,
-      order_by: 'user_updated_time',
-      order_dir: 'DESC',
-    });
-    const noteIds: string[] = (notes.items ?? []).map((n: any) => n.id).filter(Boolean);
+    let notes: any = null;
+    let noteIds: string[] = [];
+    let hasMoreNotes = false;
+    
+    try {
+      notes = await joplin.data.get(['notes'], { 
+        fields: ['id'], 
+        page, 
+        limit: 100,
+        order_by: 'user_updated_time',
+        order_dir: 'DESC',
+      });
+      noteIds = (notes.items ?? []).map((n: any) => n.id).filter(Boolean);
+      hasMoreNotes = notes.has_more;
+    } finally {
+      clearApiResponse(notes);
+    }
 
     if (noteIds.length === 0) {
       break;
@@ -228,6 +245,11 @@ async function assign_note_centroids(
 
   // Decode q8 vectors
   const decoded = decode_q8_vectors(shard);
+  
+  // Clear large base64 strings after decoding to free memory
+  delete (shard as any).vectorsB64;
+  delete (shard as any).scalesB64;
+  delete (shard as any).centroidIdsB64;
 
   // Dequantize to Float32Array for centroid assignment
   // Each row: vector[i] = q8.vectors[i] * q8.scales[rowIndex]

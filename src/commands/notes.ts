@@ -4,7 +4,7 @@ import { ensure_catalog_note, ensure_model_anchor, get_catalog_note_id } from '.
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
-import { ModelError } from '../utils';
+import { ModelError, clearApiResponse, clearObjectReferences } from '../utils';
 import { assign_missing_centroids } from '../notes/centroidAssignment';
 import { UserDataEmbStore, EmbeddingSettings } from '../notes/userDataStore';
 import type { JarvisSettings } from '../ux/settings';
@@ -141,6 +141,9 @@ export async function update_note_db(
         allSettingsMismatches.push(...result.settingsMismatches);
         totalEmbeddingRows += result.totalRows;
         if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
+        
+        // Clear note bodies after chunk processing
+        clearObjectReferences(chunk);
       }
     }
 
@@ -155,6 +158,9 @@ export async function update_note_db(
       allSettingsMismatches.push(...result.settingsMismatches);
       totalEmbeddingRows += result.totalRows;
       if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
+      
+      // Clear remaining batch after processing
+      clearObjectReferences(batch);
     }
   } else if (isFullSweep && incrementalSweep && !force) {
     // Mode 2: Timestamp-based incremental sweep (optimized for periodic background updates)
@@ -165,22 +171,24 @@ export async function update_note_db(
     let reachedOldNotes = false;
     
     while (hasMore && !reachedOldNotes && !abortController.signal.aborted) {
-      const notes = await joplin.data.get(['notes'], {
-        fields: [...noteFields, 'user_updated_time'],
-        page,
-        limit: model.page_size,
-        order_by: 'user_updated_time',
-        order_dir: 'DESC',
-      });
-      
-      const batch: any[] = [];
-      for (const note of notes.items) {
-        // Stop when we reach notes older than last sweep (comparing user content timestamp)
-        if (note.user_updated_time <= lastSweepTime) {
-          reachedOldNotes = true;
-          console.debug(`Reached old notes at page ${page}, stopping early`);
-          break;
-        }
+      let notes: any = null;
+      try {
+        notes = await joplin.data.get(['notes'], {
+          fields: [...noteFields, 'user_updated_time'],
+          page,
+          limit: model.page_size,
+          order_by: 'user_updated_time',
+          order_dir: 'DESC',
+        });
+        
+        const batch: any[] = [];
+        for (const note of notes.items) {
+          // Stop when we reach notes older than last sweep (comparing user content timestamp)
+          if (note.user_updated_time <= lastSweepTime) {
+            reachedOldNotes = true;
+            console.debug(`Reached old notes at page ${page}, stopping early`);
+            break;
+          }
         
         batch.push(note);
       }
@@ -195,10 +203,21 @@ export async function update_note_db(
       totalEmbeddingRows += result.totalRows;
       if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
       
+      // Clear note bodies after batch processing (can be very large)
+      // clearObjectReferences on array will clear all elements
+      clearObjectReferences(batch);
+      
       hasMore = notes.has_more && !reachedOldNotes;
       page++;
       
+      // Clear API response to help GC (keep notes.items as they're in batch)
+      clearApiResponse(notes);
+
       await apply_rate_limit_if_needed(hasMore, page, model);
+      } finally {
+        // Clear API response to help GC
+        clearApiResponse(notes);
+      }
     }
     
     console.info(`Jarvis: incremental sweep completed - ${processed_notes} notes processed (${reachedOldNotes ? 'stopped early' : 'reached end of notes'})`);
@@ -218,7 +237,10 @@ export async function update_note_db(
         order_dir: 'DESC',
       });
       total_notes += notes.items.length;
-    } while (notes.has_more);
+      const hasMore = notes.has_more;
+      clearApiResponse(notes);
+      if (!hasMore) break;
+    } while (true);
     update_progress_bar(panel, 0, total_notes, settings, 'Computing embeddings');
 
     page = 0;
@@ -243,10 +265,19 @@ export async function update_note_db(
         allSettingsMismatches.push(...result.settingsMismatches);
         totalEmbeddingRows += result.totalRows;
         if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
+        
+        // Clear note bodies after batch processing
+        clearObjectReferences(notes.items);
       }
       
-      await apply_rate_limit_if_needed(notes.has_more, page, model);
-    } while (notes.has_more);
+      const hasMoreNotes = notes.has_more;
+      // Clear API response before next iteration
+      clearApiResponse(notes);
+      
+      await apply_rate_limit_if_needed(hasMoreNotes, page, model);
+      
+      if (!hasMoreNotes) break;
+    } while (true);
     
     console.info(`Jarvis: full sweep completed - ${processed_notes}/${total_notes} notes processed successfully`);
     if (processed_notes < total_notes) {
@@ -426,10 +457,14 @@ async function filter_excluded_notes(
   
   // Fetch tags for all notes in batch (parallel for efficiency)
   const tagPromises = batch.map(async (note) => {
+    let tagsResponse: any = null;
     try {
-      const tags = await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] });
-      return { noteId: note.id, tags: tags.items.map((t: any) => t.title) };
+      tagsResponse = await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] });
+      const tagTitles = tagsResponse.items.map((t: any) => t.title);
+      clearApiResponse(tagsResponse);
+      return { noteId: note.id, tags: tagTitles };
     } catch (error) {
+      clearApiResponse(tagsResponse);
       // If tag fetch fails, assume no tags (note will be processed)
       return { noteId: note.id, tags: [] };
     }
@@ -588,6 +623,9 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
 
   // write results to panel
   await update_panel(panel, nearest, settings);
+  
+  // Clear note body after use
+  clearObjectReferences(note);
 }
 
 export async function skip_db_init_dialog(model: TextEmbeddingModel): Promise<boolean> {
