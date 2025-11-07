@@ -63,7 +63,7 @@ export async function update_note_db(
   // concurrent per-note creation races when the experimental userData index is enabled.
   let catalogId: string | undefined;
   let anchorId: string | undefined;
-  if (settings.experimental_user_data_index && model?.id) {
+  if (settings.notes_db_in_user_data && model?.id) {
     try {
       catalogId = await ensure_catalog_note();
       anchorId = await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
@@ -95,7 +95,7 @@ export async function update_note_db(
   // Used for ALL sweeps (full and incremental) to track running corpus size
   // Updated at end of sweep to keep anchor metadata accurate
   let corpusRowCountAccumulator: { current: number } | undefined;
-  if (settings.experimental_user_data_index && anchorId) {
+  if (settings.notes_db_in_user_data && anchorId) {
     try {
       const anchorMeta = await read_anchor_meta_data(anchorId);
       corpusRowCountAccumulator = { current: anchorMeta?.rowCount ?? 0 };
@@ -266,7 +266,7 @@ export async function update_note_db(
   // Updates after ALL sweeps (full and incremental) to keep anchor accurate
   // Uses 15% threshold to avoid excessive writes when counts change minimally
   // This replaces the per-note updates that were causing excessive log spam
-  if (!abortController.signal.aborted && settings.experimental_user_data_index && anchorId && model?.id && corpusRowCountAccumulator) {
+  if (!abortController.signal.aborted && settings.notes_db_in_user_data && anchorId && model?.id && corpusRowCountAccumulator) {
     try {
       const currentMetadata = await read_anchor_meta_data(anchorId);
       // Use accumulator value (running total) instead of totalEmbeddingRows (delta)
@@ -301,7 +301,7 @@ export async function update_note_db(
   // This handles both first build (if corpus ≥512 rows) and subsequent retraining
   if (
     !abortController.signal.aborted
-    && settings.experimental_user_data_index
+    && settings.notes_db_in_user_data
     && model?.id
     && model.needsCentroidReassignment
   ) {
@@ -341,7 +341,7 @@ export async function update_note_db(
   if (
     !abortController.signal.aborted
     && isFullSweep
-    && settings.experimental_user_data_index
+    && settings.notes_db_in_user_data
     && model?.id
     && !settings.notes_model_first_build_completed?.[model.id]
   ) {
@@ -369,7 +369,7 @@ export async function update_note_db(
   }
 
   // Show settings mismatch dialog if mismatches were found during sweep (only for force=false sweeps)
-  if (!force && allSettingsMismatches.length > 0 && settings.experimental_user_data_index) {
+  if (!force && allSettingsMismatches.length > 0 && settings.notes_db_in_user_data) {
     // Deduplicate by noteId
     const uniqueMismatches = Array.from(
       new Map(allSettingsMismatches.map(m => [m.noteId, m])).values()
@@ -610,7 +610,7 @@ export async function skip_db_init_dialog(model: TextEmbeddingModel): Promise<bo
 
   // No database found - show welcome dialog
   const settings = await get_settings();
-  const storageMethod = settings.experimental_user_data_index 
+  const storageMethod = settings.notes_db_in_user_data 
     ? 'stored as note attachments in your Joplin database (experimental)'
     : 'stored in a local SQLite database file';
   

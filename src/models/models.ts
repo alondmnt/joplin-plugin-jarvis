@@ -320,11 +320,11 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
     if (firstBuildCompleted) {
       console.info('Jarvis: skipping legacy SQLite load (first build completed)', { modelId: model?.id });
     } else if (isMobile) {
-      console.info('Jarvis: skipping legacy SQLite load (mobile platform)', { modelId: model?.id, experimental: settings.experimental_user_data_index });
+      console.info('Jarvis: skipping legacy SQLite load (mobile platform)', { modelId: model?.id, experimental: settings.notes_db_in_user_data });
     }
-    model.disableModelLoad = isMobile && !settings.experimental_user_data_index;
+    model.disableModelLoad = isMobile && !settings.notes_db_in_user_data;
     
-    console.info(`Jarvis: model load config - platform=${isMobile ? 'mobile' : 'desktop'}, firstBuild=${firstBuildCompleted}, disableDbLoad=${model.disableDbLoad}, disableModelLoad=${model.disableModelLoad}, experimental=${settings.experimental_user_data_index}`);
+    console.info(`Jarvis: model load config - platform=${isMobile ? 'mobile' : 'desktop'}, firstBuild=${firstBuildCompleted}, disableDbLoad=${model.disableDbLoad}, disableModelLoad=${model.disableModelLoad}, experimental=${settings.notes_db_in_user_data}`);
   }
 
   await model.initialize();

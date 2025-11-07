@@ -38,7 +38,7 @@ export const EMBEDDING_SETTING_KEYS = new Set([
   'hf_api_key',
   'google_api_key',
   'notes_model',
-  'experimental.userDataIndex',
+  'notes_db_in_user_data',
   'notes_embed_title',
   'notes_embed_path',
   'notes_embed_heading',
@@ -111,7 +111,7 @@ export interface JarvisSettings {
   notes_panel_user_style: string;
   notes_abort_on_error: boolean;
   notes_embed_timeout: number;
-  experimental_user_data_index: boolean;
+  notes_db_in_user_data: boolean;
   notes_device_profile: 'auto' | 'desktop' | 'mobile';
   notes_device_profile_effective: 'desktop' | 'mobile';
   notes_device_platform?: string;
@@ -368,7 +368,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
-    experimental_user_data_index: await joplin.settings.value('experimental.userDataIndex'),
+    notes_db_in_user_data: await joplin.settings.value('notes_db_in_user_data'),
     notes_device_profile: rawProfileSetting,
     notes_device_profile_effective: effectiveProfile,
     notes_device_platform: detectedPlatform,
@@ -719,6 +719,15 @@ export async function register_settings() {
       label: 'Notes: Abort on error',
       description: 'If disabled, you may select to retry the operation following an error. Default: true',
     },
+    'notes_db_in_user_data': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Store embeddings database in notes properties (experimental)',
+      description: 'This experimental database is synced with the note across devices, and stored in backups. Default: false',
+    },
     'notes_embed_timeout': {
       value: 120,
       type: SettingItemType.Int,
@@ -730,15 +739,6 @@ export async function register_settings() {
       advanced: true,
       label: 'Notes: Embedding timeout (sec)',
       description: 'The maximal time to wait for an embedding response in seconds. Set to 0 to disable. Default: 20',
-    },
-    'experimental.userDataIndex': {
-      value: false,
-      type: SettingItemType.Bool,
-      section: 'jarvis.notes',
-      public: true,
-      advanced: true,
-      label: 'Experimental: Per-note userData index',
-      description: 'Enable the next-generation embeddings store that persists per note via userData. Defaults to disabled.',
     },
     'notes_device_profile': {
       value: 'auto',

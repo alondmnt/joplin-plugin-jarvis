@@ -312,7 +312,7 @@ function build_dialog_html(items: ModelInventoryItem[], activeModelId: string, m
  * Present the model management dialog workflow, including refresh and deletion actions.
  */
 export async function open_model_management_dialog(dialogHandle: string): Promise<void> {
-  const enabled = await joplin.settings.value('experimental.userDataIndex');
+  const enabled = await joplin.settings.value('notes_db_in_user_data');
   if (!enabled) {
     await joplin.views.dialogs.showMessageBox('Model management requires the experimental per-note userData index to be enabled.');
     return;

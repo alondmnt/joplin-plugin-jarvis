@@ -114,7 +114,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
   const metaRows = build_block_row_meta(blocks);
 
   // Handle IVF centroids if enabled
-  if (settings.experimental_user_data_index) {
+  if (settings.notes_db_in_user_data) {
     try {
       // Use pre-resolved IDs if provided, otherwise resolve them (for backward compatibility)
       const catalogId = params.catalogId ?? await ensure_catalog_note();

@@ -85,7 +85,7 @@ async function get_all_note_ids_with_embeddings(modelId?: string): Promise<{
  * @param settings - Jarvis settings
  */
 export async function validate_anchor_metadata_on_startup(modelId: string, settings: JarvisSettings): Promise<void> {
-  if (!settings.experimental_user_data_index) {
+  if (!settings.notes_db_in_user_data) {
     return;
   }
   
@@ -596,7 +596,7 @@ async function update_note(note: any,
     delete_note_and_embeddings(model.db, note.id);
     
     // Delete all userData embeddings (for all models) and update centroid index
-    if (settings.experimental_user_data_index) {
+    if (settings.notes_db_in_user_data) {
       try {
         await userDataStore.gcOld(note.id, '', '');
       } catch (error) {
@@ -627,7 +627,7 @@ async function update_note(note: any,
 
   // Fetch userData meta once and cache it for this update (avoid multiple reads)
   let userDataMeta: Awaited<ReturnType<typeof userDataStore.getMeta>> | null = null;
-  if (settings.experimental_user_data_index) {
+  if (settings.notes_db_in_user_data) {
     try {
       userDataMeta = await userDataStore.getMeta(note.id);
     } catch (error) {
@@ -727,8 +727,8 @@ async function update_note(note: any,
       log.debug(`Rebuilding note ${note.id} - userData missing (force=true)`);
     }
     
-    if (!settings.experimental_user_data_index) {
-      // experimental_user_data_index disabled - skip since content unchanged
+    if (!settings.notes_db_in_user_data) {
+      // notes_db_in_user_data disabled - skip since content unchanged
       return { embeddings: old_embd, skippedUnchanged: true };
     }
   }
@@ -738,7 +738,7 @@ async function update_note(note: any,
     const new_embd = await calc_note_embeddings(note, note_tags, model, settings, abortSignal, 'doc');
 
     // Write embeddings to appropriate storage
-    if (settings.experimental_user_data_index) {
+    if (settings.notes_db_in_user_data) {
       // userData mode: Write to userData first, then update centroid index
       // Must be sequential: centroid index reads from userData
       await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId, anchorId);
@@ -950,7 +950,7 @@ export async function update_embeddings(
 
   // Only populate model.embeddings when userData index is disabled (legacy mode)
   // When userData is enabled, search reads directly from userData (memory efficient)
-  if (!settings.experimental_user_data_index) {
+  if (!settings.notes_db_in_user_data) {
     const mergedEmbeddings = successfulNotes.flatMap(result => result.embeddings);
     remove_note_embeddings(
       model.embeddings,
@@ -1120,7 +1120,7 @@ export async function build_centroid_index_on_startup(
   modelId: string,
   settings: JarvisSettings
 ): Promise<void> {
-  if (!settings.experimental_user_data_index) {
+  if (!settings.notes_db_in_user_data) {
     return; // Feature disabled
   }
 
@@ -1328,7 +1328,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   const queryQ8 = quantize_vector_to_q8(rep_embedding);
 
   const computeAllowedCentroids = async (queryVector: Float32Array, candidateCount: number): Promise<Set<number> | null> => {
-    if (!settings.experimental_user_data_index || candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
+    if (!settings.notes_db_in_user_data || candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
       log.debug(`IVF disabled: candidateCount=${candidateCount} < threshold=${MIN_TOTAL_ROWS_FOR_IVF}`);
       return null;
     }
@@ -1383,7 +1383,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   let preloadAllowedCentroidIds: Set<number> | null = null;
   let ivfCandidateNoteIds: Set<string> | null = null;
 
-  if (rep_embedding && settings.experimental_user_data_index) {
+  if (rep_embedding && settings.notes_db_in_user_data) {
     // On userData path, use corpus size from anchor metadata (not loaded embeddings count)
     // This determines IVF suitability based on TOTAL corpus, not filtered results
     let corpusSize = combinedEmbeddings.length; // fallback
@@ -1409,7 +1409,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   }
   
   // If IVF is enabled and we have centroid IDs, use centroid-to-note index to filter candidates
-  if (preloadAllowedCentroidIds && preloadAllowedCentroidIds.size > 0 && settings.experimental_user_data_index) {
+  if (preloadAllowedCentroidIds && preloadAllowedCentroidIds.size > 0 && settings.notes_db_in_user_data) {
     try {
       const centroidIndex = await get_or_init_centroid_index(model.id, settings);
       const topCentroidIds = Array.from(preloadAllowedCentroidIds);
@@ -1428,7 +1428,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }
   }
 
-  if (settings.experimental_user_data_index) {
+  if (settings.notes_db_in_user_data) {
     // Build candidate set: if IVF index lookup succeeded, use filtered candidates; otherwise load all
     const candidateResult = ivfCandidateNoteIds 
       ? { noteIds: ivfCandidateNoteIds }

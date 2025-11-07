@@ -73,7 +73,7 @@ joplin.plugins.register({
 
     // Validate anchor metadata on startup to catch and correct any drift
     // This runs before the initial sweep to ensure accurate baseline
-    if (runtime.model_embed.id && runtime.settings.experimental_user_data_index) {
+    if (runtime.model_embed.id && runtime.settings.notes_db_in_user_data) {
       await validate_anchor_metadata_on_startup(runtime.model_embed.id, runtime.settings);
     }
 
@@ -110,7 +110,7 @@ async function initialize_runtime(): Promise<PluginRuntime> {
 
   const model_embed = await load_embedding_model(settings);
 
-  if (settings.experimental_user_data_index) {
+  if (settings.notes_db_in_user_data) {
     try {
       await ensure_catalog_note();
     } catch (error) {
@@ -203,7 +203,7 @@ function create_update_manager(runtime: PluginRuntime): UpdateManager {
 }
 
 async function claim_centroid_refresh(runtime: PluginRuntime): Promise<boolean> {
-  if (!runtime.settings.experimental_user_data_index) {
+  if (!runtime.settings.notes_db_in_user_data) {
     return false;
   }
   if (runtime.settings.notes_device_profile_effective === 'mobile') {
@@ -784,7 +784,7 @@ async function register_settings_handler(
       const newModelId = resolve_embedding_model_id(runtime.settings);
       const oldModelId = resolve_embedding_model_id(previousSettings);
 
-      if (runtime.settings.experimental_user_data_index && newModelId) {
+      if (runtime.settings.notes_db_in_user_data && newModelId) {
         let coverageStats: ModelCoverageStats | null = null;
         try {
           coverageStats = await estimate_model_coverage(newModelId);
@@ -861,7 +861,7 @@ async function register_settings_handler(
     if (reloadEmbedding) {
       runtime.model_embed = await load_embedding_model(runtime.settings);
 
-      if (runtime.settings.experimental_user_data_index) {
+      if (runtime.settings.notes_db_in_user_data) {
         try {
           await ensure_catalog_note();
         } catch (error) {
