@@ -322,6 +322,28 @@ export async function ensure_catalog_note(): Promise<string> {
       await ensure_note_tag(again);
       return again;
     }
+    
+    // Check by title BEFORE creating to catch partially-initialized catalogs
+    // (e.g., created but userData/tags failed in a previous call)
+    const existingByTitle = await find_catalog_by_title();
+    if (existingByTitle) {
+      log.info('Found existing catalog by title, adopting it', { noteId: existingByTitle });
+      try {
+        const reg = await joplin.data.userDataGet<any>(ModelType.Note, existingByTitle, REGISTRY_KEY);
+        if (!reg) {
+          await joplin.data.userDataSet(ModelType.Note, existingByTitle, REGISTRY_KEY, {} as Record<string, string>);
+        }
+      } catch (_) {
+        try {
+          await joplin.data.userDataSet(ModelType.Note, existingByTitle, REGISTRY_KEY, {} as Record<string, string>);
+        } catch (e) {
+          log.warn('Failed to seed registry on existing catalog', { noteId: existingByTitle, error: e });
+        }
+      }
+      await ensure_note_tag(existingByTitle);
+      return existingByTitle;
+    }
+    
     try {
       const folderId = await ensure_system_folder();
       const note = await joplin.data.post(['notes'], null, {
@@ -331,11 +353,9 @@ export async function ensure_catalog_note(): Promise<string> {
       });
       // Seed empty registry marker BEFORE tagging so the note is immediately discoverable
       // by get_catalog_note_id() which searches by tag+userData presence
-      try {
-        await joplin.data.userDataSet(ModelType.Note, note.id, REGISTRY_KEY, {} as Record<string, string>);
-      } catch (error) {
-        log.warn('Failed to initialize catalog registry userData', { noteId: note.id, error });
-      }
+      // CRITICAL: Don't catch errors here - let them propagate so outer callers can defer
+      // initialization if database isn't ready (e.g., SQLITE_CONSTRAINT at startup)
+      await joplin.data.userDataSet(ModelType.Note, note.id, REGISTRY_KEY, {} as Record<string, string>);
       // Now add tags - note is already discoverable by userData even if tagging is slow/fails
       await ensure_note_tag(note.id);
       log.info('Created catalog note', { noteId: note.id });
