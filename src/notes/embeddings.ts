@@ -676,7 +676,7 @@ async function update_note(note: any,
         }
         if (needsBackfill || needsCompaction) {
           log.debug(`Note ${note.id} needs backfill/compaction - needsBackfill=${needsBackfill}, needsCompaction=${needsCompaction}`);
-          await maybe_write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId, anchorId);
+          await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId, anchorId);
         }
         
         // Validate settings even when content unchanged (catches synced mismatches)
@@ -741,16 +741,24 @@ async function update_note(note: any,
   try {
     const new_embd = await calc_note_embeddings(note, note_tags, model, settings, abortSignal, 'doc');
 
-    // insert new embeddings into DB
-    await insert_note_embeddings(model.db, new_embd, model);
-
-    await maybe_write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId, anchorId);
-
-    // Update centroid-to-note index for this note (if index is active)
+    // Write embeddings to appropriate storage
     if (settings.experimental_user_data_index) {
+      // userData mode: Write to userData first, then update centroid index
+      // Must be sequential: centroid index reads from userData
+      await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId, anchorId);
       await update_centroid_index_for_note(note.id, model.id).catch(error => {
         log.warn(`Failed to update centroid index for note ${note.id}`, error);
       });
+    } else {
+      // Legacy mode: SQLite is primary storage, clean up any old userData
+      await insert_note_embeddings(model.db, new_embd, model);
+      // Clean up ALL userData (metadata + shards for all models) when feature is disabled
+      // This prevents stale userData from accumulating and causing confusion
+      if (note?.id) {
+        userDataStore.gcOld(note.id, '', '').catch(error => {
+          log.debug(`Failed to clean userData for note ${note.id}`, error);
+        });
+      }
     }
 
     return { embeddings: new_embd };
@@ -1704,7 +1712,7 @@ function convert_newlines(str: string): string {
   return str.replace(/\r\n|\r/g, '\n');
 }
 
-async function maybe_write_user_data_embeddings(
+async function write_user_data_embeddings(
   note: any,
   blocks: BlockEmbedding[],
   model: TextEmbeddingModel,
@@ -1713,16 +1721,6 @@ async function maybe_write_user_data_embeddings(
   catalogId?: string,
   anchorId?: string,
 ): Promise<void> {
-  if (!settings.experimental_user_data_index) {
-    if (note?.id) {
-      try {
-        await userDataStore.gcOld(note.id, '', '');
-      } catch (error) {
-        log.warn(`Failed to clean userData embeddings for note ${note.id}`, error);
-      }
-    }
-    return;
-  }
   const noteId = note?.id;
   if (!noteId) {
     return;
