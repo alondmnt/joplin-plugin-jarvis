@@ -1524,7 +1524,22 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   log.debug(`Final filtering: ${combinedEmbeddings.length} blocks, IVF=${allowedCentroidIds ? `${allowedCentroidIds.size} centroids` : 'off'}`);
 
-  const filtered: BlockEmbedding[] = [];
+  const heapCapacity = tuning.candidateLimit; // Keep buffer aligned with streaming candidate cap.
+  
+  // Use heap-based filtering to avoid intermediate arrays when grouped_notes=true
+  // For chat (grouped_notes=false), use larger heap capacity to reduce memory overhead
+  const useHeap = return_grouped_notes || combinedEmbeddings.length > heapCapacity * 2;
+  const chatHeapCapacity = heapCapacity * 4; // Chat needs more results for extract_blocks_text
+  const effectiveCapacity = return_grouped_notes ? heapCapacity : chatHeapCapacity;
+  
+  let heap: TopKHeap<BlockEmbedding> | null = null;
+  let filtered: BlockEmbedding[] = [];
+  
+  if (useHeap) {
+    // Stream directly into heap - avoids building intermediate filtered array
+    heap = new TopKHeap<BlockEmbedding>(effectiveCapacity, { minScore: settings.notes_min_similarity });
+  }
+
   for (const embed of combinedEmbeddings) {
     let similarity: number;
     if (embed.q8 && embed.q8.values.length === queryQ8.values.length) {
@@ -1546,37 +1561,36 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       // The row belongs to a list we decided not to probe for this query.
       continue;
     }
-    filtered.push(embed);
+    
+    if (heap) {
+      heap.push(similarity, embed);
+    } else {
+      filtered.push(embed);
+    }
   }
 
-  log.debug(`Filtered to ${filtered.length} blocks (similarity >= ${settings.notes_min_similarity})`);
+  // Extract results from heap or use filtered array
+  let nearest: BlockEmbedding[];
+  if (heap) {
+    nearest = heap.valuesDescending().map(entry => entry.value);
+    log.debug(`Heap-filtered to ${nearest.length} blocks (capacity: ${effectiveCapacity})`);
+  } else {
+    nearest = filtered;
+    log.debug(`Filtered to ${nearest.length} blocks (similarity >= ${settings.notes_min_similarity})`);
+  }
 
   if (!return_grouped_notes) {
     // return the sorted list of block embeddings in a NoteEmbdedding[] object
     // we return all blocks without slicing, and select from them later
     // we do not add titles to the blocks and delay that for later as well
     // see extract_blocks_text()
+    // Results already sorted descending by heap, but sort anyway for consistency
     return [{
       id: current_id,
       title: 'Chat context',
-      embeddings: filtered.sort((a, b) => b.similarity - a.similarity),
+      embeddings: nearest.sort((a, b) => b.similarity - a.similarity),
       similarity: null,
     }];
-  }
-
-  const heapCapacity = tuning.candidateLimit; // Keep buffer aligned with streaming candidate cap.
-  const nearestSource = filtered.length <= heapCapacity
-    ? filtered
-    : new TopKHeap<BlockEmbedding>(heapCapacity, { minScore: settings.notes_min_similarity });
-
-  let nearest: BlockEmbedding[];
-  if (Array.isArray(nearestSource)) {
-    nearest = nearestSource;
-  } else {
-    for (const embed of filtered) {
-      nearestSource.push(embed.similarity, embed);
-    }
-    nearest = nearestSource.valuesDescending().map(entry => entry.value);
   }
 
   // group the embeddings by note id
