@@ -477,10 +477,18 @@ export async function ensure_model_anchor(catalogNoteId: string, modelId: string
  * @param anchorId - Anchor note identifier to adopt as canonical.
  */
 async function finalize_anchor(catalogNoteId: string, modelId: string, modelVersion: string, anchorId: string): Promise<void> {
-  const anchor_note = await joplin.data.get(['notes', anchorId], { fields: ['id', 'deleted_time'] });
-  const is_deleted = typeof anchor_note?.deleted_time === 'number' && anchor_note.deleted_time > 0;
-  if (!anchor_note?.id || is_deleted) {
-    throw new Error(`Anchor note ${anchorId} is deleted or missing`);
+  let anchor_note: any = null;
+  try {
+    anchor_note = await joplin.data.get(['notes', anchorId], { fields: ['id', 'deleted_time'] });
+    const is_deleted = typeof anchor_note?.deleted_time === 'number' && anchor_note.deleted_time > 0;
+    if (!anchor_note?.id || is_deleted) {
+      clearApiResponse(anchor_note);
+      throw new Error(`Anchor note ${anchorId} is deleted or missing`);
+    }
+    clearApiResponse(anchor_note);
+  } catch (error) {
+    clearApiResponse(anchor_note);
+    throw error;
   }
 
   await ensure_note_tag(anchorId);
@@ -623,6 +631,7 @@ async function update_catalog_body(catalogNoteId: string, registry: ModelRegistr
 /**
  * Ensure the anchor note metadata matches the current model and version.
  * Preserves existing metadata fields to avoid conflicts with sweep updates.
+ * If dim is missing, attempts to read it from existing note embeddings.
  *
  * @param anchorId - Anchor identifier to update.
  * @param modelId - Model identifier expected in the metadata.
@@ -630,18 +639,41 @@ async function update_catalog_body(catalogNoteId: string, registry: ModelRegistr
  */
 async function ensure_anchor_metadata(anchorId: string, modelId: string, modelVersion: string): Promise<void> {
   const meta = await read_anchor_meta_data(anchorId);
-  if (meta?.modelId === modelId && meta.version === modelVersion) {
-    return;
+  if (meta?.modelId === modelId && meta.version === modelVersion && meta.dim && meta.dim > 0) {
+    return; // Already correct and has valid dim
   }
+  
+  // If dim is missing or 0, try to read from existing notes
+  let dim = meta?.dim ?? 0;
+  if (dim === 0) {
+    try {
+      const notes = await joplin.data.get(['notes'], {
+        fields: ['id'],
+        limit: 10,
+      });
+      
+      for (const note of notes.items) {
+        const noteMeta = await joplin.data.userDataGet<any>(ModelType.Note, note.id, 'jarvis/v1/meta');
+        if (noteMeta?.models?.[modelId]?.dim) {
+          dim = noteMeta.models[modelId].dim;
+          log.debug('Anchor metadata: captured dimension from existing note', { modelId, dim, noteId: note.id });
+          break;
+        }
+      }
+    } catch (error) {
+      log.debug('Failed to read dim from existing notes', error);
+    }
+  }
+  
   // Preserve existing metadata fields to avoid overwriting sweep-updated stats
   await write_anchor_metadata(anchorId, {
     ...meta,
     modelId,
     version: modelVersion,
-    dim: meta?.dim ?? 0,
+    dim,
     updatedAt: new Date().toISOString(),
   });
-  log.debug('Anchor metadata refreshed', { modelId, anchorId });
+  log.debug('Anchor metadata refreshed', { modelId, anchorId, dim });
 }
 
 /**
@@ -653,16 +685,20 @@ async function ensure_anchor_metadata(anchorId: string, modelId: string, modelVe
  * @param catalogNoteId - Catalog note identifier used for registry persistence.
  */
 async function validate_anchor(anchorId: string, modelId: string, registry: ModelRegistry, catalogNoteId: string): Promise<boolean> {
+  let note: any = null;
   try {
-    const note = await joplin.data.get(['notes', anchorId], { fields: ['id', 'deleted_time'] });
+    note = await joplin.data.get(['notes', anchorId], { fields: ['id', 'deleted_time'] });
     const is_deleted = typeof note?.deleted_time === 'number' && note.deleted_time > 0;
     if (!note?.id || is_deleted) {
       log.warn('Registered anchor note missing or deleted', { modelId, anchorId });
+      clearApiResponse(note);
       delete registry[modelId];
       await joplin.data.userDataSet(ModelType.Note, catalogNoteId, REGISTRY_KEY, registry);
       await remove_cached_anchor(modelId);
       return false;
     }
+    clearApiResponse(note);
+    
     const meta = await read_anchor_meta_data(anchorId);
     if (!meta || meta.modelId !== modelId) {
       log.warn('Anchor metadata mismatch', { modelId, anchorId });
@@ -671,6 +707,7 @@ async function validate_anchor(anchorId: string, modelId: string, registry: Mode
     }
     return true;
   } catch (error) {
+    clearApiResponse(note);
     log.error('Failed to validate anchor note', { modelId, anchorId, error });
     return false;
   }
