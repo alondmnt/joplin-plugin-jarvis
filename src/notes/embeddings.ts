@@ -32,10 +32,11 @@ let globalCentroidIndex: CentroidNoteIndex | null = null;
  * @param modelId - Optional model ID to count blocks for a specific model
  * @returns Object with noteIds set and optional totalBlocks count
  */
-async function get_all_note_ids_with_embeddings(modelId?: string): Promise<{ 
+export async function get_all_note_ids_with_embeddings(modelId?: string): Promise<{ 
   noteIds: Set<string>; 
   totalBlocks?: number;
 }> {
+  const startTime = Date.now();
   const noteIds = new Set<string>();
   let totalBlocks = 0;
   let page = 1;
@@ -76,8 +77,57 @@ async function get_all_note_ids_with_embeddings(modelId?: string): Promise<{
     }
   }
   
-  log.info(`Candidate selection: found ${noteIds.size} notes with embeddings${modelId ? `, ${totalBlocks} blocks for model ${modelId}` : ''}`);
+  const duration = Date.now() - startTime;
+  log.info(`Candidate selection: found ${noteIds.size} notes with embeddings${modelId ? `, ${totalBlocks} blocks for model ${modelId}` : ''} (took ${duration}ms)`);
   return { noteIds, totalBlocks: modelId ? totalBlocks : undefined };
+}
+
+/**
+ * Bootstrap missing centroids on startup if corpus is large enough.
+ * This is a simple, single-purpose check that runs once at startup.
+ * 
+ * @param model - Embedding model
+ * @param settings - Jarvis settings
+ */
+export async function bootstrap_missing_centroids_on_startup(model: TextEmbeddingModel, settings: JarvisSettings): Promise<void> {
+  if (!settings.notes_db_in_user_data || !model.id) {
+    return;
+  }
+  
+  try {
+    const catalogId = await get_catalog_note_id();
+    if (!catalogId) return;
+    
+    const anchorId = await resolve_anchor_note_id(catalogId, model.id);
+    if (!anchorId) return;
+    
+    const anchorMeta = await read_anchor_meta_data(anchorId);
+    if (!anchorMeta || !anchorMeta.rowCount) {
+      log.debug('Bootstrap: no anchor metadata found');
+      return;
+    }
+    
+    // Check if corpus is large enough for IVF
+    if (anchorMeta.rowCount < MIN_TOTAL_ROWS_FOR_IVF) {
+      log.debug(`Bootstrap: corpus too small (${anchorMeta.rowCount} < ${MIN_TOTAL_ROWS_FOR_IVF})`);
+      return;
+    }
+    
+    // Check if centroids exist
+    const { read_centroids } = await import('./anchorStore');
+    const centroidPayload = await read_centroids(anchorId);
+    if (centroidPayload?.b64) {
+      log.debug('Bootstrap: centroids already exist');
+      return;
+    }
+    
+    // Centroids missing - set flag to force training on next note process
+    console.warn(`Jarvis: Centroids missing but corpus has ${anchorMeta.rowCount} rows (≥${MIN_TOTAL_ROWS_FOR_IVF}) - will train during next sweep`);
+    model.needsCentroidBootstrap = true;
+    
+  } catch (error) {
+    log.warn('Bootstrap: failed to check centroids', error);
+  }
 }
 
 /**
@@ -536,7 +586,7 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
  */
 async function update_note(note: any,
     model: TextEmbeddingModel, settings: JarvisSettings,
-    abortSignal: AbortSignal, force: boolean = false, catalogId?: string, anchorId?: string): Promise<UpdateNoteResult> {
+    abortSignal: AbortSignal, force: boolean = false, catalogId?: string, anchorId?: string, corpusRowCountAccumulator?: { current: number }): Promise<UpdateNoteResult> {
   if (abortSignal.aborted) {
     throw new ModelError("Operation cancelled");
   }
@@ -628,32 +678,40 @@ async function update_note(note: any,
     if (!force) {
       // force=false (note save/sweep): Skip if content unchanged, but validate settings
       // This is for incremental updates when user saves a note or background sweeps
+      
       if (userDataMeta) {
         const modelMeta = userDataMeta?.models?.[model.id];
-        const needsBackfill = !userDataMeta
+        let needsBackfill = !userDataMeta
           || !modelMeta
           || modelMeta.current?.contentHash !== hash;
         let needsCompaction = false;
+        let shardMissing = false;
         if (!needsBackfill && userDataMeta && modelMeta && modelMeta.current?.shards > 0) {
           try {
             const first = await userDataStore.getShard(note.id, model.id, 0);
-            const row0 = first?.meta?.[0] as any;
-            // Detect legacy rows by presence of duplicated per-row fields or blockId
-            needsCompaction = Boolean(row0?.noteId || row0?.noteHash || row0?.blockId);
-            
-            // Clear base64 strings from shard after inspection
-            if (first) {
+            if (!first) {
+              // Metadata exists but shard is missing/corrupt - needs backfill
+              shardMissing = true;
+              log.debug(`Note ${note.id} has metadata but missing/invalid shard - will backfill`);
+            } else {
+              const row0 = first?.meta?.[0] as any;
+              // Detect legacy rows by presence of duplicated per-row fields or blockId
+              needsCompaction = Boolean(row0?.noteId || row0?.noteHash || row0?.blockId);
+              
+              // Clear base64 strings from shard after inspection
               delete (first as any).vectorsB64;
               delete (first as any).scalesB64;
               delete (first as any).centroidIdsB64;
             }
           } catch (e) {
-            // Ignore shard read issues during compact check
+            // Shard read failed - treat as missing/corrupt
+            shardMissing = true;
+            log.debug(`Note ${note.id} shard read failed - will backfill`, e);
           }
         }
-        if (needsBackfill || needsCompaction) {
-          log.debug(`Note ${note.id} needs backfill/compaction - needsBackfill=${needsBackfill}, needsCompaction=${needsCompaction}`);
-          await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId, anchorId);
+        if (needsBackfill || needsCompaction || shardMissing) {
+          log.debug(`Note ${note.id} needs backfill/compaction - needsBackfill=${needsBackfill}, needsCompaction=${needsCompaction}, shardMissing=${shardMissing}`);
+          await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId, anchorId, corpusRowCountAccumulator);
         }
         
         // Validate settings even when content unchanged (catches synced mismatches)
@@ -675,8 +733,9 @@ async function update_note(note: any,
             };
           }
         }
+        
+        return { embeddings: old_embd, skippedUnchanged: true }; // Skip - content unchanged, settings match
       }
-      return { embeddings: old_embd, skippedUnchanged: true }; // Skip - content unchanged, settings match
     }
     
     // force=true: Check if userData matches current settings/model before skipping
@@ -692,20 +751,20 @@ async function update_note(note: any,
         const settingsMatch = settings_equal(currentSettings, modelMeta.settings);
         
         if (modelMeta && hashMatches && modelVersionMatches && embeddingVersionMatches && settingsMatch) {
-          // Everything up-to-date: content, settings, and model all match
-          log.debug(`Skipping note ${note.id} - already up-to-date (force=true)`);
+          // Everything up-to-date: content, settings, and model all match - skip even with force=true
+          // This is the expected behavior: force=true means "recheck everything", not "rebuild everything"
           // Note: old_embd may be empty when userData is enabled (embeddings stored in userData, not SQLite)
           return { embeddings: old_embd, skippedUnchanged: true };
         }
-        // userData exists but outdated (settings or model changed) - fall through to rebuild
-        log.debug(`Rebuilding note ${note.id} - userData outdated (force=true)`);
+        // userData exists but outdated (settings or model changed) - rebuild needed
+        log.info(`Rebuilding note ${note.id} - userData outdated (hash=${hashMatches}, model=${modelVersionMatches}, embedding=${embeddingVersionMatches}, settings=${settingsMatch})`);
       } else {
-        // userData missing or wrong model - fall through to rebuild
-        log.debug(`Rebuilding note ${note.id} - userData wrong model (force=true)`);
+        // userData missing or wrong model - rebuild needed
+        log.info(`Rebuilding note ${note.id} - no userData for model ${model.id}`);
       }
     } else {
-      // userData missing - fall through to rebuild
-      log.debug(`Rebuilding note ${note.id} - userData missing (force=true)`);
+      // userData missing - rebuild needed
+      log.info(`Rebuilding note ${note.id} - no userData found`);
     }
     
     if (!settings.notes_db_in_user_data) {
@@ -722,7 +781,7 @@ async function update_note(note: any,
     if (settings.notes_db_in_user_data) {
       // userData mode: Write to userData first, then update centroid index
       // Must be sequential: centroid index reads from userData
-      await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId, anchorId);
+      await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId, anchorId, corpusRowCountAccumulator);
       await update_centroid_index_for_note(note.id, model.id).catch(error => {
         log.warn(`Failed to update centroid index for note ${note.id}`, error);
       });
@@ -859,7 +918,7 @@ export async function update_embeddings(
     let attempt = 0;
     while (!abortController.signal.aborted) {
       try {
-        const result = await update_note(note, model, settings, abortController.signal, force, catalogId, anchorId);
+        const result = await update_note(note, model, settings, abortController.signal, force, catalogId, anchorId, corpusRowCountAccumulator);
         successfulNotes.push({ note, embeddings: result.embeddings });
         
         // Track notes that were skipped due to matching hash and settings
@@ -1334,13 +1393,20 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   const queryQ8 = quantize_vector_to_q8(rep_embedding);
 
   const computeAllowedCentroids = async (queryVector: Float32Array, candidateCount: number): Promise<Set<number> | null> => {
-    if (!settings.notes_db_in_user_data || candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
+    if (!settings.notes_db_in_user_data) {
+      log.debug(`IVF disabled: userData mode not enabled (candidateCount=${candidateCount})`);
+      return null;
+    }
+    if (candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
       log.debug(`IVF disabled: candidateCount=${candidateCount} < threshold=${MIN_TOTAL_ROWS_FOR_IVF}`);
       return null;
     }
     const centroids = await load_model_centroids(model.id);
     if (!centroids || centroids.dim !== queryVector.length || centroids.nlist <= 0) {
-      log.warn(`IVF unavailable: centroids=${!!centroids}, dim=${centroids?.dim}/${queryVector.length}, nlist=${centroids?.nlist || 0}`, { modelId: model.id });
+      const centroidInfo = centroids 
+        ? `dim=${centroids.dim}/${queryVector.length}, nlist=${centroids.nlist}` 
+        : `not loaded (expected dim=${queryVector.length})`;
+      log.warn(`IVF unavailable: centroids=${!!centroids}, ${centroidInfo}`, { modelId: model.id });
       return null;
     }
     const nprobe = choose_nprobe(centroids.nlist, candidateCount, {
@@ -1392,20 +1458,29 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   if (rep_embedding && settings.notes_db_in_user_data) {
     // On userData path, use corpus size from anchor metadata (not loaded embeddings count)
     // This determines IVF suitability based on TOTAL corpus, not filtered results
-    let corpusSize = combinedEmbeddings.length; // fallback
+    let corpusSize = 0;
     try {
       const catalogId = await get_catalog_note_id();
-      if (catalogId) {
+      if (!catalogId) {
+        log.debug('IVF: Catalog note not found, corpus size unknown');
+      } else {
         const anchorId = await resolve_anchor_note_id(catalogId, model.id);
-        if (anchorId) {
+        if (!anchorId) {
+          log.debug('IVF: Anchor note not found for model, corpus size unknown', { modelId: model.id });
+        } else {
           const anchorMeta = await read_anchor_meta_data(anchorId);
-          if (anchorMeta?.rowCount) {
+          if (!anchorMeta) {
+            log.debug('IVF: Anchor metadata not found, corpus size unknown', { anchorId });
+          } else if (!anchorMeta.rowCount || anchorMeta.rowCount === 0) {
+            log.debug('IVF: Anchor rowCount is 0 or missing, corpus likely empty', { anchorId, rowCount: anchorMeta.rowCount });
+          } else {
             corpusSize = anchorMeta.rowCount;
+            log.debug(`IVF: Read corpus size from anchor: ${corpusSize} rows`, { anchorId, modelId: model.id });
           }
         }
       }
     } catch (error) {
-      log.warn('Failed to read corpus size from anchor, using fallback', error);
+      log.warn('Failed to read corpus size from anchor, IVF will be disabled', error);
     }
     
     preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, corpusSize);
@@ -1435,11 +1510,18 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   }
 
   if (settings.notes_db_in_user_data) {
-    // Build candidate set: if IVF index lookup succeeded, use filtered candidates; otherwise load all
-    const candidateResult = ivfCandidateNoteIds 
-      ? { noteIds: ivfCandidateNoteIds }
-      : await get_all_note_ids_with_embeddings();
-    const candidateIds = candidateResult.noteIds;
+    // Build candidate set: if IVF index lookup succeeded, use filtered candidates; otherwise build index first
+    let candidateIds: Set<string>;
+    
+    if (ivfCandidateNoteIds) {
+      candidateIds = ivfCandidateNoteIds;
+    } else {
+      // IVF disabled or unavailable - build/refresh centroid index which already has noteIds cached
+      // This is much faster than scanning all notes (index build is ~50-100ms vs full scan ~240ms)
+      const centroidIndex = await get_or_init_centroid_index(model.id, settings);
+      candidateIds = centroidIndex.get_all_note_ids();
+    }
+    
     candidateIds.add(current_id);
     
     const replaceIds = new Set<string>();
@@ -1755,6 +1837,7 @@ async function write_user_data_embeddings(
   contentHash: string,
   catalogId?: string,
   anchorId?: string,
+  corpusRowCountAccumulator?: { current: number },
 ): Promise<void> {
   const noteId = note?.id;
   if (!noteId) {
@@ -1770,6 +1853,7 @@ async function write_user_data_embeddings(
       store: userDataStore,
       catalogId,
       anchorId,
+      corpusRowCountAccumulator,
     });
     if (!prepared) {
       return;
