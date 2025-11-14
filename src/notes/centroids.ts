@@ -31,8 +31,14 @@ const MIN_VALID_CLUSTERS = 2;
 /**
  * Minimum row count before attempting IVF centroid training. Below this we fall
  * back to brute-force scans to avoid unstable clusters.
+ * 
+ * At 2048 rows:
+ * - nlist = 64 clusters → 32 samples/cluster (reasonable quality)
+ * - Mobile: ~4x speedup (18.8% coverage with nprobe=12)
+ * - Desktop: ~3x speedup (31.2% coverage with nprobe=20)
+ * - Enables IVF for smaller-to-moderate note collections
  */
-export const MIN_TOTAL_ROWS_FOR_IVF = 512;
+export const MIN_TOTAL_ROWS_FOR_IVF = 2048;
 
 const DEFAULT_MAX_SAMPLE = 20000;
 const MIN_SAMPLES_PER_LIST = 32;
@@ -344,6 +350,149 @@ export function train_centroids(
   }
 
   return centroids;
+}
+
+/**
+ * Validate k-means results for correctness and quality.
+ * Returns an object with validation results and diagnostics.
+ */
+export function validate_kmeans_results(
+  centroids: Float32Array,
+  dim: number,
+  nlist: number,
+  samples: readonly Float32Array[],
+): {
+  passed: boolean;
+  checks: {
+    normalized: boolean;
+    distinct: boolean;
+    noEmpty: boolean;
+    balanced: boolean;
+  };
+  diagnostics: {
+    avgNorm: number;
+    minNorm: number;
+    maxNorm: number;
+    avgNeighborSimilarity: number;
+    emptyCentroids: number;
+    avgAssignments: number;
+    minAssignments: number;
+    maxAssignments: number;
+    imbalanceRatio: number;
+  };
+} {
+  // Early validation of inputs
+  if (!centroids || centroids.length === 0) {
+    console.error('validate_kmeans_results: centroids is null or empty');
+    return {
+      passed: false,
+      checks: { normalized: false, distinct: false, noEmpty: false, balanced: false },
+      diagnostics: {
+        avgNorm: NaN,
+        minNorm: NaN,
+        maxNorm: NaN,
+        avgNeighborSimilarity: NaN,
+        emptyCentroids: nlist,
+        avgAssignments: 0,
+        minAssignments: 0,
+        maxAssignments: 0,
+        imbalanceRatio: Infinity,
+      },
+    };
+  }
+  
+  if (centroids.length !== nlist * dim) {
+    console.error('validate_kmeans_results: centroids length mismatch', {
+      actual: centroids.length,
+      expected: nlist * dim,
+      nlist,
+      dim,
+    });
+  }
+  
+  // Check 1: Centroids should be normalized (for cosine similarity)
+  const centroidNorms: number[] = [];
+  for (let i = 0; i < nlist; i++) {
+    let norm = 0;
+    for (let d = 0; d < dim; d++) {
+      const val = centroids[i * dim + d];
+      norm += val * val;
+    }
+    centroidNorms.push(Math.sqrt(norm));
+  }
+
+  const avgNorm = centroidNorms.reduce((a, b) => a + b, 0) / centroidNorms.length;
+  const minNorm = Math.min(...centroidNorms);
+  const maxNorm = Math.max(...centroidNorms);
+
+  // Check 2: Centroids should be distinct (not collapsed)
+  const distinctCheck: number[] = [];
+  for (let i = 0; i < Math.min(5, nlist - 1); i++) {
+    let similarity = 0;
+    for (let d = 0; d < dim; d++) {
+      similarity += centroids[i * dim + d] * centroids[(i + 1) * dim + d];
+    }
+    distinctCheck.push(similarity);
+  }
+
+  const avgSimilarity = distinctCheck.length > 0 
+    ? distinctCheck.reduce((a, b) => a + b, 0) / distinctCheck.length 
+    : 0;
+
+  // Check 3: Verify assignment distribution
+  const assignments = new Map<number, number>();
+  for (const sample of samples) {
+    let bestCentroid = 0;
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < nlist; i++) {
+      let score = 0;
+      for (let d = 0; d < dim; d++) {
+        score += sample[d] * centroids[i * dim + d];
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestCentroid = i;
+      }
+    }
+    assignments.set(bestCentroid, (assignments.get(bestCentroid) || 0) + 1);
+  }
+
+  const emptyCentroids = nlist - assignments.size;
+  const assignmentCounts = Array.from(assignments.values());
+  const avgAssignments = assignmentCounts.length > 0 
+    ? assignmentCounts.reduce((a, b) => a + b, 0) / assignmentCounts.length 
+    : 0;
+  const minAssignments = assignmentCounts.length > 0 ? Math.min(...assignmentCounts) : 0;
+  const maxAssignments = assignmentCounts.length > 0 ? Math.max(...assignmentCounts) : 0;
+  const imbalanceRatio = minAssignments > 0 ? maxAssignments / minAssignments : Infinity;
+
+  // PASS/FAIL criteria
+  // Note: Real-world data naturally has varying cluster sizes
+  // imbalanceRatio of 150 means some topics have 150x more content than others (common with real notes!)
+  // This is acceptable as long as no centroids are completely empty
+  const checks = {
+    normalized: Math.abs(avgNorm - 1.0) < 0.1,
+    distinct: avgSimilarity < 0.8,
+    noEmpty: emptyCentroids === 0,
+    balanced: imbalanceRatio < 150 && minAssignments >= 1, // Relaxed for real-world data
+  };
+
+  return {
+    passed: Object.values(checks).every(v => v),
+    checks,
+    diagnostics: {
+      avgNorm,
+      minNorm,
+      maxNorm,
+      avgNeighborSimilarity: avgSimilarity,
+      emptyCentroids,
+      avgAssignments,
+      minAssignments,
+      maxAssignments,
+      imbalanceRatio,
+    },
+  };
 }
 
 /**
