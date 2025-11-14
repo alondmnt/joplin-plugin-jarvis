@@ -942,8 +942,16 @@ async function sample_from_user_data(
     const noteIds = Array.from(result.noteIds);
     
     if (noteIds.length === 0) {
+      log.warn('No notes found with embeddings for model', { modelId, expectedDim: dim });
       return [];
     }
+    
+    log.info('Starting sample collection', {
+      modelId,
+      expectedDim: dim,
+      totalNotesForModel: noteIds.length,
+      sampleLimit
+    });
     
     // Use reservoir sampling to select notes (assume ~10-15 blocks per note)
     const estimatedNotesNeeded = Math.ceil(sampleLimit / 12);
@@ -966,6 +974,22 @@ async function sample_from_user_data(
           
           // Decode Q8 vectors back to Float32Array
           const q8 = decode_q8_vectors(shard);
+          
+          // CRITICAL: Check if shard dimension matches expected dimension
+          // If mismatch, this note has embeddings from a different model!
+          const shardDim = modelMeta.dim ?? dim;
+          if (shardDim !== dim) {
+            log.warn(`Dimension mismatch in sample collection`, {
+              noteId,
+              expectedDim: dim,
+              shardDim,
+              modelId,
+              vectorsLength: q8.vectors.length,
+              reason: 'Note has embeddings from different model'
+            });
+            break; // Skip this entire note
+          }
+          
           const rowCount = q8.vectors.length / dim;
           
           for (let row = 0; row < rowCount && samples.length < sampleLimit; row++) {

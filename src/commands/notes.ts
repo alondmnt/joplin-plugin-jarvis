@@ -416,19 +416,35 @@ export async function update_note_db(
   if (model.needsCentroidBootstrap && actually_processed_notes === 0 && !abortController.signal.aborted && settings.notes_db_in_user_data) {
     console.warn('Jarvis: Bootstrap needed but no notes were processed - training centroids from existing embeddings');
     
-    const success = await train_centroids_from_existing_embeddings(
-      model,
-      settings,
-      corpusRowCountAccumulator.current,
-      embeddingDim || 1536 // Use captured dim or fallback to common dimension
-    );
+    // Get dimension from anchor metadata (actual stored dimension), not hardcoded fallback
+    let modelDim = embeddingDim; // Try captured dim first
+    if (!modelDim && anchorId) {
+      try {
+        const anchorMeta = await read_anchor_meta_data(anchorId);
+        modelDim = anchorMeta?.dim || 0;
+        console.info(`Jarvis: Retrieved dimension ${modelDim} from anchor metadata for model ${model.id}`);
+      } catch (error) {
+        console.warn('Failed to retrieve dimension from anchor metadata', error);
+      }
+    }
     
-    if (success) {
-      console.info('Jarvis: Emergency centroid training completed');
-      model.needsCentroidBootstrap = false;
-      model.needsCentroidReassignment = true;
+    if (!modelDim) {
+      console.error(`Jarvis: Cannot determine dimension for model ${model.id} - skipping centroid training`);
     } else {
-      console.error('Jarvis: Emergency centroid training failed');
+      const success = await train_centroids_from_existing_embeddings(
+        model,
+        settings,
+        corpusRowCountAccumulator.current,
+        modelDim
+      );
+      
+      if (success) {
+        console.info('Jarvis: Emergency centroid training completed');
+        model.needsCentroidBootstrap = false;
+        model.needsCentroidReassignment = true;
+      } else {
+        console.error('Jarvis: Emergency centroid training failed');
+      }
     }
   }
 
