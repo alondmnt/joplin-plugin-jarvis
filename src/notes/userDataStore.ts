@@ -263,7 +263,31 @@ export class UserDataEmbStore implements EmbStore {
       return null;
     }
     const key = shardKey(modelId, index);
-    return this.client.get<EmbShard>(noteId, key);
+    try {
+      const shard = await this.client.get<EmbShard>(noteId, key);
+      if (!shard) {
+        log.debug(`Shard missing for note ${noteId} - will trigger backfill on next update`);
+        return null;
+      }
+      
+      // Validate shard has required fields
+      if (!shard.vectorsB64 || !shard.scalesB64 || !shard.meta || typeof shard.epoch !== 'number') {
+        log.warn(`Shard data incomplete for note ${noteId} - will trigger backfill on next update`, {
+          hasVectors: !!shard.vectorsB64,
+          hasScales: !!shard.scalesB64,
+          hasMeta: !!shard.meta,
+          hasEpoch: typeof shard.epoch === 'number',
+          vectorsLength: shard.vectorsB64?.length ?? 0,
+          scalesLength: shard.scalesB64?.length ?? 0
+        });
+        return null;
+      }
+      
+      return shard;
+    } catch (error) {
+      log.warn(`Failed to read shard for note ${noteId}`, error);
+      return null;
+    }
   }
 
   async put(noteId: string, modelId: string, meta: NoteEmbMeta, shards: EmbShard[]): Promise<void> {
