@@ -14,6 +14,13 @@
  * - Rebuilt on-demand, refreshed incrementally via timestamp queries
  * - Each device builds independently, converges after sync via timestamp-based refresh
  * - Memory: ~1-2MB for 10,000 notes (acceptable overhead)
+ * 
+ * **Deletion handling:**
+ * - Deleted notes are removed via periodic sampling during incremental refresh
+ * - Every 10th refresh: checks up to 100 random notes for deletions
+ * - Full rebuild: naturally clears all stale entries by rescanning from scratch
+ * - Trade-off: Some stale entries may persist temporarily but don't affect correctness
+ *   (loading embeddings for deleted notes fails gracefully)
  */
 
 import joplin from 'api';
@@ -49,6 +56,7 @@ export class CentroidNoteIndex {
     lastUpdated: 0,
   };
   private isBuilt: boolean = false;
+  private refreshCount: number = 0; // Track refresh calls for periodic cleanup
 
   constructor(private store: EmbStore, private modelId: string) {}
 
@@ -57,6 +65,14 @@ export class CentroidNoteIndex {
    */
   get_model_id(): string {
     return this.modelId;
+  }
+  
+  /**
+   * Get all note IDs that have embeddings (regardless of centroid).
+   * Much faster than scanning all notes with userData reads.
+   */
+  get_all_note_ids(): Set<string> {
+    return new Set(this.noteToCentroids.keys());
   }
 
   /**
@@ -117,6 +133,15 @@ export class CentroidNoteIndex {
       const shard = await this.store.getShard(noteId, this.modelId, 0);
       if (!shard || shard.epoch !== modelMeta.current.epoch) {
         return; // Stale or missing shard
+      }
+
+      // Validate shard has required fields before decoding
+      if (!shard.vectorsB64 || !shard.scalesB64) {
+        log.warn(`CentroidIndex: Shard for note ${noteId} missing required fields`, {
+          hasVectors: !!shard.vectorsB64,
+          hasScales: !!shard.scalesB64
+        });
+        return;
       }
 
       const decoded = decoder.decode(shard);
@@ -266,6 +291,8 @@ export class CentroidNoteIndex {
    * **Dual termination:** Stops when (1) `has_more` is false OR (2) note timestamp <= lastUpdated
    * 
    * **Typical cost:** ~50-100ms for 10-50 updated notes (usually single page).
+   * 
+   * **Deletion handling:** Every 10th refresh, checks a sample of indexed notes for deletions.
    */
   async refresh(): Promise<void> {
     if (!this.isBuilt) {
@@ -321,12 +348,87 @@ export class CentroidNoteIndex {
 
     const refreshTimeMs = Date.now() - startTime;
     this.stats.lastUpdated = Date.now();
+    
+    // Periodic cleanup: check for deleted notes every 10th refresh
+    // This catches notes deleted between refreshes (deletions don't update user_updated_time)
+    if (!this.refreshCount) {
+      this.refreshCount = 0;
+    }
+    this.refreshCount++;
+    
+    if (this.refreshCount % 10 === 0) {
+      const cleanupStart = Date.now();
+      const removedCount = await this.cleanup_deleted_notes();
+      const cleanupTime = Date.now() - cleanupStart;
+      if (removedCount > 0) {
+        log.info(`CentroidIndex: Cleanup removed ${removedCount} deleted notes (${cleanupTime}ms)`);
+      }
+    }
 
     if (refreshedCount > 0) {
       log.info(
         `CentroidIndex: Refresh complete - ${refreshedCount} notes updated, ${refreshTimeMs}ms`
       );
     }
+  }
+  
+  /**
+   * Check indexed notes for deletions and remove them from index.
+   * Samples random notes to avoid checking all notes on every call.
+   * 
+   * @returns Number of deleted notes removed
+   */
+  private async cleanup_deleted_notes(): Promise<number> {
+    const noteIds = Array.from(this.noteToCentroids.keys());
+    if (noteIds.length === 0) {
+      return 0;
+    }
+    
+    // Sample up to 100 notes for deletion check (balance between thoroughness and performance)
+    const sampleSize = Math.min(100, noteIds.length);
+    const sampled: string[] = [];
+    
+    // Random sampling without replacement using Fisher-Yates shuffle
+    // Shuffle in-place to avoid creating a full copy
+    for (let i = noteIds.length - 1; i > 0 && sampled.length < sampleSize; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [noteIds[i], noteIds[j]] = [noteIds[j], noteIds[i]];
+      sampled.push(noteIds[i]);
+    }
+    
+    // Clear noteIds array after sampling to free memory
+    noteIds.length = 0;
+    
+    let removedCount = 0;
+    
+    // Check each sampled note
+    for (const noteId of sampled) {
+      let note: any = null;
+      try {
+        note = await joplin.data.get(['notes', noteId], {
+          fields: ['id', 'deleted_time'],
+        });
+        
+        // Remove if note is deleted
+        if (note.deleted_time && note.deleted_time > 0) {
+          this.remove_note(noteId);
+          removedCount++;
+        }
+        
+        // Clear API response after checking
+        clearApiResponse(note);
+      } catch (error) {
+        // Note not found (deleted) - remove from index
+        clearApiResponse(note);
+        this.remove_note(noteId);
+        removedCount++;
+      }
+    }
+    
+    // Clear sampled array
+    sampled.length = 0;
+    
+    return removedCount;
   }
 
   /**
