@@ -8,7 +8,7 @@ import { find_notes, update_note_db, skip_db_init_dialog } from './commands/note
 import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
-import { find_nearest_notes, validate_anchor_metadata_on_startup } from './notes/embeddings';
+import { find_nearest_notes, validate_anchor_metadata_on_startup, bootstrap_missing_centroids_on_startup } from './notes/embeddings';
 import { ensure_catalog_note, get_catalog_note_id, resolve_anchor_note_id } from './notes/catalog';
 import { register_panel, update_panel } from './ux/panel';
 import { get_settings, register_settings, set_folders, get_model_last_sweep_time, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
@@ -75,6 +75,9 @@ joplin.plugins.register({
     // This runs before the initial sweep to ensure accurate baseline
     if (runtime.model_embed.id && runtime.settings.notes_db_in_user_data) {
       await validate_anchor_metadata_on_startup(runtime.model_embed.id, runtime.settings);
+      
+      // Bootstrap centroids if missing (must happen after anchor validation to have accurate rowCount)
+      await bootstrap_missing_centroids_on_startup(runtime.model_embed, runtime.settings);
     }
 
     await run_initial_sweep(runtime, updates);

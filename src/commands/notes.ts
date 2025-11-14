@@ -1,5 +1,6 @@
 import joplin from 'api';
-import { find_nearest_notes, update_embeddings, build_centroid_index_on_startup } from '../notes/embeddings';
+import { ModelType } from 'api/types';
+import { find_nearest_notes, update_embeddings, build_centroid_index_on_startup, get_all_note_ids_with_embeddings } from '../notes/embeddings';
 import { ensure_catalog_note, ensure_model_anchor, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time } from '../ux/settings';
@@ -8,8 +9,10 @@ import { ModelError, clearApiResponse, clearObjectReferences } from '../utils';
 import { assign_missing_centroids } from '../notes/centroidAssignment';
 import { UserDataEmbStore, EmbeddingSettings } from '../notes/userDataStore';
 import type { JarvisSettings } from '../ux/settings';
-import { compute_final_anchor_metadata, anchor_metadata_changed } from '../notes/userDataIndexer';
+import { compute_final_anchor_metadata, anchor_metadata_changed, train_centroids_from_existing_embeddings } from '../notes/userDataIndexer';
 import { read_anchor_meta_data, write_anchor_metadata } from '../notes/anchorStore';
+import { load_model_centroids } from '../notes/centroidLoader';
+import { MIN_TOTAL_ROWS_FOR_IVF } from '../notes/centroids';
 
 /**
  * Refresh embeddings for either the entire notebook set or a specific list of notes.
@@ -82,6 +85,7 @@ export async function update_note_db(
   const noteFields = ['id', 'title', 'body', 'is_conflict', 'parent_id', 'deleted_time', 'markup_language'];
   let total_notes = 0;
   let processed_notes = 0;
+  let actually_processed_notes = 0;  // Track notes that weren't filtered/skipped
   const allSettingsMismatches: Array<{ noteId: string; currentSettings: any; storedSettings: any }> = [];
 
   const isFullSweep = !noteIds || noteIds.length === 0;
@@ -98,7 +102,20 @@ export async function update_note_db(
   if (settings.notes_db_in_user_data && anchorId) {
     try {
       const anchorMeta = await read_anchor_meta_data(anchorId);
-      corpusRowCountAccumulator = { current: anchorMeta?.rowCount ?? 0 };
+      let initialCount = anchorMeta?.rowCount ?? 0;
+      
+      // If anchor metadata is missing or has rowCount=0, count existing embeddings
+      // ONLY do this for FULL sweeps - incremental sweeps should trust existing metadata
+      // This prevents undercounting when notes are deleted between sweeps
+      if ((!initialCount || initialCount === 0) && isFullSweep) {
+        console.debug('Jarvis: anchor rowCount missing or zero, counting existing embeddings (full sweep)...');
+        const countResult = await get_all_note_ids_with_embeddings(model.id);
+        if (countResult.totalBlocks && countResult.totalBlocks > 0) {
+          initialCount = countResult.totalBlocks;
+        }
+      }
+      
+      corpusRowCountAccumulator = { current: initialCount };
       console.debug('Jarvis: initialized corpus row count accumulator', {
         modelId: model.id,
         initialCount: corpusRowCountAccumulator.current,
@@ -141,6 +158,7 @@ export async function update_note_db(
         allSettingsMismatches.push(...result.settingsMismatches);
         totalEmbeddingRows += result.totalRows;
         if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
+        actually_processed_notes += result.actuallyProcessed;
         
         // Clear note bodies after chunk processing
         clearObjectReferences(chunk);
@@ -158,6 +176,7 @@ export async function update_note_db(
       allSettingsMismatches.push(...result.settingsMismatches);
       totalEmbeddingRows += result.totalRows;
       if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
+      actually_processed_notes += result.actuallyProcessed;
       
       // Clear remaining batch after processing
       clearObjectReferences(batch);
@@ -202,6 +221,7 @@ export async function update_note_db(
       allSettingsMismatches.push(...result.settingsMismatches);
       totalEmbeddingRows += result.totalRows;
       if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
+      actually_processed_notes += result.actuallyProcessed;
       
       // Clear note bodies after batch processing (can be very large)
       // clearObjectReferences on array will clear all elements
@@ -265,6 +285,7 @@ export async function update_note_db(
         allSettingsMismatches.push(...result.settingsMismatches);
         totalEmbeddingRows += result.totalRows;
         if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
+        actually_processed_notes += result.actuallyProcessed;
         
         // Clear note bodies after batch processing
         clearObjectReferences(notes.items);
@@ -284,7 +305,7 @@ export async function update_note_db(
       console.warn(`Jarvis: ${total_notes - processed_notes} notes were skipped or failed during update`);
     }
   }
-
+  
   // Update last sweep timestamp after successful completion of any full sweep
   // (both incremental and thorough scans, but not specific note IDs)
   if (!abortController.signal.aborted && isFullSweep) {
@@ -300,9 +321,40 @@ export async function update_note_db(
   if (!abortController.signal.aborted && settings.notes_db_in_user_data && anchorId && model?.id && corpusRowCountAccumulator) {
     try {
       const currentMetadata = await read_anchor_meta_data(anchorId);
-      // Use accumulator value (running total) instead of totalEmbeddingRows (delta)
-      const finalRowCount = corpusRowCountAccumulator.current;
-      const newMetadata = await compute_final_anchor_metadata(model, settings, anchorId, finalRowCount, embeddingDim);
+      
+      // For FULL non-incremental sweeps, do a final recount to catch deleted notes
+      // Incremental sweeps can't detect deletions, so they rely on startup validation
+      let finalRowCount = corpusRowCountAccumulator.current;
+      if (isFullSweep && !incrementalSweep) {
+        console.debug('Jarvis: performing final count after full sweep to detect deletions...');
+        const countResult = await get_all_note_ids_with_embeddings(model.id);
+        if (countResult.totalBlocks !== undefined) {
+          const drift = Math.abs(countResult.totalBlocks - finalRowCount);
+          if (drift > 0) {
+            console.info(`Jarvis: corrected rowCount drift: accumulator=${finalRowCount}, actual=${countResult.totalBlocks}, diff=${drift}`);
+            finalRowCount = countResult.totalBlocks;
+          } else {
+            console.debug(`Jarvis: final recount verified no drift (accumulator and actual both ${finalRowCount})`);
+          }
+        }
+      }
+      
+      // If dimension wasn't captured during sweep (all notes skipped), read it from an existing note
+      let finalDim = embeddingDim;
+      if (finalDim === 0 && finalRowCount > 0) {
+        console.debug('Jarvis: dimension not captured during sweep, reading from existing note...');
+        const noteIds = await get_all_note_ids_with_embeddings(model.id);
+        for (const noteId of Array.from(noteIds.noteIds).slice(0, 5)) {
+          const noteMeta = await joplin.data.userDataGet<any>(ModelType.Note, noteId, 'jarvis/v1/meta');
+          if (noteMeta?.models?.[model.id]?.dim) {
+            finalDim = noteMeta.models[model.id].dim;
+            console.debug(`Jarvis: captured dimension ${finalDim} from note ${noteId}`);
+            break;
+          }
+        }
+      }
+      
+      const newMetadata = await compute_final_anchor_metadata(model, settings, anchorId, finalRowCount, finalDim);
       
       if (newMetadata && anchor_metadata_changed(currentMetadata, newMetadata)) {
         await write_anchor_metadata(anchorId, newMetadata);
@@ -318,6 +370,12 @@ export async function update_note_db(
           rowCount: newMetadata.rowCount,
           oldRowCount: currentMetadata?.rowCount,
         });
+      } else {
+        console.warn('Jarvis: failed to compute anchor metadata (dimension unavailable?)', {
+          modelId: model.id,
+          finalDim,
+          finalRowCount,
+        });
       }
     } catch (error) {
       console.warn('Jarvis: failed to update anchor metadata after sweep', {
@@ -327,9 +385,56 @@ export async function update_note_db(
     }
   }
 
+  // After anchor metadata is updated, check if centroids need bootstrap training
+  // This handles the case where anchor was just created/recreated and has rowCount but no centroids yet
+  if (
+    !abortController.signal.aborted
+    && settings.notes_db_in_user_data
+    && model?.id
+    && anchorId
+    && !model.needsCentroidBootstrap // Don't re-check if already flagged
+    && actually_processed_notes === 0 // Only check if no notes were processed
+  ) {
+    try {
+      const anchorMeta = await read_anchor_meta_data(anchorId);
+      if (anchorMeta && anchorMeta.rowCount && anchorMeta.rowCount >= MIN_TOTAL_ROWS_FOR_IVF) {
+        const { read_centroids } = await import('../notes/anchorStore');
+        const centroidPayload = await read_centroids(anchorId);
+        if (!centroidPayload?.b64) {
+          console.warn(`Jarvis: Centroids missing but corpus has ${anchorMeta.rowCount} rows (≥${MIN_TOTAL_ROWS_FOR_IVF}) - flagging for training`);
+          model.needsCentroidBootstrap = true;
+        }
+      }
+    } catch (error) {
+      console.debug('Failed to check centroid bootstrap status', error);
+    }
+  }
+
+  // If bootstrap was flagged (either at startup or just now), train centroids directly
+  // This handles the edge case where incremental sweeps stop early with no new notes
+  // Avoids needlessly recalculating embeddings - just trains from existing vectors in memory
+  if (model.needsCentroidBootstrap && actually_processed_notes === 0 && !abortController.signal.aborted && settings.notes_db_in_user_data) {
+    console.warn('Jarvis: Bootstrap needed but no notes were processed - training centroids from existing embeddings');
+    
+    const success = await train_centroids_from_existing_embeddings(
+      model,
+      settings,
+      corpusRowCountAccumulator.current,
+      embeddingDim || 1536 // Use captured dim or fallback to common dimension
+    );
+    
+    if (success) {
+      console.info('Jarvis: Emergency centroid training completed');
+      model.needsCentroidBootstrap = false;
+      model.needsCentroidReassignment = true;
+    } else {
+      console.error('Jarvis: Emergency centroid training failed');
+    }
+  }
+
   // Check if centroids were trained/retrained during this sweep and assign centroid IDs immediately
   // This is critical for search correctness - missing or stale centroid IDs break IVF routing
-  // This handles both first build (if corpus ≥512 rows) and subsequent retraining
+  // This handles both first build (if corpus ≥2048 rows) and subsequent retraining
   if (
     !abortController.signal.aborted
     && settings.notes_db_in_user_data
@@ -337,32 +442,78 @@ export async function update_note_db(
     && model.needsCentroidReassignment
   ) {
     console.info('Jarvis: centroids were trained/retrained, assigning centroid IDs to all notes', { modelId: model.id });
-    try {
-      const store = new UserDataEmbStore();
-      const result = await assign_missing_centroids({
-        model,
-        store,
-        abortSignal: abortController.signal,
-        forceReassign: true, // Force reassignment even for notes with existing centroid IDs (handles stale assignments)
-        onProgress: (processed, total) => {
-          if (total > 0) {
-            update_progress_bar(panel, processed, total, settings, 'Assigning centroid IDs');
-          }
-        },
-      });
-      console.info('Jarvis: centroid assignment completed', {
-        modelId: model.id,
-        ...result,
-      });
-      // Clear the flag so we don't reassign again unless centroids are retrained
-      model.needsCentroidReassignment = false;
-    } catch (error) {
-      console.warn('Jarvis: centroid assignment failed', {
-        modelId: model.id,
-        error: String((error as any)?.message ?? error),
+    
+    // userData writes can be delayed. Retry loading centroids to ensure they're available before assignment.
+    const maxRetries = 5;
+    const delayMs = 200;
+    let centroidsAvailable = false;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      
+      const loaded = await load_model_centroids(model.id);
+      if (loaded && loaded.nlist > 0 && loaded.data && loaded.data.length > 0) {
+        centroidsAvailable = true;
+        console.info(`Jarvis: centroids loaded successfully after ${attempt} attempt(s)`, { 
+          modelId: model.id, 
+          nlist: loaded.nlist,
+          delayMs: delayMs * attempt
+        });
+        break;
+      }
+      
+      if (attempt < maxRetries) {
+        console.warn(`Jarvis: centroids not yet available, retrying... (${attempt}/${maxRetries})`, { modelId: model.id });
+      }
+    }
+    
+    if (!centroidsAvailable) {
+      console.error(`Jarvis: centroids still not available after ${maxRetries} retries, skipping assignment`, { 
+        modelId: model.id 
       });
       // Don't clear the flag - we'll try again next time
-      // Notes without centroid IDs will fall back to brute-force search (functional but slower)
+    } else {
+      try {
+        const store = new UserDataEmbStore();
+        const result = await assign_missing_centroids({
+          model,
+          store,
+          abortSignal: abortController.signal,
+          forceReassign: true, // Force reassignment even for notes with existing centroid IDs (handles stale assignments)
+          onProgress: (processed, total) => {
+            if (total > 0) {
+              update_progress_bar(panel, processed, total, settings, 'Assigning centroid IDs');
+            }
+          },
+        });
+        console.info('Jarvis: centroid assignment completed', {
+          modelId: model.id,
+          ...result,
+        });
+        
+        // CRITICAL: Refresh centroid index after assignment so it picks up new centroid IDs
+        // Without this, search will return 0 results because index was built before assignment
+        try {
+          console.info('Jarvis: rebuilding centroid index after assignment...');
+          await build_centroid_index_on_startup(model.id, settings);
+          console.info('Jarvis: centroid index refreshed successfully');
+        } catch (error) {
+          console.warn('Jarvis: failed to refresh centroid index after assignment', {
+            modelId: model.id,
+            error: String((error as any)?.message ?? error),
+          });
+        }
+        
+        // Clear the flag so we don't reassign again unless centroids are retrained
+        model.needsCentroidReassignment = false;
+      } catch (error) {
+        console.warn('Jarvis: centroid assignment failed', {
+          modelId: model.id,
+          error: String((error as any)?.message ?? error),
+        });
+        // Don't clear the flag - we'll try again next time
+        // Notes without centroid IDs will fall back to brute-force search (functional but slower)
+      }
     }
   }
 
@@ -524,9 +675,10 @@ async function process_batch_and_update_progress(
   settingsMismatches: Array<{ noteId: string; currentSettings: any; storedSettings: any }>;
   totalRows: number;
   dim: number;
+  actuallyProcessed: number;
 }> {
   if (batch.length === 0) {
-    return { settingsMismatches: [], totalRows: 0, dim: 0 };
+    return { settingsMismatches: [], totalRows: 0, dim: 0, actuallyProcessed: 0 };
   }
   
   // Filter out excluded notes early to avoid unnecessary processing
@@ -535,12 +687,15 @@ async function process_batch_and_update_progress(
   // Process only the filtered batch
   const result = await update_embeddings(filteredBatch, model, settings, abortController, force, catalogId, anchorId, corpusRowCountAccumulator);
   
+  // Track actually processed notes (after filtering but before skipping)
+  const actuallyProcessed = filteredBatch.length;
+  
   // Report progress based on original batch size (includes excluded notes)
   // This ensures progress bar advances correctly even when notes are excluded
   onProcessed(batch.length);
   const { processed, total } = getProgress();
   update_progress_bar(panel, processed, total, settings, 'Computing embeddings');
-  return result;
+  return { ...result, actuallyProcessed };
 }
 
 /**

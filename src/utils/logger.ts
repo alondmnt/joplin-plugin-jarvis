@@ -7,7 +7,7 @@ export interface Logger {
   error(message: string, ...args: unknown[]): void;
 }
 
-const prefix = '[Jarvis::userData]';
+const prefix = '[Jarvis]';
 
 const defaultLogger: Logger = {
   debug(message: string, ...args: unknown[]) {

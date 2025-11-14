@@ -343,6 +343,7 @@ export class TextEmbeddingModel {
   
   // centroid management
   public needsCentroidReassignment = false;  // set when centroids are trained/retrained
+  public needsCentroidBootstrap = false;     // set when centroids are missing but corpus >= threshold
 
   // model
   public id: string = null;
