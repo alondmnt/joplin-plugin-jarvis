@@ -751,10 +751,32 @@ async function update_note(note: any,
         const settingsMatch = settings_equal(currentSettings, modelMeta.settings);
         
         if (modelMeta && hashMatches && modelVersionMatches && embeddingVersionMatches && settingsMatch) {
-          // Everything up-to-date: content, settings, and model all match - skip even with force=true
-          // This is the expected behavior: force=true means "recheck everything", not "rebuild everything"
-          // Note: old_embd may be empty when userData is enabled (embeddings stored in userData, not SQLite)
-          return { embeddings: old_embd, skippedUnchanged: true };
+          // Everything appears up-to-date, but check for incomplete shards
+          let shardMissing = false;
+          if (modelMeta.current?.shards > 0) {
+            try {
+              const first = await userDataStore.getShard(note.id, model.id, 0);
+              if (!first) {
+                // Metadata exists but shard is missing/corrupt - needs rebuild
+                shardMissing = true;
+                log.info(`Note ${note.id} has incomplete shard (metadata exists but shard data missing) - will rebuild`);
+              }
+            } catch (e) {
+              // Shard read failed - treat as missing/corrupt
+              shardMissing = true;
+              log.info(`Note ${note.id} shard read failed - will rebuild`, e);
+            }
+          }
+          
+          if (!shardMissing) {
+            // Everything up-to-date: content, settings, model, and shards all valid - skip
+            // This is the expected behavior: force=true means "recheck everything", not "rebuild everything"
+            // Note: old_embd may be empty when userData is enabled (embeddings stored in userData, not SQLite)
+            return { embeddings: old_embd, skippedUnchanged: true };
+          }
+          
+          // Shard incomplete/missing - fall through to rebuild
+          log.info(`Note ${note.id} needs rebuild due to incomplete shard data`);
         }
         // userData exists but outdated (settings or model changed) - rebuild needed
         log.info(`Rebuilding note ${note.id} - userData outdated (hash=${hashMatches}, model=${modelVersionMatches}, embedding=${embeddingVersionMatches}, settings=${settingsMatch})`);
@@ -1496,7 +1518,25 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       const topCentroidIds = Array.from(preloadAllowedCentroidIds);
       ivfCandidateNoteIds = centroidIndex.lookup(topCentroidIds);
       
+      // Calculate and log IVF efficiency metrics
+      const totalNotes = centroidIndex.get_all_note_ids().size;
+      const selectedNotes = ivfCandidateNoteIds.size;
+      const efficiencyPct = totalNotes > 0 ? (1 - selectedNotes / totalNotes) * 100 : 0;
+      const efficiency = efficiencyPct.toFixed(1);
+      const centroidsInfo = await load_model_centroids(model.id);
+      const totalCentroids = centroidsInfo?.nlist ?? 0;
+      
+      // TODO(RELEASE): Simplify IVF diagnostics - keep efficiency message, reduce verbosity
+      console.info(`[Jarvis] IVF selected ${selectedNotes}/${totalNotes} notes (${efficiency}% filtered) from ${topCentroidIds.length}/${totalCentroids} centroids`);
       log.debug(`CentroidIndex: IVF selected ${ivfCandidateNoteIds.size} notes from ${topCentroidIds.length} centroids`);
+      
+      // DIAGNOSTIC: Validate IVF consistency
+      if (efficiencyPct < 50) {
+        console.warn(`⚠️  Low IVF efficiency (${efficiency}% < 50%) - possible mega-cluster issue`);
+        console.warn(`   Selected centroids: ${topCentroidIds.length}/${totalCentroids} (${(topCentroidIds.length/totalCentroids*100).toFixed(1)}% probe rate)`);
+        console.warn(`   Average notes per centroid: ${(selectedNotes / topCentroidIds.length).toFixed(1)}`);
+        console.warn(`   This suggests highly imbalanced cluster distribution`);
+      }
       
       // Fallback to loading all notes if index returned no candidates (shouldn't happen but be safe)
       if (ivfCandidateNoteIds.size === 0) {
