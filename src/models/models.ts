@@ -512,7 +512,64 @@ export class TextEmbeddingModel {
         embeddingPromise
             .then(result => {
                 const vector = result instanceof Float32Array ? result : new Float32Array(result);
+                
+                // TODO(RELEASE): Remove or reduce verbose diagnostic logging before release
+                // DIAGNOSTIC: Check raw API response for invalid values
+                let invalidCount = 0;
+                const invalidIndices: number[] = [];
+                for (let i = 0; i < vector.length; i++) {
+                  if (!isFinite(vector[i])) {
+                    invalidCount++;
+                    if (invalidIndices.length < 10) { // Only log first 10 indices
+                      invalidIndices.push(i);
+                    }
+                  }
+                }
+                
+                if (invalidCount > 0) {
+                  const invalidPct = (invalidCount / vector.length) * 100;
+                  // TODO(RELEASE): Change to log.error (less verbose than console.error)
+                  console.error(`🔴 ROOT CAUSE: Model ${this.id} API returned ${invalidCount} invalid values out of ${vector.length} (${invalidPct.toFixed(1)}%)`);
+                  console.error('Invalid at indices:', invalidIndices);
+                  console.error('Sample values:', invalidIndices.slice(0, 3).map(i => vector[i]));
+                  console.error('This is a BUG in the embedding model or API wrapper!');
+                  
+                  // If more than 50% of values are invalid, this embedding is unusable
+                  if (invalidPct > 50) {
+                    throw new ModelError(`Model API returned too many invalid values (${invalidPct.toFixed(1)}% > 50%) - refusing to use corrupted embedding`);
+                  }
+                  
+                  // Sanitize for now but this should NOT happen
+                  for (let i = 0; i < vector.length; i++) {
+                    if (!isFinite(vector[i])) {
+                      vector[i] = 0;
+                    }
+                  }
+                  // TODO(RELEASE): Change to log.warn
+                  console.warn('⚠️  Sanitized invalid values to 0 - but this indicates an API bug!');
+                }
+                
                 const normalized = this.l2Normalize(vector);
+                
+                // TODO(RELEASE): Remove or simplify post-normalization validation
+                // DIAGNOSTIC: Check after normalization
+                let postNormInvalid = 0;
+                for (let i = 0; i < normalized.length; i++) {
+                  if (!isFinite(normalized[i])) {
+                    postNormInvalid++;
+                    if (postNormInvalid === 1) {
+                      console.error(`🔴 ROOT CAUSE: L2 normalization created NaN! Vector had norm: ${Math.sqrt(vector.reduce((sum, v) => sum + v*v, 0))}`);
+                    }
+                  }
+                }
+                
+                if (postNormInvalid > 0) {
+                  console.error(`🔴 ${postNormInvalid} invalid values AFTER normalization (were valid before)`);
+                  console.error('This means L2 normalization has a bug (likely zero-norm vector)');
+                  throw new ModelError('L2 normalization produced invalid values - check for zero-norm vectors');
+                }
+                // END TODO(RELEASE)
+                
                 abortSignal?.removeEventListener('abort', handleAbort);
                 resolve(normalized);
             })
