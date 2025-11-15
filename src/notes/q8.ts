@@ -37,22 +37,42 @@ export function quantize_per_row(vectors: Float32Array[]): QuantizeResult {
       throw new Error(`Quantization dimension mismatch at row ${row}: expected ${dim}, got ${vec.length}`);
     }
 
+    // TODO(RELEASE): Simplify validation - keep the check but reduce verbose logging
+    // Validate input vector for NaN/Infinity values
+    let hasInvalid = false;
     let maxAbs = 0;
     for (let i = 0; i < dim; i += 1) {
-      const abs = Math.abs(vec[i]);
+      const val = vec[i];
+      if (!isFinite(val)) {
+        hasInvalid = true;
+        // TODO(RELEASE): Change to log.error (less verbose)
+        console.error(`🔴 ROOT CAUSE: Q8 received invalid value at row ${row}, dim ${i}: ${val}`);
+        console.error('Vector should have been validated before quantization!');
+        console.error('This indicates validation was bypassed or failed');
+        continue; // Skip invalid values when computing maxAbs
+      }
+      const abs = Math.abs(val);
       if (abs > maxAbs) {
         maxAbs = abs;
       }
     }
 
-    const scale = maxAbs > 0 ? maxAbs / 127 : 1;
+    // If vector has invalid values, use scale=1 as safe fallback
+    // This prevents NaN scales from propagating
+    const scale = hasInvalid ? 1 : (maxAbs > 0 ? maxAbs / 127 : 1);
+    if (hasInvalid) {
+      // TODO(RELEASE): Change to log.warn
+      console.warn(`⚠️  Q8 using fallback scale=1 due to invalid input at row ${row}`);
+    }
     scales[row] = scale;
     const invScale = scale > 0 ? 1 / scale : 0; // guard divide-by-zero when vector is all zeros
     const base = row * dim;
 
     for (let i = 0; i < dim; i += 1) {
       const value = vec[i];
-      const quantized = scale > 0 ? Math.round(value * invScale) : 0;
+      // Sanitize invalid values to 0 during quantization
+      const safeValue = isFinite(value) ? value : 0;
+      const quantized = scale > 0 ? Math.round(safeValue * invScale) : 0;
       qVectors[base + i] = Math.max(-127, Math.min(127, quantized));
     }
   }
