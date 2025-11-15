@@ -53,7 +53,11 @@ export function estimate_nlist(totalRows: number, options: { min?: number; max?:
   }
   const min = Math.max(options.min ?? 32, 2);
   const max = Math.max(options.max ?? 1024, min);
-  const sqrt = Math.sqrt(totalRows);
+  // Use 6x sqrt for better cluster balance with highly imbalanced data (234:1 observed)
+  // For 14049 blocks: sqrt(14049) * 6 = 711 → rounds to 1024 centroids
+  // Higher multiplier splits mega-clusters into smaller, more balanced groups
+  // Trade-off: 6.2 MB memory (same as corpus) but much better IVF efficiency
+  const sqrt = Math.sqrt(totalRows) * 6;  // 6x multiplier to split mega-clusters
   const raw = Math.max(min, Math.min(max, Math.round(sqrt)));
   // Round to the nearest power-of-two so shard ids align with preset IVF probes.
   const power = Math.pow(2, Math.round(Math.log2(raw)));
@@ -268,7 +272,17 @@ export function choose_nprobe(
     return 0;
   }
   const min = Math.max(1, options.min ?? 8);
-  const base = Math.max(min, Math.round(nlist * 0.05));
+  // Adaptive probe rate for highly imbalanced data (234:1 ratio observed)
+  // Mega-clusters dominate when imbalance is high, so use conservative probe rates
+  let probePercent = 0.10;  // Default for small nlist (32-128)
+  if (nlist >= 1024) {
+    probePercent = 0.05;    // 5% for 1024 centroids (~51 probes)
+  } else if (nlist >= 512) {
+    probePercent = 0.05;    // 5% for 512 centroids (~26 probes)
+  } else if (nlist >= 256) {
+    probePercent = 0.075;   // 7.5% for 256 centroids (~19 probes)
+  }
+  const base = Math.max(min, Math.round(nlist * probePercent));
   let probes = Math.max(min, base);
   if (candidateCount > 0 && candidateCount < 2000) {
     const smallSet = Math.max(1, options.smallSet ?? Math.round(probes / 2));
@@ -278,8 +292,135 @@ export function choose_nprobe(
 }
 
 /**
+ * Progress callback for async k-means training
+ */
+export interface TrainingProgress {
+  run: number;           // Current run (1-based)
+  totalRuns: number;     // Total runs to perform
+  iteration: number;     // Current iteration within run (1-based)
+  maxIterations: number; // Max iterations per run
+  imbalance?: number;    // Current imbalance ratio (if available)
+  message: string;       // Human-readable status
+}
+
+/**
  * Train IVF centroids using k-means with cosine similarity. Returns null when
  * there are not enough samples to produce multiple lists.
+ * 
+ * For highly imbalanced data (imbalance ratio >100:1), this runs k-means
+ * multiple times and selects the clustering with best balance.
+ * 
+ * This is an async version that yields control between iterations to keep
+ * the UI responsive during long training sessions.
+ */
+export async function train_centroids_async(
+  samples: readonly Float32Array[],
+  dim: number,
+  options: TrainCentroidsOptions,
+  onProgress?: (progress: TrainingProgress) => void,
+): Promise<Float32Array | null> {
+  const requested = Math.min(options.nlist, samples.length);
+  if (!samples.length || requested < MIN_VALID_CLUSTERS) {
+    return null;
+  }
+  
+  // For large nlist (>=128), run k-means multiple times to find better clustering
+  // This significantly reduces imbalance for highly clustered data
+  const numRuns = requested >= 128 ? 3 : 1;
+  let bestCentroids: Float32Array | null = null;
+  let bestImbalance = Infinity;
+  
+  for (let run = 0; run < numRuns; run++) {
+    if (onProgress) {
+      onProgress({
+        run: run + 1,
+        totalRuns: numRuns,
+        iteration: 0,
+        maxIterations: options.maxIterations ?? DEFAULT_MAX_ITER,
+        message: `Starting run ${run + 1}/${numRuns}...`
+      });
+    }
+    
+    const centroids = await train_centroids_single_run_async(
+      samples, 
+      dim, 
+      { ...options, nlist: requested },
+      (iteration, maxIter) => {
+        if (onProgress) {
+          onProgress({
+            run: run + 1,
+            totalRuns: numRuns,
+            iteration,
+            maxIterations: maxIter,
+            message: `Run ${run + 1}/${numRuns}: iteration ${iteration}/${maxIter}`
+          });
+        }
+      }
+    );
+    
+    if (!centroids) {
+      continue;
+    }
+    
+    // Evaluate clustering quality by imbalance ratio
+    if (numRuns > 1) {
+      const validation = validate_kmeans_results(centroids, dim, requested, samples);
+      const imbalance = validation.diagnostics.imbalanceRatio;
+      
+      if (run === 0 || imbalance < bestImbalance) {
+        bestCentroids = centroids;
+        bestImbalance = imbalance;
+        console.info(`[Jarvis] K-means run ${run + 1}/${numRuns}: imbalance ${imbalance.toFixed(0)}:1 (new best)`);
+        if (onProgress) {
+          onProgress({
+            run: run + 1,
+            totalRuns: numRuns,
+            iteration: options.maxIterations ?? DEFAULT_MAX_ITER,
+            maxIterations: options.maxIterations ?? DEFAULT_MAX_ITER,
+            imbalance,
+            message: `Run ${run + 1}/${numRuns} complete: ${imbalance.toFixed(0)}:1 imbalance (new best)`
+          });
+        }
+      } else {
+        console.info(`[Jarvis] K-means run ${run + 1}/${numRuns}: imbalance ${imbalance.toFixed(0)}:1 (rejected)`);
+        if (onProgress) {
+          onProgress({
+            run: run + 1,
+            totalRuns: numRuns,
+            iteration: options.maxIterations ?? DEFAULT_MAX_ITER,
+            maxIterations: options.maxIterations ?? DEFAULT_MAX_ITER,
+            imbalance,
+            message: `Run ${run + 1}/${numRuns} complete: ${imbalance.toFixed(0)}:1 imbalance (rejected)`
+          });
+        }
+      }
+    } else {
+      bestCentroids = centroids;
+    }
+  }
+  
+  if (numRuns > 1 && bestCentroids) {
+    console.info(`[Jarvis] Selected best clustering with imbalance ${bestImbalance.toFixed(0)}:1 from ${numRuns} runs`);
+    if (onProgress) {
+      onProgress({
+        run: numRuns,
+        totalRuns: numRuns,
+        iteration: options.maxIterations ?? DEFAULT_MAX_ITER,
+        maxIterations: options.maxIterations ?? DEFAULT_MAX_ITER,
+        imbalance: bestImbalance,
+        message: `Training complete: best imbalance ${bestImbalance.toFixed(0)}:1`
+      });
+    }
+  }
+  
+  return bestCentroids;
+}
+
+/**
+ * Train IVF centroids using k-means with cosine similarity. Returns null when
+ * there are not enough samples to produce multiple lists.
+ * 
+ * SYNCHRONOUS VERSION - Use train_centroids_async for long-running training.
  */
 export function train_centroids(
   samples: readonly Float32Array[],
@@ -287,6 +428,138 @@ export function train_centroids(
   options: TrainCentroidsOptions,
 ): Float32Array | null {
   const requested = Math.min(options.nlist, samples.length);
+  if (!samples.length || requested < MIN_VALID_CLUSTERS) {
+    return null;
+  }
+  
+  // For large nlist (>=128), run k-means multiple times to find better clustering
+  // This significantly reduces imbalance for highly clustered data
+  const numRuns = requested >= 128 ? 3 : 1;
+  let bestCentroids: Float32Array | null = null;
+  let bestImbalance = Infinity;
+  
+  for (let run = 0; run < numRuns; run++) {
+    const centroids = train_centroids_single_run(samples, dim, { ...options, nlist: requested });
+    if (!centroids) {
+      continue;
+    }
+    
+    // Evaluate clustering quality by imbalance ratio
+    if (numRuns > 1) {
+      const validation = validate_kmeans_results(centroids, dim, requested, samples);
+      const imbalance = validation.diagnostics.imbalanceRatio;
+      
+      if (run === 0 || imbalance < bestImbalance) {
+        bestCentroids = centroids;
+        bestImbalance = imbalance;
+        console.info(`[Jarvis] K-means run ${run + 1}/${numRuns}: imbalance ${imbalance.toFixed(0)}:1 ${imbalance < bestImbalance ? '(new best)' : ''}`);
+      } else {
+        console.info(`[Jarvis] K-means run ${run + 1}/${numRuns}: imbalance ${imbalance.toFixed(0)}:1 (rejected)`);
+      }
+    } else {
+      bestCentroids = centroids;
+    }
+  }
+  
+  if (numRuns > 1 && bestCentroids) {
+    console.info(`[Jarvis] Selected best clustering with imbalance ${bestImbalance.toFixed(0)}:1 from ${numRuns} runs`);
+  }
+  
+  return bestCentroids;
+}
+
+/**
+ * Single k-means training run (internal helper) - ASYNC version
+ */
+async function train_centroids_single_run_async(
+  samples: readonly Float32Array[],
+  dim: number,
+  options: TrainCentroidsOptions & { nlist: number },
+  onIterationComplete?: (iteration: number, maxIterations: number) => void,
+): Promise<Float32Array | null> {
+  const requested = options.nlist;
+  if (!samples.length || requested < MIN_VALID_CLUSTERS) {
+    return null;
+  }
+  const rng = options.rng ?? Math.random;
+  const centroids = initialize_plus_plus(samples, dim, requested, rng);
+  const maxIterations = Math.max(options.maxIterations ?? DEFAULT_MAX_ITER, 1);
+  const tolerance = Math.max(options.tolerance ?? DEFAULT_TOLERANCE, 0);
+  const accum = new Float32Array(requested * dim);
+  const counts = new Uint32Array(requested);
+
+  for (let iter = 0; iter < maxIterations; iter += 1) {
+    // Yield control every iteration to keep UI responsive
+    if (iter > 0 && iter % 5 === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    
+    counts.fill(0);
+    accum.fill(0);
+
+    for (const vector of samples) {
+      const best = find_nearest_centroid(vector, centroids, dim);
+      counts[best] += 1;
+      const base = best * dim;
+      for (let d = 0; d < dim; d += 1) {
+        accum[base + d] += vector[d];
+      }
+    }
+
+    let maxShift = 0;
+    for (let cluster = 0; cluster < requested; cluster += 1) {
+      const base = cluster * dim;
+      if (counts[cluster] === 0) {
+        const replacement = samples[Math.floor(rng() * samples.length)];
+        for (let d = 0; d < dim; d += 1) {
+          const diff = replacement[d] - centroids[base + d];
+          if (Math.abs(diff) > maxShift) {
+            maxShift = Math.abs(diff);
+          }
+          centroids[base + d] = replacement[d];
+        }
+        continue;
+      }
+
+      const invCount = 1 / counts[cluster];
+      let norm = 0;
+      for (let d = 0; d < dim; d += 1) {
+        const mean = accum[base + d] * invCount;
+        accum[base + d] = mean;
+        norm += mean * mean;
+      }
+      const scale = norm > 0 ? 1 / Math.sqrt(norm) : 1;
+      for (let d = 0; d < dim; d += 1) {
+        const updated = accum[base + d] * scale;
+        const diff = updated - centroids[base + d];
+        if (Math.abs(diff) > maxShift) {
+          maxShift = Math.abs(diff);
+        }
+        centroids[base + d] = updated;
+      }
+    }
+
+    if (onIterationComplete) {
+      onIterationComplete(iter + 1, maxIterations);
+    }
+
+    if (maxShift <= tolerance) {
+      break;
+    }
+  }
+
+  return centroids;
+}
+
+/**
+ * Single k-means training run (internal helper) - SYNC version
+ */
+function train_centroids_single_run(
+  samples: readonly Float32Array[],
+  dim: number,
+  options: TrainCentroidsOptions & { nlist: number },
+): Float32Array | null {
+  const requested = options.nlist;
   if (!samples.length || requested < MIN_VALID_CLUSTERS) {
     return null;
   }
@@ -352,6 +625,10 @@ export function train_centroids(
   return centroids;
 }
 
+// TODO(RELEASE): Keep validate_kmeans_results for production, but consider:
+// 1. Making it optional (controlled by a debug setting)
+// 2. Logging at debug level instead of info/warn
+// 3. Only running full validation on first centroid training, then spot-checks
 /**
  * Validate k-means results for correctness and quality.
  * Returns an object with validation results and diagnostics.

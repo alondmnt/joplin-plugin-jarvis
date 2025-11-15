@@ -25,11 +25,13 @@ import {
   estimate_nlist,
   reservoir_sample_vectors,
   train_centroids,
+  train_centroids_async,
   validate_kmeans_results,
   MIN_TOTAL_ROWS_FOR_IVF,
 } from './centroids';
 import { clear_centroid_cache } from './centroidLoader';
 import { getLogger } from '../utils/logger';
+import { update_progress_bar } from '../ux/panel';
 
 export interface PrepareUserDataParams {
   noteId: string;
@@ -183,7 +185,14 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
               samplesLength: samples.length,
             });
             
+            // TODO(RELEASE): Keep k-means validation but consider making it less verbose:
+            // - Only log validation failures (remove success logs)
+            // - Use log.debug instead of log.info
+            // - Add a setting to disable validation for production users
             const validation = validate_kmeans_results(trained, dim, desiredNlist, samples);
+            
+            // Always log imbalance ratio to console for performance diagnostics
+            console.info(`[Jarvis] Centroid distribution: imbalance ratio ${validation.diagnostics.imbalanceRatio.toFixed(0)}:1 (${validation.diagnostics.emptyCentroids} empty)`);
             
             if (validation.passed) {
               log.info('✅ K-means validation PASSED', {
@@ -659,13 +668,15 @@ export function anchor_metadata_changed(
  * Samples embeddings from userData since model.embeddings is empty in userData mode.
  * This is used during startup when centroids are missing but corpus >= MIN_TOTAL_ROWS_FOR_IVF.
  * 
+ * @param panel - Panel handle for progress updates
  * @returns true if centroids were successfully trained and written, false otherwise
  */
 export async function train_centroids_from_existing_embeddings(
   model: TextEmbeddingModel,
   settings: JarvisSettings,
   totalRows: number,
-  dim: number
+  dim: number,
+  panel?: string
 ): Promise<boolean> {
   const log = getLogger();
   
@@ -683,19 +694,31 @@ export async function train_centroids_from_existing_embeddings(
     const trainingStartTime = Date.now();
     
     // Sample directly from userData (model.embeddings is empty in userData mode)
-    // Ensure we get enough samples: aim for at least 20x nlist, accounting for ~15% invalid samples
+    // Balance efficiency vs quality: cap at 50% of corpus even if it means fewer samples per centroid
     const baseSampleLimit = derive_sample_limit(desiredNlist);
-    const minSamplesNeeded = desiredNlist * 20;
-    const adjustedLimit = Math.max(baseSampleLimit, Math.ceil(minSamplesNeeded * 1.2)); // 20% buffer for invalid samples
+    const minSamplesForQuality = desiredNlist * 100;  // Ideal: 100 per centroid
+    const minSamplesRequired = desiredNlist * 20;     // Minimum: 20 per centroid (to avoid nlist reduction)
+    const maxCorpusSamples = Math.floor(totalRows * 0.50);  // Read at most 50% of corpus
+    
+    // Priority: don't exceed 50% of corpus, but try to get 20 samples/centroid minimum
+    const minSamplesNeeded = Math.min(
+      minSamplesForQuality,
+      Math.min(minSamplesRequired, maxCorpusSamples)
+    );
+    const adjustedLimit = Math.ceil(minSamplesNeeded * 1.15); // 15% buffer for invalid samples
     const sampleLimit = Math.min(totalRows, adjustedLimit);
     
     log.info('Sampling embeddings for centroid training', {
       totalRows,
       desiredNlist,
-      baseSampleLimit,
+      minSamplesForQuality,
+      minSamplesRequired,
+      maxCorpusSamples,
       minSamplesNeeded,
       adjustedLimit,
-      finalSampleLimit: sampleLimit
+      finalSampleLimit: sampleLimit,
+      samplingRate: `${(sampleLimit / totalRows * 100).toFixed(1)}%`,
+      expectedSamplesPerCentroid: (sampleLimit / desiredNlist).toFixed(1)
     });
     
     const samples = await sample_from_user_data(model.id, dim, sampleLimit);
@@ -729,6 +752,7 @@ export async function train_centroids_from_existing_embeddings(
       }
     }
     
+    // TODO(RELEASE): Keep sample collection logging but make it less verbose
     log.info('Sample collection result', {
       requested: sampleLimit,
       collected: samples.length,
@@ -736,6 +760,7 @@ export async function train_centroids_from_existing_embeddings(
       invalid: invalidSamples
     });
     
+    // TODO(RELEASE): Keep low collection rate warning, but change to log.debug or remove
     // Warn if collection rate is low (< 50%)
     if (samples.length < sampleLimit * 0.5) {
       log.warn('Low sample collection rate detected', {
@@ -751,6 +776,8 @@ export async function train_centroids_from_existing_embeddings(
       });
     }
     
+    // TODO(RELEASE): Keep invalid sample detection but change to log.warn (less alarming)
+    // In a healthy system, this should NEVER fire (invalid=0)
     if (invalidSamples > 0) {
       log.error('Invalid samples detected before training', {
         total: samples.length,
@@ -852,7 +879,26 @@ export async function train_centroids_from_existing_embeddings(
       nlist: actualNlist,
       dim
     });
-    const trained = train_centroids(samples, dim, { nlist: actualNlist });
+    
+    // Use async training with progress reporting for large nlist
+    const trained = await train_centroids_async(samples, dim, { nlist: actualNlist }, async (progress) => {
+      // Log progress every 5 iterations or when a run completes
+      if (progress.iteration % 5 === 0 || progress.iteration === progress.maxIterations) {
+        const overallProgress = Math.round((progress.run - 1) / progress.totalRuns * 100 + progress.iteration / progress.maxIterations / progress.totalRuns * 100);
+        console.info(`[Jarvis] ${progress.message} (${overallProgress}% complete)`);
+        
+        // Update panel progress bar if available
+        if (panel) {
+          await update_progress_bar(
+            panel,
+            overallProgress,
+            100,
+            settings,
+            `Training search index: ${progress.message}`
+          );
+        }
+      }
+    });
     if (!trained) {
       log.error('Centroid training failed');
       return false;
@@ -867,7 +913,11 @@ export async function train_centroids_from_existing_embeddings(
       samplesLength: samples.length,
     });
     
+    // TODO(RELEASE): Keep k-means validation but consider making it less verbose
     const validation = validate_kmeans_results(trained, dim, actualNlist, samples);
+    
+    // Always log imbalance ratio to console for performance diagnostics
+    console.info(`[Jarvis] Centroid distribution: imbalance ratio ${validation.diagnostics.imbalanceRatio.toFixed(0)}:1 (${validation.diagnostics.emptyCentroids} empty)`);
     
     if (validation.passed) {
       log.info('✅ K-means validation PASSED', {
@@ -906,7 +956,40 @@ export async function train_centroids_from_existing_embeddings(
       }
     });
     
+    // TODO(RELEASE): Remove payload validation - only needed during testing
+    // DIAGNOSTIC: Validate payload encoding
+    if (centroidPayload.nlist !== actualNlist || centroidPayload.dim !== dim) {
+      console.error(`🔴 ENCODING BUG: Payload mismatch after encode!`);
+      console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
+      console.error(`   Got: nlist=${centroidPayload.nlist}, dim=${centroidPayload.dim}`);
+      return false;
+    }
+    
     await write_centroids(anchorId, centroidPayload);
+    
+    // TODO(RELEASE): Remove round-trip validation - only needed during testing
+    // DIAGNOSTIC: Validate round-trip (write → read → decode)
+    const readBack = await read_centroids(anchorId);
+    if (!readBack || !readBack.b64) {
+      console.error(`🔴 STORAGE BUG: Failed to read back centroids after write!`);
+      return false;
+    }
+    if (readBack.nlist !== actualNlist || readBack.dim !== dim) {
+      console.error(`🔴 STORAGE BUG: Metadata corrupted after write!`);
+      console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
+      console.error(`   Got: nlist=${readBack.nlist}, dim=${readBack.dim}`);
+      return false;
+    }
+    const decoded = decode_centroids(readBack);
+    if (!decoded || decoded.nlist !== actualNlist || decoded.dim !== dim) {
+      console.error(`🔴 DECODE BUG: Centroids corrupted after decode!`);
+      console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
+      console.error(`   Got: nlist=${decoded?.nlist}, dim=${decoded?.dim}`);
+      return false;
+    }
+    console.info(`✅ Round-trip validation passed: ${actualNlist} centroids × ${dim}d stored successfully`);
+    // END TODO(RELEASE)
+    
     const statusMsg = actualNlist !== desiredNlist 
       ? `${actualNlist} centroids created (adjusted from ${desiredNlist} due to limited samples)`
       : `${actualNlist} centroids created`;
@@ -953,13 +1036,38 @@ async function sample_from_user_data(
       sampleLimit
     });
     
-    // Use reservoir sampling to select notes (assume ~10-15 blocks per note)
-    const estimatedNotesNeeded = Math.ceil(sampleLimit / 12);
-    const sampledNotes = reservoir_sample_items(noteIds, estimatedNotesNeeded);
-    const samples: Float32Array[] = [];
+    // Shuffle noteIds for random sampling (Fisher-Yates shuffle)
+    // This is more efficient than reservoir sampling for large note counts
+    for (let i = noteIds.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [noteIds[i], noteIds[j]] = [noteIds[j], noteIds[i]];
+    }
     
-    for (const noteId of sampledNotes) {
+    // Process notes until we have enough samples
+    // With early termination, we avoid reading all notes
+    const samples: Float32Array[] = [];
+    let notesProcessed = 0;
+    
+    // Estimate notes needed based on average blocks per note
+    // Add 50% buffer to account for notes with fewer blocks than average
+    const estimatedNotesNeeded = Math.ceil(sampleLimit / 10 * 1.5);
+    const maxNotesToCheck = Math.min(noteIds.length, estimatedNotesNeeded);
+    
+    log.info('Sample collection plan', {
+      sampleLimit,
+      estimatedAvgBlocksPerNote: 10,
+      estimatedNotesNeeded,
+      maxNotesToCheck,
+      percentageOfNotes: `${(maxNotesToCheck / noteIds.length * 100).toFixed(1)}%`
+    });
+    
+    for (const noteId of noteIds) {
       if (samples.length >= sampleLimit) break;
+      if (notesProcessed >= maxNotesToCheck) {
+        log.info(`Early termination: collected ${samples.length} samples from ${notesProcessed} notes`);
+        break;
+      }
+      notesProcessed++;
       
       try {
         const meta = await store.getMeta(noteId);
@@ -1009,7 +1117,26 @@ async function sample_from_user_data(
               dequantized[i] = q8.vectors[offset + i] * scale;
             }
             
-            samples.push(dequantized);
+            // TODO(RELEASE): Remove verbose diagnostic logging
+            // DIAGNOSTIC: Check if dequantization created invalid values
+            let hasInvalid = false;
+            for (let i = 0; i < dim; i++) {
+              if (!isFinite(dequantized[i])) {
+                hasInvalid = true;
+                // TODO(RELEASE): Change to log.error
+                console.error(`🔴 ROOT CAUSE: Dequantization created invalid value at note ${noteId}, row ${row}, dim ${i}`);
+                console.error(`q8.vectors[${offset + i}] = ${q8.vectors[offset + i]}, scale = ${scale}`);
+                console.error('This means stored scale or quantized value is corrupted');
+                break;
+              }
+            }
+            
+            if (!hasInvalid) {
+              samples.push(dequantized);
+            } else {
+              log.warn(`Skipping corrupted sample from note ${noteId}, row ${row}`);
+            }
+            // END TODO(RELEASE)
           }
         }
       } catch (error) {
@@ -1020,9 +1147,10 @@ async function sample_from_user_data(
     
     log.info('Sampled vectors from userData', { 
       totalNotes: noteIds.length, 
-      sampledNotes: sampledNotes.length,
+      notesProcessed,
       vectors: samples.length,
-      targetLimit: sampleLimit
+      targetLimit: sampleLimit,
+      efficiency: `${(notesProcessed / noteIds.length * 100).toFixed(1)}% of notes read`
     });
     
     return samples;

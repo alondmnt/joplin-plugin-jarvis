@@ -435,7 +435,8 @@ export async function update_note_db(
         model,
         settings,
         corpusRowCountAccumulator.current,
-        modelDim
+        modelDim,
+        panel  // Pass panel for progress updates
       );
       
       if (success) {
