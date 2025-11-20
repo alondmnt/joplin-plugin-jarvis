@@ -720,12 +720,12 @@ export async function train_centroids_from_existing_embeddings(
     const baseSampleLimit = derive_sample_limit(desiredNlist);
     const minSamplesForQuality = desiredNlist * 50;   // Target: 50 per centroid (reduced from 100)
     const minSamplesRequired = desiredNlist * 10;     // Minimum: 10 per centroid (sufficient for k-means)
-    const maxCorpusSamples = Math.floor(totalRows * 0.30);  // Read at most 30% of corpus (reduced from 50%)
+    const maxCorpusSamples = Math.floor(totalRows * 0.80);  // Read at most 80% of corpus (increased from 30%)
     
     // Priority: balance quality with speed - use fewer samples for faster training
     const minSamplesNeeded = Math.min(
       minSamplesForQuality,
-      Math.min(minSamplesRequired, maxCorpusSamples)
+      Math.max(minSamplesRequired, maxCorpusSamples)  // Changed to Math.max to prefer more samples
     );
     const adjustedLimit = Math.ceil(minSamplesNeeded * 1.15); // 15% buffer for invalid samples
     const sampleLimit = Math.min(totalRows, adjustedLimit);
@@ -906,12 +906,13 @@ export async function train_centroids_from_existing_embeddings(
     
     // Use async training with progress reporting for large nlist
     const trained = await train_centroids_async(samples, dim, { nlist: actualNlist }, async (progress) => {
-      // Log progress every 5 iterations or when a run completes
-      if (progress.iteration % 5 === 0 || progress.iteration === progress.maxIterations) {
+      // Log progress every iteration for large nlist (helps show it's not stuck)
+      const shouldLog = actualNlist >= 512 ? true : (progress.iteration % 5 === 0 || progress.iteration === progress.maxIterations);
+      if (shouldLog) {
         const overallProgress = Math.round((progress.run - 1) / progress.totalRuns * 100 + progress.iteration / progress.maxIterations / progress.totalRuns * 100);
         console.info(`[Jarvis] ${progress.message} (${overallProgress}% complete)`);
         
-        // Update panel progress bar if available
+        // Update panel progress bar if available (every iteration for large nlist)
         if (panel) {
           await update_progress_bar(
             panel,
