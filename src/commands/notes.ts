@@ -474,26 +474,24 @@ export async function update_note_db(
               
               if (diagnostics) {
                 const uniqueCentroids = diagnostics.uniqueCentroids;
+                const coverage = uniqueCentroids / centroidPayload.nlist;
                 
+                // Log coverage stats for monitoring (informational only)
+                // Note: Low coverage is normal when corpus doesn't have enough diversity to populate all centroids
+                // It does NOT indicate stale assignments - just natural sparsity
                 if (settings.notes_debug_mode) {
                   console.info('[Jarvis] Centroid index stats:', {
                     uniqueCentroids,
                     trainedCentroids: centroidPayload.nlist,
                     notesInIndex: diagnostics.stats.notesWithEmbeddings,
                     centroidMappings: diagnostics.stats.centroidMappings,
+                    coverage: `${(coverage * 100).toFixed(0)}%`,
                   });
                 }
-                
-                // If less than 50% of trained centroids have notes, assignments are stale
-                const coverage = uniqueCentroids / centroidPayload.nlist;
-                if (coverage < 0.5) {
-                  console.warn(`Jarvis: Only ${uniqueCentroids}/${centroidPayload.nlist} centroids have notes (${(coverage * 100).toFixed(0)}% coverage) - flagging for reassignment`);
-                  model.needsCentroidReassignment = true;
-                } else if (settings.notes_debug_mode) {
-                  console.info(`[Jarvis] Centroid coverage is good: ${uniqueCentroids}/${centroidPayload.nlist} (${(coverage * 100).toFixed(0)}%)`);
-                }
               } else {
-                console.warn('[Jarvis] Could not get centroid index diagnostics');
+                if (settings.notes_debug_mode) {
+                  console.warn('[Jarvis] Could not get centroid index diagnostics');
+                }
               }
             } catch (error) {
               console.error('Failed to check centroid index coverage', error);

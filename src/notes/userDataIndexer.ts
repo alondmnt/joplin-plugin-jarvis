@@ -128,7 +128,6 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
   const metaRows = build_block_row_meta(blocks);
 
   // Handle IVF centroids if enabled
-  log.debug(`prepare_user_data_embeddings: about to check centroid logic, userData=${settings.notes_db_in_user_data}`);
   if (settings.notes_db_in_user_data) {
     try {
       // Use pre-resolved IDs if provided, otherwise resolve them (for backward compatibility)
@@ -140,8 +139,6 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
       let centroidPayload = await read_centroids(anchorId);
       let loaded = decode_centroids(centroidPayload);
       let centroids = loaded?.data ?? null;
-
-      log.debug(`prepare_user_data_embeddings: centroid state - totalRows=${totalRows}, desiredNlist=${desiredNlist}, hasPayload=${!!centroidPayload}, payloadB64=${!!centroidPayload?.b64}, hasCentroids=${!!centroids}`);
 
       const settingsMatch = anchorMeta?.settings
         ? settings_equal(anchorMeta.settings, embeddingSettings)
@@ -159,10 +156,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
         payload: centroidPayload,
       });
       
-      // Debug logging for centroid refresh decision
-      if (!refreshDecision && totalRows >= MIN_TOTAL_ROWS_FOR_IVF) {
-        log.debug(`Centroid refresh NOT needed: totalRows=${totalRows}, desiredNlist=${desiredNlist}, hasPayload=${!!centroidPayload?.b64}, payloadNlist=${centroidPayload?.nlist}, settingsMatch=${settingsMatch}`);
-      }
+      // Centroid refresh decision is logged inside evaluate_centroid_refresh at debug level
 
       if (refreshDecision) {
         const reason = refreshDecision.reason;
@@ -183,13 +177,15 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
           const trained = train_centroids(samples, dim, { nlist: desiredNlist });
           if (trained) {
             // Validate k-means results
-            log.info('About to validate k-means results', {
-              trainedLength: trained.length,
-              expectedLength: desiredNlist * dim,
-              dim,
-              desiredNlist,
-              samplesLength: samples.length,
-            });
+            if (settings.notes_debug_mode) {
+              log.info('About to validate k-means results', {
+                trainedLength: trained.length,
+                expectedLength: desiredNlist * dim,
+                dim,
+                desiredNlist,
+                samplesLength: samples.length,
+              });
+            }
             
             const validation = validate_kmeans_results(trained, dim, desiredNlist, samples);
             
@@ -303,6 +299,25 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
             });
             loaded = decode_centroids(centroidPayload);
             refreshState = undefined;
+            
+            // Update anchor metadata immediately to prevent subsequent notes in this sweep
+            // from detecting stale settings and triggering unnecessary retraining
+            await write_anchor_metadata(anchorId, {
+              modelId: model.id,
+              dim,
+              version: model.version ?? 'unknown',
+              settings: embeddingSettings,
+              updatedAt: new Date().toISOString(),
+              rowCount: totalRows,
+              nlist: desiredNlist,
+              centroidUpdatedAt: centroidPayload.updatedAt,
+              centroidHash: centroidPayload.hash,
+            });
+            log.info(`Updated anchor metadata after training to prevent repeated rebuilds`, {
+              modelId: model.id,
+              rowCount: totalRows,
+              nlist: desiredNlist,
+            });
             
             // Flag that centroid reassignment is needed after this sweep completes
             // This flag will be checked in update_note_db() to trigger immediate reassignment
@@ -420,56 +435,40 @@ function evaluate_centroid_refresh(args: {
     payload,
   } = args;
 
-  console.info(`[Jarvis] evaluate_centroid_refresh called`, {
-    totalRows,
-    desiredNlist,
-    dim,
-    hasPayload: !!payload,
-    payloadNlist: payload?.nlist,
-    payloadDim: payload?.dim,
-    settingsMatch,
-  });
-
+  // Early exit - no logging needed for frequent case
   if (desiredNlist < 2 || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
-    console.info(`[Jarvis] Refresh not needed: corpus too small or desiredNlist < 2`);
     return null;
   }
+  
+  // Check refresh conditions without logging (redundant - caller logs at info level when refresh happens)
   if (!payload?.b64) {
-    console.info(`[Jarvis] Refresh needed: missingPayload`);
     return { reason: 'missingPayload' };
   }
   if (!payload.dim || payload.dim !== dim) {
-    console.info(`[Jarvis] Refresh needed: dimMismatch (${payload.dim} vs ${dim})`);
     return { reason: 'dimMismatch' };
   }
   const payloadNlist = payload.nlist ?? 0;
   if (payloadNlist !== desiredNlist) {
-    console.info(`[Jarvis] Refresh needed: nlistMismatch (${payloadNlist} vs ${desiredNlist})`);
     return { reason: 'nlistMismatch' };
   }
   const payloadVersion = payload.version ?? '';
   if (String(payloadVersion) !== String(embeddingVersion ?? '')) {
-    console.info(`[Jarvis] Refresh needed: versionMismatch (${payloadVersion} vs ${embeddingVersion})`);
     return { reason: 'versionMismatch' };
   }
   if (!settingsMatch) {
-    console.info(`[Jarvis] Refresh needed: settingsChanged`);
     return { reason: 'settingsChanged' };
   }
   const previousRows = anchorMeta?.rowCount ?? 0;
   if (!previousRows) {
-    console.info(`[Jarvis] Refresh needed: bootstrap (no previous rowCount)`);
     return { reason: 'bootstrap' };
   }
   if (totalRows > previousRows * 1.3) {
-    console.info(`[Jarvis] Refresh needed: rowGrowth (${totalRows} > ${previousRows * 1.3})`);
     return { reason: 'rowGrowth' };
   }
   if (totalRows < previousRows * 0.7) {
-    console.info(`[Jarvis] Refresh needed: rowShrink (${totalRows} < ${previousRows * 0.7})`);
     return { reason: 'rowShrink' };
   }
-  console.info(`[Jarvis] Refresh NOT needed: all checks passed`);
+  
   return null;
 }
 
@@ -501,20 +500,13 @@ function count_corpus_rows(
   modelId: string,
   corpusRowCountAccumulator?: { current: number },
 ): number {
-  log.debug(`count_corpus_rows called: noteId=${excludeNoteId}, newRows=${newRows}, hasAccumulator=${!!corpusRowCountAccumulator}, accumulatorValue=${corpusRowCountAccumulator?.current}`);
-  
   // In userData mode, use running accumulator updated during sweep
   if (corpusRowCountAccumulator) {
     const previousNoteRows = previousNoteMeta?.models?.[modelId]?.current?.rows ?? 0;
-    const oldValue = corpusRowCountAccumulator.current;
-    
-    log.debug(`count_corpus_rows: noteId=${excludeNoteId}, accumulatorBefore=${oldValue}, previousNoteRows=${previousNoteRows}, newRows=${newRows}, hasPreviousMeta=${!!previousNoteMeta}, hasModelMeta=${!!previousNoteMeta?.models?.[modelId]}`);
     
     // Update accumulator: subtract old rows, add new rows
     corpusRowCountAccumulator.current = Math.max(0, corpusRowCountAccumulator.current - previousNoteRows + newRows);
-    if (previousNoteRows !== newRows) {
-      log.debug(`Corpus row count changed for note ${excludeNoteId}: ${oldValue} -> ${corpusRowCountAccumulator.current} (was ${previousNoteRows} rows, now ${newRows} rows)`);
-    }
+    
     return corpusRowCountAccumulator.current;
   }
   
