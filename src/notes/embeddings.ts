@@ -1357,6 +1357,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true):
     Promise<NoteEmbedding[]> {
 
+  let searchStartTime = 0;  // Will be set right before IVF/userData search starts
   let combinedEmbeddings = embeddings;
 
   // convert HTML to Markdown if needed (must happen before hash calculation)
@@ -1579,6 +1580,9 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   }
 
   if (settings.notes_db_in_user_data) {
+    // Start IVF search timer here (includes candidate selection, same as brute-force which includes get_all_note_ids)
+    searchStartTime = Date.now();
+    
     // Build candidate set: if IVF index lookup succeeded, use filtered candidates; otherwise build index first
     let candidateIds: Set<string>;
     
@@ -1765,16 +1769,25 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     return acc;
   }, {});
 
-  // sort the groups by their aggregated similarity
-  const result = (await Promise.all(Object.entries(grouped).map(async ([note_id, note_embed]) => {
+  // Calculate aggregated similarities (same as brute-force for fair comparison)
+  const notesWithScores = Object.entries(grouped).map(([note_id, note_embed]) => {
     const sorted_embed = note_embed.sort((a, b) => b.similarity - a.similarity);
-
     let agg_sim: number;
     if (settings.notes_agg_similarity === 'max') {
       agg_sim = sorted_embed[0].similarity;
     } else if (settings.notes_agg_similarity === 'avg') {
       agg_sim = sorted_embed.reduce((acc, embd) => acc + embd.similarity, 0) / sorted_embed.length;
     }
+    return { note_id, sorted_embed, agg_sim };
+  });
+  notesWithScores.sort((a, b) => b.agg_sim - a.agg_sim);
+  
+  // End IVF timer HERE (before title fetching) for fair comparison with brute-force
+  const ivfSearchEndTime = Date.now();
+  const ivfSearchTimeMs = searchStartTime > 0 ? ivfSearchEndTime - searchStartTime : 0;
+
+  // Now fetch titles (not included in timing)
+  const result = (await Promise.all(notesWithScores.slice(0, settings.notes_max_hits).map(async ({note_id, sorted_embed, agg_sim}) => {
     let title: string;
     let noteResponse: any = null;
     try {
@@ -1792,7 +1805,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       embeddings: sorted_embed,
       similarity: agg_sim,
     };
-    }))).sort((a, b) => b.similarity - a.similarity).slice(0, settings.notes_max_hits);
+    })));
   
   if (settings.notes_debug_mode) {
     log.info(`Returning ${result.length} notes (max: ${settings.notes_max_hits}), top similarity: ${result[0]?.similarity?.toFixed(3) || 'N/A'}`);
@@ -1800,7 +1813,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   
   // Validate IVF recall by comparing with brute-force search (only when debug mode enabled)
   if (settings.notes_debug_mode && settings.notes_db_in_user_data && preloadAllowedCentroidIds) {
-    validate_ivf_recall(query, rep_embedding, result, model, settings, current_id).catch(err => {
+    validate_ivf_recall(query, rep_embedding, result, model, settings, current_id, ivfSearchTimeMs).catch(err => {
       log.error('IVF validation failed', err);
     });
   }
@@ -1819,7 +1832,8 @@ async function validate_ivf_recall(
   ivfResults: NoteEmbedding[],
   model: TextEmbeddingModel,
   settings: JarvisSettings,
-  currentNoteId: string
+  currentNoteId: string,
+  ivfSearchTimeMs: number
 ): Promise<void> {
   const log = getLogger();
   
@@ -1913,10 +1927,11 @@ async function validate_ivf_recall(
     const precision = k > 0 ? (matches / ivfTopKIds.size) * 100 : 0;
     
     // Log results
+    const speedup = (elapsedMs / ivfSearchTimeMs).toFixed(1);
     console.info(`[Jarvis] 🔍 IVF Validation Results (top-${k}):`);
     console.info(`   Recall: ${recall.toFixed(1)}% (${matches}/${k} ground truth results found)`);
     console.info(`   Precision: ${precision.toFixed(1)}% (${matches}/${ivfTopKIds.size} IVF results correct)`);
-    console.info(`   Brute-force time: ${elapsedMs}ms vs IVF time: <instant>`);
+    console.info(`   Brute-force time: ${elapsedMs}ms vs IVF time: ${ivfSearchTimeMs}ms (${speedup}x speedup)`);
     console.info(`   Total notes: ${allNoteIds.length}, Total blocks: ${allBlocks.length}`);
     
     if (recall < 90) {

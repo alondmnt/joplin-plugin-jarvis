@@ -442,8 +442,8 @@ export async function update_note_db(
           // Allow some tolerance: trained nlist might be reduced due to insufficient samples
           // Only flag for retraining if the difference is > 30% or trained nlist is way too small
           const ratio = centroidPayload.nlist / desiredNlist;
-          const tooSmall = centroidPayload.nlist < Math.max(32, desiredNlist * 0.5);  // Less than 50% of desired
-          const tooBig = centroidPayload.nlist > desiredNlist * 1.5;  // More than 150% of desired
+          const tooSmall = centroidPayload.nlist <= Math.max(32, desiredNlist * 0.5);  // 50% or less of desired
+          const tooBig = centroidPayload.nlist >= desiredNlist * 1.5;  // 150% or more of desired
           
           if (tooSmall || tooBig) {
             console.warn(`Jarvis: Centroid nlist significantly different (${centroidPayload.nlist} vs ${desiredNlist}, ratio ${ratio.toFixed(2)}) - flagging for retraining`);
