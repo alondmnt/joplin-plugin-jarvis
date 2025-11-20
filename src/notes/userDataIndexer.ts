@@ -89,16 +89,22 @@ const log = getLogger();
 export async function prepare_user_data_embeddings(params: PrepareUserDataParams): Promise<PreparedUserData | null> {
   const { noteId, contentHash, blocks, model, settings, store } = params;
 
-  log.debug(`prepare_user_data_embeddings called for note ${noteId}, blocks=${blocks.length}, userData=${settings.notes_db_in_user_data}, needsBootstrap=${model.needsCentroidBootstrap}`);
+  if (settings.notes_debug_mode) {
+    log.debug(`prepare_user_data_embeddings called for note ${noteId}, blocks=${blocks.length}, userData=${settings.notes_db_in_user_data}, needsBootstrap=${model.needsCentroidBootstrap}`);
+  }
 
   if (blocks.length === 0) {
-    log.debug(`prepare_user_data_embeddings: early return - blocks.length === 0`);
+    if (settings.notes_debug_mode) {
+      log.debug(`prepare_user_data_embeddings: early return - blocks.length === 0`);
+    }
     return null;
   }
 
   const dim = blocks[0].embedding.length;
   if (dim === 0) {
-    log.debug(`prepare_user_data_embeddings: early return - dim === 0`);
+    if (settings.notes_debug_mode) {
+      log.debug(`prepare_user_data_embeddings: early return - dim === 0`);
+    }
     return null;
   }
 
@@ -130,7 +136,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
       const anchorId = params.anchorId ?? await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
       const anchorMeta = await read_anchor_meta_data(anchorId);
       const totalRows = count_corpus_rows(model, noteId, blocks.length, previousMeta, model.id, params.corpusRowCountAccumulator);
-      const desiredNlist = estimate_nlist(totalRows);
+      const desiredNlist = estimate_nlist(totalRows, { debug: settings.notes_debug_mode });
       let centroidPayload = await read_centroids(anchorId);
       let loaded = decode_centroids(centroidPayload);
       let centroids = loaded?.data ?? null;
@@ -185,10 +191,6 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
               samplesLength: samples.length,
             });
             
-            // TODO(RELEASE): Keep k-means validation but consider making it less verbose:
-            // - Only log validation failures (remove success logs)
-            // - Use log.debug instead of log.info
-            // - Add a setting to disable validation for production users
             const validation = validate_kmeans_results(trained, dim, desiredNlist, samples);
             
             // Always log imbalance ratio to console for performance diagnostics
@@ -589,7 +591,7 @@ export async function compute_final_anchor_metadata(
       return null; // No dimension information available
     }
     
-    const desiredNlist = estimate_nlist(totalRows);
+    const desiredNlist = estimate_nlist(totalRows, { debug: settings.notes_debug_mode });
     const centroidPayload = await read_centroids(anchorId);
     const loaded = decode_centroids(centroidPayload);
     
@@ -703,7 +705,7 @@ export async function train_centroids_from_existing_embeddings(
   try {
     const catalogId = await ensure_catalog_note();
     const anchorId = await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
-    const desiredNlist = estimate_nlist(totalRows);
+    const desiredNlist = estimate_nlist(totalRows, { debug: settings.notes_debug_mode });
     
     if (desiredNlist < 2 || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
       log.info('Skipping centroid training: corpus too small', { totalRows, desiredNlist, threshold: MIN_TOTAL_ROWS_FOR_IVF });
@@ -728,20 +730,22 @@ export async function train_centroids_from_existing_embeddings(
     const adjustedLimit = Math.ceil(minSamplesNeeded * 1.15); // 15% buffer for invalid samples
     const sampleLimit = Math.min(totalRows, adjustedLimit);
     
-    log.info('Sampling embeddings for centroid training', {
-      totalRows,
-      desiredNlist,
-      minSamplesForQuality,
-      minSamplesRequired,
-      maxCorpusSamples,
-      minSamplesNeeded,
-      adjustedLimit,
-      finalSampleLimit: sampleLimit,
-      samplingRate: `${(sampleLimit / totalRows * 100).toFixed(1)}%`,
-      expectedSamplesPerCentroid: (sampleLimit / desiredNlist).toFixed(1)
-    });
+    if (settings.notes_debug_mode) {
+      log.info('Sampling embeddings for centroid training', {
+        totalRows,
+        desiredNlist,
+        minSamplesForQuality,
+        minSamplesRequired,
+        maxCorpusSamples,
+        minSamplesNeeded,
+        adjustedLimit,
+        finalSampleLimit: sampleLimit,
+        samplingRate: `${(sampleLimit / totalRows * 100).toFixed(1)}%`,
+        expectedSamplesPerCentroid: (sampleLimit / desiredNlist).toFixed(1)
+      });
+    }
     
-    const samples = await sample_from_user_data(model.id, dim, sampleLimit);
+    const samples = await sample_from_user_data(model.id, dim, sampleLimit, settings.notes_debug_mode);
     
     if (samples.length < desiredNlist) {
       log.warn('Not enough samples for centroid training', { samples: samples.length, desiredNlist, totalRows });
@@ -772,34 +776,34 @@ export async function train_centroids_from_existing_embeddings(
       }
     }
     
-    // TODO(RELEASE): Keep sample collection logging but make it less verbose
-    log.info('Sample collection result', {
-      requested: sampleLimit,
-      collected: samples.length,
-      collectionRate: ((samples.length / sampleLimit) * 100).toFixed(1) + '%',
-      invalid: invalidSamples
-    });
-    
-    // TODO(RELEASE): Keep low collection rate warning, but change to log.debug or remove
-    // Warn if collection rate is low (< 50%)
-    if (samples.length < sampleLimit * 0.5) {
-      log.warn('Low sample collection rate detected', {
-        collected: samples.length,
+    // Sample collection diagnostics (debug mode only)
+    if (settings.notes_debug_mode) {
+      log.info('Sample collection result', {
         requested: sampleLimit,
-        rate: ((samples.length / sampleLimit) * 100).toFixed(1) + '%',
-        possibleCauses: [
-          'Small corpus (few notes)',
-          'Notes have few embedding blocks',
-          'Many embeddings have invalid scales (zero vectors)',
-          'sample_from_user_data hit early termination'
-        ]
+        collected: samples.length,
+        collectionRate: ((samples.length / sampleLimit) * 100).toFixed(1) + '%',
+        invalid: invalidSamples
       });
+      
+      // Warn if collection rate is low (< 50%)
+      if (samples.length < sampleLimit * 0.5) {
+        log.warn('Low sample collection rate detected', {
+          collected: samples.length,
+          requested: sampleLimit,
+          rate: ((samples.length / sampleLimit) * 100).toFixed(1) + '%',
+          possibleCauses: [
+            'Small corpus (few notes)',
+            'Notes have few embedding blocks',
+            'Many embeddings have invalid scales (zero vectors)',
+            'sample_from_user_data hit early termination'
+          ]
+        });
+      }
     }
     
-    // TODO(RELEASE): Keep invalid sample detection but change to log.warn (less alarming)
-    // In a healthy system, this should NEVER fire (invalid=0)
+    // In a healthy system, invalid samples should be 0
     if (invalidSamples > 0) {
-      log.error('Invalid samples detected before training', {
+      log.warn('Invalid samples detected before training', {
         total: samples.length,
         invalid: invalidSamples,
         nanSamples,
@@ -925,30 +929,33 @@ export async function train_centroids_from_existing_embeddings(
     }
     
     // Validate k-means results
-    log.info('About to validate k-means results', {
-      trainedLength: trained.length,
-      expectedLength: actualNlist * dim,
-      dim,
-      actualNlist,
-      samplesLength: samples.length,
-    });
+    if (settings.notes_debug_mode) {
+      log.info('About to validate k-means results', {
+        trainedLength: trained.length,
+        expectedLength: actualNlist * dim,
+        dim,
+        actualNlist,
+        samplesLength: samples.length,
+      });
+    }
     
-    // TODO(RELEASE): Keep k-means validation but consider making it less verbose
     const validation = validate_kmeans_results(trained, dim, actualNlist, samples);
     
     // Always log imbalance ratio to console for performance diagnostics
     console.info(`[Jarvis] Centroid distribution: imbalance ratio ${validation.diagnostics.imbalanceRatio.toFixed(0)}:1 (${validation.diagnostics.emptyCentroids} empty)`);
     
     if (validation.passed) {
-      log.info('✅ K-means validation PASSED', {
-        checks: validation.checks,
-        diagnostics: {
-          avgNorm: validation.diagnostics.avgNorm.toFixed(4),
-          avgNeighborSimilarity: validation.diagnostics.avgNeighborSimilarity.toFixed(4),
-          emptyCentroids: validation.diagnostics.emptyCentroids,
-          imbalanceRatio: validation.diagnostics.imbalanceRatio.toFixed(2),
-        }
-      });
+      if (settings.notes_debug_mode) {
+        log.info('✅ K-means validation PASSED', {
+          checks: validation.checks,
+          diagnostics: {
+            avgNorm: validation.diagnostics.avgNorm.toFixed(4),
+            avgNeighborSimilarity: validation.diagnostics.avgNeighborSimilarity.toFixed(4),
+            emptyCentroids: validation.diagnostics.emptyCentroids,
+            imbalanceRatio: validation.diagnostics.imbalanceRatio.toFixed(2),
+          }
+        });
+      }
     } else {
       // Log as warning, not error - validation helps catch issues but doesn't block training
       log.warn('⚠️  K-means validation warnings detected', {
@@ -960,7 +967,9 @@ export async function train_centroids_from_existing_embeddings(
           imbalanceRatio: validation.diagnostics.imbalanceRatio.toFixed(2),
         }
       });
-      log.info('Continuing with training - validation is advisory only');
+      if (settings.notes_debug_mode) {
+        log.info('Continuing with training - validation is advisory only');
+      }
       // Continue - validation failure is informational, not a blocker
     }
     
@@ -976,39 +985,40 @@ export async function train_centroids_from_existing_embeddings(
       }
     });
     
-    // TODO(RELEASE): Remove payload validation - only needed during testing
-    // DIAGNOSTIC: Validate payload encoding
-    if (centroidPayload.nlist !== actualNlist || centroidPayload.dim !== dim) {
-      console.error(`🔴 ENCODING BUG: Payload mismatch after encode!`);
-      console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
-      console.error(`   Got: nlist=${centroidPayload.nlist}, dim=${centroidPayload.dim}`);
-      return false;
+    // DIAGNOSTIC: Validate payload encoding (debug mode only)
+    if (settings.notes_debug_mode) {
+      if (centroidPayload.nlist !== actualNlist || centroidPayload.dim !== dim) {
+        console.error(`🔴 ENCODING BUG: Payload mismatch after encode!`);
+        console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
+        console.error(`   Got: nlist=${centroidPayload.nlist}, dim=${centroidPayload.dim}`);
+        return false;
+      }
     }
     
     await write_centroids(anchorId, centroidPayload);
     
-    // TODO(RELEASE): Remove round-trip validation - only needed during testing
-    // DIAGNOSTIC: Validate round-trip (write → read → decode)
-    const readBack = await read_centroids(anchorId);
-    if (!readBack || !readBack.b64) {
-      console.error(`🔴 STORAGE BUG: Failed to read back centroids after write!`);
-      return false;
+    // DIAGNOSTIC: Validate round-trip (write → read → decode) (debug mode only)
+    if (settings.notes_debug_mode) {
+      const readBack = await read_centroids(anchorId);
+      if (!readBack || !readBack.b64) {
+        console.error(`🔴 STORAGE BUG: Failed to read back centroids after write!`);
+        return false;
+      }
+      if (readBack.nlist !== actualNlist || readBack.dim !== dim) {
+        console.error(`🔴 STORAGE BUG: Metadata corrupted after write!`);
+        console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
+        console.error(`   Got: nlist=${readBack.nlist}, dim=${readBack.dim}`);
+        return false;
+      }
+      const decoded = decode_centroids(readBack);
+      if (!decoded || decoded.nlist !== actualNlist || decoded.dim !== dim) {
+        console.error(`🔴 DECODE BUG: Centroids corrupted after decode!`);
+        console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
+        console.error(`   Got: nlist=${decoded?.nlist}, dim=${decoded?.dim}`);
+        return false;
+      }
+      console.info(`✅ Round-trip validation passed: ${actualNlist} centroids × ${dim}d stored successfully`);
     }
-    if (readBack.nlist !== actualNlist || readBack.dim !== dim) {
-      console.error(`🔴 STORAGE BUG: Metadata corrupted after write!`);
-      console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
-      console.error(`   Got: nlist=${readBack.nlist}, dim=${readBack.dim}`);
-      return false;
-    }
-    const decoded = decode_centroids(readBack);
-    if (!decoded || decoded.nlist !== actualNlist || decoded.dim !== dim) {
-      console.error(`🔴 DECODE BUG: Centroids corrupted after decode!`);
-      console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
-      console.error(`   Got: nlist=${decoded?.nlist}, dim=${decoded?.dim}`);
-      return false;
-    }
-    console.info(`✅ Round-trip validation passed: ${actualNlist} centroids × ${dim}d stored successfully`);
-    // END TODO(RELEASE)
     
     const statusMsg = actualNlist !== desiredNlist 
       ? `${actualNlist} centroids created (adjusted from ${desiredNlist} due to limited samples)`
@@ -1033,7 +1043,8 @@ export async function train_centroids_from_existing_embeddings(
 async function sample_from_user_data(
   modelId: string,
   dim: number,
-  sampleLimit: number
+  sampleLimit: number,
+  debugMode: boolean = false
 ): Promise<Float32Array[]> {
   const log = getLogger();
   const { get_all_note_ids_with_embeddings } = await import('./embeddings');
@@ -1137,16 +1148,16 @@ async function sample_from_user_data(
               dequantized[i] = q8.vectors[offset + i] * scale;
             }
             
-            // TODO(RELEASE): Remove verbose diagnostic logging
             // DIAGNOSTIC: Check if dequantization created invalid values
             let hasInvalid = false;
             for (let i = 0; i < dim; i++) {
               if (!isFinite(dequantized[i])) {
                 hasInvalid = true;
-                // TODO(RELEASE): Change to log.error
-                console.error(`🔴 ROOT CAUSE: Dequantization created invalid value at note ${noteId}, row ${row}, dim ${i}`);
-                console.error(`q8.vectors[${offset + i}] = ${q8.vectors[offset + i]}, scale = ${scale}`);
-                console.error('This means stored scale or quantized value is corrupted');
+                if (debugMode) {
+                  console.error(`🔴 ROOT CAUSE: Dequantization created invalid value at note ${noteId}, row ${row}, dim ${i}`);
+                  console.error(`q8.vectors[${offset + i}] = ${q8.vectors[offset + i]}, scale = ${scale}`);
+                  console.error('This means stored scale or quantized value is corrupted');
+                }
                 break;
               }
             }
@@ -1156,7 +1167,6 @@ async function sample_from_user_data(
             } else {
               log.warn(`Skipping corrupted sample from note ${noteId}, row ${row}`);
             }
-            // END TODO(RELEASE)
           }
         }
       } catch (error) {

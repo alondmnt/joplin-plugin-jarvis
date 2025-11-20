@@ -275,7 +275,6 @@ export async function update_note_db(
         order_dir: 'DESC',
       });
       if (notes.items) {
-        console.debug(`Processing page ${page}: ${notes.items.length} notes, total so far: ${processed_notes}/${total_notes}`);
         const result = await process_batch_and_update_progress(
           notes.items, model, settings, abortController, force, catalogId, anchorId, panel,
           () => ({ processed: processed_notes, total: total_notes }),
@@ -387,13 +386,15 @@ export async function update_note_db(
 
   // After anchor metadata is updated, check if centroids need retraining
   // Check for: missing centroids, nlist mismatch, or dimension mismatch
-  console.info('[Jarvis] Checking if centroid retraining is needed...', {
-    aborted: abortController.signal.aborted,
-    userDataMode: settings.notes_db_in_user_data,
-    hasModelId: !!model?.id,
-    hasAnchorId: !!anchorId,
-    alreadyFlagged: model?.needsCentroidBootstrap
-  });
+  if (settings.notes_debug_mode) {
+    console.info('[Jarvis] Checking if centroid retraining is needed...', {
+      aborted: abortController.signal.aborted,
+      userDataMode: settings.notes_db_in_user_data,
+      hasModelId: !!model?.id,
+      hasAnchorId: !!anchorId,
+      alreadyFlagged: model?.needsCentroidBootstrap
+    });
+  }
   
   if (
     !abortController.signal.aborted
@@ -402,28 +403,34 @@ export async function update_note_db(
     && anchorId
     && !model.needsCentroidBootstrap // Don't re-check if already flagged
   ) {
-    console.info('[Jarvis] Proceeding with centroid check...');
+    if (settings.notes_debug_mode) {
+      console.info('[Jarvis] Proceeding with centroid check...');
+    }
     try {
       const anchorMeta = await read_anchor_meta_data(anchorId);
-      console.info('[Jarvis] Anchor metadata:', {
-        hasAnchorMeta: !!anchorMeta,
-        rowCount: anchorMeta?.rowCount,
-        threshold: MIN_TOTAL_ROWS_FOR_IVF
-      });
+      if (settings.notes_debug_mode) {
+        console.info('[Jarvis] Anchor metadata:', {
+          hasAnchorMeta: !!anchorMeta,
+          rowCount: anchorMeta?.rowCount,
+          threshold: MIN_TOTAL_ROWS_FOR_IVF
+        });
+      }
       
       if (anchorMeta && anchorMeta.rowCount && anchorMeta.rowCount >= MIN_TOTAL_ROWS_FOR_IVF) {
         const { read_centroids } = await import('../notes/anchorStore');
         const { estimate_nlist } = await import('../notes/centroids');
         const centroidPayload = await read_centroids(anchorId);
-        const desiredNlist = estimate_nlist(anchorMeta.rowCount);
+        const desiredNlist = estimate_nlist(anchorMeta.rowCount, { debug: settings.notes_debug_mode });
         
-        console.info('[Jarvis] Centroid status:', {
-          hasCentroidPayload: !!centroidPayload?.b64,
-          payloadNlist: centroidPayload?.nlist,
-          payloadDim: centroidPayload?.dim,
-          anchorDim: anchorMeta?.dim,
-          desiredNlist,
-        });
+        if (settings.notes_debug_mode) {
+          console.info('[Jarvis] Centroid status:', {
+            hasCentroidPayload: !!centroidPayload?.b64,
+            payloadNlist: centroidPayload?.nlist,
+            payloadDim: centroidPayload?.dim,
+            anchorDim: anchorMeta?.dim,
+            desiredNlist,
+          });
+        }
         
         if (!centroidPayload?.b64) {
           console.warn(`Jarvis: Centroids missing but corpus has ${anchorMeta.rowCount} rows (≥${MIN_TOTAL_ROWS_FOR_IVF}) - flagging for training`);
@@ -441,18 +448,22 @@ export async function update_note_db(
           if (tooSmall || tooBig) {
             console.warn(`Jarvis: Centroid nlist significantly different (${centroidPayload.nlist} vs ${desiredNlist}, ratio ${ratio.toFixed(2)}) - flagging for retraining`);
             model.needsCentroidBootstrap = true;
-          } else {
+          } else if (settings.notes_debug_mode) {
             console.info(`[Jarvis] Centroid nlist slightly different (${centroidPayload.nlist} vs ideal ${desiredNlist}, ratio ${ratio.toFixed(2)}) but within acceptable range - keeping existing centroids`);
           }
         } else {
-          console.info('[Jarvis] Centroids are up to date, no retraining needed');
+          if (settings.notes_debug_mode) {
+            console.info('[Jarvis] Centroids are up to date, no retraining needed');
+          }
           
           // CRITICAL: Check if centroid assignments match the trained centroid count
           // This can happen if training succeeded but assignment used stale/cached centroids
           // Check the centroid index to see how many centroids actually have notes
           // Use the global index (building it if needed) to avoid wasteful temporary index creation
           if (!model.needsCentroidReassignment) {
-            console.info('[Jarvis] Checking centroid index coverage...');
+            if (settings.notes_debug_mode) {
+              console.info('[Jarvis] Checking centroid index coverage...');
+            }
             try {
               // Build/init the global index so we can check coverage AND use it for search later
               await build_centroid_index_on_startup(model.id, settings);
@@ -464,19 +475,21 @@ export async function update_note_db(
               if (diagnostics) {
                 const uniqueCentroids = diagnostics.uniqueCentroids;
                 
-                console.info('[Jarvis] Centroid index stats:', {
-                  uniqueCentroids,
-                  trainedCentroids: centroidPayload.nlist,
-                  notesInIndex: diagnostics.stats.notesWithEmbeddings,
-                  centroidMappings: diagnostics.stats.centroidMappings,
-                });
+                if (settings.notes_debug_mode) {
+                  console.info('[Jarvis] Centroid index stats:', {
+                    uniqueCentroids,
+                    trainedCentroids: centroidPayload.nlist,
+                    notesInIndex: diagnostics.stats.notesWithEmbeddings,
+                    centroidMappings: diagnostics.stats.centroidMappings,
+                  });
+                }
                 
                 // If less than 50% of trained centroids have notes, assignments are stale
                 const coverage = uniqueCentroids / centroidPayload.nlist;
                 if (coverage < 0.5) {
                   console.warn(`Jarvis: Only ${uniqueCentroids}/${centroidPayload.nlist} centroids have notes (${(coverage * 100).toFixed(0)}% coverage) - flagging for reassignment`);
                   model.needsCentroidReassignment = true;
-                } else {
+                } else if (settings.notes_debug_mode) {
                   console.info(`[Jarvis] Centroid coverage is good: ${uniqueCentroids}/${centroidPayload.nlist} (${(coverage * 100).toFixed(0)}%)`);
                 }
               } else {
@@ -487,7 +500,7 @@ export async function update_note_db(
             }
           }
         }
-      } else {
+      } else if (settings.notes_debug_mode) {
         console.info('[Jarvis] Corpus too small for IVF, skipping centroid check');
       }
     } catch (error) {
@@ -553,7 +566,7 @@ export async function update_note_db(
       const anchorMeta = await read_anchor_meta_data(anchorId);
       if (anchorMeta && anchorMeta.rowCount) {
         const { estimate_nlist } = await import('../notes/centroids');
-        expectedNlist = estimate_nlist(anchorMeta.rowCount);
+        expectedNlist = estimate_nlist(anchorMeta.rowCount, { debug: settings.notes_debug_mode });
       }
     } catch (error) {
       console.warn('Failed to determine expected nlist, will accept any valid centroids', error);
@@ -584,18 +597,20 @@ export async function update_note_db(
         centroidsAvailable = true;
         const matchStatus = loaded.nlist === expectedNlist ? 'exact match' : 
           `${loaded.nlist} centroids (expected ~${expectedNlist}, training adjusted based on samples)`;
-        console.info(`Jarvis: centroids loaded successfully after ${attempt} attempt(s)`, { 
-          modelId: model.id, 
-          nlist: loaded.nlist,
-          expectedNlist,
-          minAcceptableNlist,
-          matchStatus,
-          delayMs: delayMs * attempt
-        });
+        if (settings.notes_debug_mode) {
+          console.info(`Jarvis: centroids loaded successfully after ${attempt} attempt(s)`, { 
+            modelId: model.id, 
+            nlist: loaded.nlist,
+            expectedNlist,
+            minAcceptableNlist,
+            matchStatus,
+            delayMs: delayMs * attempt
+          });
+        }
         break;
       }
       
-      if (attempt < maxRetries) {
+      if (attempt < maxRetries && settings.notes_debug_mode) {
         console.warn(`Jarvis: centroids not yet available or invalid, retrying... (${attempt}/${maxRetries})`, { 
           modelId: model.id,
           hasLoaded: !!loaded,

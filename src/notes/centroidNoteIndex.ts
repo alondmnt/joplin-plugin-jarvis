@@ -58,7 +58,11 @@ export class CentroidNoteIndex {
   private isBuilt: boolean = false;
   private refreshCount: number = 0; // Track refresh calls for periodic cleanup
 
-  constructor(private store: EmbStore, private modelId: string) {}
+  constructor(
+    private store: EmbStore, 
+    private modelId: string,
+    private debugMode: boolean = false
+  ) {}
 
   /**
    * Returns the model ID this index is tracking.
@@ -104,16 +108,17 @@ export class CentroidNoteIndex {
       }
     }
     
-    // TODO(RELEASE): Remove diagnostic logging
-    // DIAGNOSTIC: Check index state during lookup
-    const indexSize = this.index.size;
-    const requestedCentroids = centroidIds.length;
-    if (indexSize < 20) {
-      console.error(`🔴 CENTROID INDEX BUG: Only ${indexSize} centroids in index!`);
-      console.error(`   Requested centroids: ${requestedCentroids}`);
-      console.error(`   Available centroid IDs:`, Array.from(this.index.keys()).sort((a, b) => a - b));
-      console.error(`   Index stats:`, this.get_stats());
-      console.error(`   This means centroid ASSIGNMENT failed or index is stale!`);
+    // DIAGNOSTIC: Check index state during lookup (debug mode only)
+    if (this.debugMode) {
+      const indexSize = this.index.size;
+      const requestedCentroids = centroidIds.length;
+      if (indexSize < 20) {
+        console.error(`🔴 CENTROID INDEX BUG: Only ${indexSize} centroids in index!`);
+        console.error(`   Requested centroids: ${requestedCentroids}`);
+        console.error(`   Available centroid IDs:`, Array.from(this.index.keys()).sort((a, b) => a - b));
+        console.error(`   Index stats:`, this.get_stats());
+        console.error(`   This means centroid ASSIGNMENT failed or index is stale!`);
+      }
     }
     
     return result;
@@ -225,7 +230,6 @@ export class CentroidNoteIndex {
     onProgress?: (processed: number, total?: number) => void
   ): Promise<void> {
     const startTime = Date.now();
-    log.info('CentroidIndex: Starting full build...');
 
     // Clear existing index
     this.clear();
@@ -378,7 +382,7 @@ export class CentroidNoteIndex {
       }
     }
 
-    if (refreshedCount > 0) {
+    if (refreshedCount > 0 && this.debugMode) {
       log.info(
         `CentroidIndex: Refresh complete - ${refreshedCount} notes updated, ${refreshTimeMs}ms`
       );

@@ -47,9 +47,11 @@ const MIN_SAMPLES_PER_LIST = 10;  // Reduced from 32 - sufficient for k-means++ 
  * Estimate a suitable `nlist` based on total rows. Values are clamped to powers
  * of two to simplify downstream heuristics.
  */
-export function estimate_nlist(totalRows: number, options: { min?: number; max?: number } = {}): number {
+export function estimate_nlist(totalRows: number, options: { min?: number; max?: number; debug?: boolean } = {}): number {
   if (!Number.isFinite(totalRows) || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
-    console.info(`[Jarvis] estimate_nlist: totalRows=${totalRows} < threshold=${MIN_TOTAL_ROWS_FOR_IVF}, returning 0`);
+    if (options.debug) {
+      console.info(`[Jarvis] estimate_nlist: totalRows=${totalRows} < threshold=${MIN_TOTAL_ROWS_FOR_IVF}, returning 0`);
+    }
     return 0;
   }
   const min = Math.max(options.min ?? 32, 2);
@@ -64,8 +66,10 @@ export function estimate_nlist(totalRows: number, options: { min?: number; max?:
   const power = Math.pow(2, Math.round(Math.log2(raw)));
   const result = Math.max(min, Math.min(max, power));
   
-  // DIAGNOSTIC: Log calculation steps
-  console.info(`[Jarvis] estimate_nlist: totalRows=${totalRows}, sqrt*6=${sqrt.toFixed(1)}, raw=${raw}, power=${power}, min=${min}, max=${max}, result=${result}`);
+  // DIAGNOSTIC: Log calculation steps (debug mode only)
+  if (options.debug) {
+    console.info(`[Jarvis] estimate_nlist: totalRows=${totalRows}, sqrt*6=${sqrt.toFixed(1)}, raw=${raw}, power=${power}, min=${min}, max=${max}, result=${result}`);
+  }
   
   return result;
 }
@@ -272,7 +276,7 @@ export function select_top_centroid_ids(
 export function choose_nprobe(
   nlist: number,
   candidateCount: number,
-  options: { min?: number; smallSet?: number } = {},
+  options: { min?: number; smallSet?: number; debug?: boolean } = {},
 ): number {
   if (nlist <= 0) {
     return 0;
@@ -298,8 +302,10 @@ export function choose_nprobe(
   
   const probes = Math.max(min, base);
   
-  // DIAGNOSTIC: Log IVF probe selection
-  console.info(`[Jarvis] choose_nprobe: nlist=${nlist}, candidateCount=${candidateCount}, min=${min}, returning=${probes} (${(probes/nlist*100).toFixed(1)}% probe rate)`);
+  // DIAGNOSTIC: Log IVF probe selection (debug mode only)
+  if (options.debug) {
+    console.info(`[Jarvis] choose_nprobe: nlist=${nlist}, candidateCount=${candidateCount}, min=${min}, returning=${probes} (${(probes/nlist*100).toFixed(1)}% probe rate)`);
+  }
   
   return Math.min(nlist, probes);
 }
@@ -638,13 +644,10 @@ function train_centroids_single_run(
   return centroids;
 }
 
-// TODO(RELEASE): Keep validate_kmeans_results for production, but consider:
-// 1. Making it optional (controlled by a debug setting)
-// 2. Logging at debug level instead of info/warn
-// 3. Only running full validation on first centroid training, then spot-checks
 /**
  * Validate k-means results for correctness and quality.
  * Returns an object with validation results and diagnostics.
+ * Validation verbosity controlled by debug mode in caller.
  */
 export function validate_kmeans_results(
   centroids: Float32Array,

@@ -513,7 +513,6 @@ export class TextEmbeddingModel {
             .then(result => {
                 const vector = result instanceof Float32Array ? result : new Float32Array(result);
                 
-                // TODO(RELEASE): Remove or reduce verbose diagnostic logging before release
                 // DIAGNOSTIC: Check raw API response for invalid values
                 let invalidCount = 0;
                 const invalidIndices: number[] = [];
@@ -528,11 +527,7 @@ export class TextEmbeddingModel {
                 
                 if (invalidCount > 0) {
                   const invalidPct = (invalidCount / vector.length) * 100;
-                  // TODO(RELEASE): Change to log.error (less verbose than console.error)
-                  console.error(`🔴 ROOT CAUSE: Model ${this.id} API returned ${invalidCount} invalid values out of ${vector.length} (${invalidPct.toFixed(1)}%)`);
-                  console.error('Invalid at indices:', invalidIndices);
-                  console.error('Sample values:', invalidIndices.slice(0, 3).map(i => vector[i]));
-                  console.error('This is a BUG in the embedding model or API wrapper!');
+                  console.error(`Model ${this.id} API returned ${invalidCount} invalid values (${invalidPct.toFixed(1)}%) - indices: ${invalidIndices.slice(0, 5).join(', ')}`);
                   
                   // If more than 50% of values are invalid, this embedding is unusable
                   if (invalidPct > 50) {
@@ -545,30 +540,26 @@ export class TextEmbeddingModel {
                       vector[i] = 0;
                     }
                   }
-                  // TODO(RELEASE): Change to log.warn
-                  console.warn('⚠️  Sanitized invalid values to 0 - but this indicates an API bug!');
+                  console.warn(`Sanitized invalid values to 0 - this indicates an API bug`);
                 }
                 
                 const normalized = this.l2Normalize(vector);
                 
-                // TODO(RELEASE): Remove or simplify post-normalization validation
                 // DIAGNOSTIC: Check after normalization
                 let postNormInvalid = 0;
                 for (let i = 0; i < normalized.length; i++) {
                   if (!isFinite(normalized[i])) {
                     postNormInvalid++;
                     if (postNormInvalid === 1) {
-                      console.error(`🔴 ROOT CAUSE: L2 normalization created NaN! Vector had norm: ${Math.sqrt(vector.reduce((sum, v) => sum + v*v, 0))}`);
+                      const norm = Math.sqrt(vector.reduce((sum, v) => sum + v*v, 0));
+                      console.error(`L2 normalization created NaN (input norm: ${norm.toFixed(6)})`);
                     }
                   }
                 }
                 
                 if (postNormInvalid > 0) {
-                  console.error(`🔴 ${postNormInvalid} invalid values AFTER normalization (were valid before)`);
-                  console.error('This means L2 normalization has a bug (likely zero-norm vector)');
-                  throw new ModelError('L2 normalization produced invalid values - check for zero-norm vectors');
+                  throw new ModelError(`L2 normalization produced ${postNormInvalid} invalid values - likely zero-norm vector`);
                 }
-                // END TODO(RELEASE)
                 
                 abortSignal?.removeEventListener('abort', handleAbort);
                 resolve(normalized);

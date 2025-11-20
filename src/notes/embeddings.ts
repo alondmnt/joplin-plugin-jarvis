@@ -78,7 +78,7 @@ export async function get_all_note_ids_with_embeddings(modelId?: string): Promis
   }
   
   const duration = Date.now() - startTime;
-  log.info(`Candidate selection: found ${noteIds.size} notes with embeddings${modelId ? `, ${totalBlocks} blocks for model ${modelId}` : ''} (took ${duration}ms)`);
+  log.debug(`Candidate selection: found ${noteIds.size} notes with embeddings${modelId ? `, ${totalBlocks} blocks for model ${modelId}` : ''} (took ${duration}ms)`);
   return { noteIds, totalBlocks: modelId ? totalBlocks : undefined };
 }
 
@@ -999,7 +999,10 @@ export async function update_embeddings(
     const unchangedCount = skippedUnchangedNotes.length;
     const failCount = notes.length - successCount - skipCount;
     
-    log.info(`Batch complete: ${successCount} successful (${unchangedCount} unchanged), ${skipCount} skipped, ${failCount} failed of ${notes.length} total`);
+    // Only log batch completion if there are issues or in debug mode
+    if (settings.notes_debug_mode || failCount > 0 || skipCount > 0) {
+      log.info(`Batch complete: ${successCount} successful (${unchangedCount} unchanged), ${skipCount} skipped, ${failCount} failed of ${notes.length} total`);
+    }
     
     if (skipCount > 0) {
       log.warn(`Skipped note IDs: ${skippedNotes.slice(0, 10).join(', ')}${skipCount > 10 ? ` ... and ${skipCount - 10} more` : ''}`);
@@ -1215,19 +1218,13 @@ export async function build_centroid_index_on_startup(
       await globalCentroidIndex.refresh();
       log.debug('CentroidIndex: Refresh completed');
       return;
-    }
-
-    log.info('CentroidIndex: Building during startup database update');
-    const index = await get_or_init_centroid_index(modelId, settings);
-    const diagnostics = index.get_diagnostics();
-    log.info(
-      `CentroidIndex: Startup build complete - ${diagnostics.stats.notesWithEmbeddings} notes indexed, ` +
-      `${diagnostics.uniqueCentroids} centroids, ${diagnostics.estimatedMemoryKB}KB memory, ` +
-      `${diagnostics.stats.buildTimeMs}ms`
-    );
-  } catch (error) {
-    log.warn('CentroidIndex: Failed to build during startup', error);
   }
+
+  // Build centroid index during startup for better search performance
+  await get_or_init_centroid_index(modelId, settings);
+} catch (error) {
+  log.warn('CentroidIndex: Failed to build during startup', error);
+}
 }
 
 /**
@@ -1240,23 +1237,21 @@ async function get_or_init_centroid_index(
 ): Promise<CentroidNoteIndex> {
   // Initialize index if needed
   if (!globalCentroidIndex || globalCentroidIndex.get_model_id() !== modelId) {
-    log.info(`CentroidIndex: Initializing for model ${modelId}`);
-    globalCentroidIndex = new CentroidNoteIndex(userDataStore, modelId);
+    if (settings.notes_debug_mode) {
+      log.info(`CentroidIndex: Initializing for model ${modelId}`);
+    }
+    globalCentroidIndex = new CentroidNoteIndex(userDataStore, modelId, settings.notes_debug_mode);
   }
 
   // Build if not yet built (lazy fallback)
   if (!globalCentroidIndex.is_built()) {
-    log.info('CentroidIndex: Not built yet, triggering full build');
-    const startTime = Date.now();
+    log.info('CentroidIndex: Building index...');
     await globalCentroidIndex.build_full((processed, total) => {
-      if (total) {
-        log.info(`CentroidIndex: Build complete - ${processed}/${total} notes processed`);
-      } else if (processed % 500 === 0) {
+      // Log progress milestones
+      if (!total && processed % 500 === 0) {
         log.info(`CentroidIndex: Build progress - ${processed} notes processed...`);
       }
     });
-    const buildTime = Date.now() - startTime;
-    log.info(`CentroidIndex: Full build took ${buildTime}ms`);
   } else {
     // Refresh to catch recent updates (timestamp query, ~50-100ms)
     const startTime = Date.now();
@@ -1453,8 +1448,13 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     const nprobe = choose_nprobe(centroids.nlist, candidateCount, {
       min: tuning.minNprobe,
       smallSet: tuning.smallSetNprobe,
+      debug: settings.notes_debug_mode,
     });
-    log.debug(`IVF enabled: nlist=${centroids.nlist}, nprobe=${nprobe}, corpus=${candidateCount} blocks`);
+    
+    if (settings.notes_debug_mode) {
+      log.info(`IVF enabled: nlist=${centroids.nlist}, nprobe=${nprobe}, corpus=${candidateCount} blocks`);
+    }
+    
     if (nprobe <= 0) {
       return null;
     }
@@ -1513,10 +1513,14 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
           if (!anchorMeta) {
             log.debug('IVF: Anchor metadata not found, corpus size unknown', { anchorId });
           } else if (!anchorMeta.rowCount || anchorMeta.rowCount === 0) {
-            log.debug('IVF: Anchor rowCount is 0 or missing, corpus likely empty', { anchorId, rowCount: anchorMeta.rowCount });
+            if (settings.notes_debug_mode) {
+              log.info('IVF: Anchor rowCount is 0 or missing, corpus likely empty');
+            }
           } else {
             corpusSize = anchorMeta.rowCount;
-            log.debug(`IVF: Read corpus size from anchor: ${corpusSize} rows`, { anchorId, modelId: model.id });
+            if (settings.notes_debug_mode) {
+              log.info(`IVF: Read corpus size from anchor: ${corpusSize} rows`, { anchorId, modelId: model.id });
+            }
           }
         }
       }
@@ -1545,13 +1549,18 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       const centroidsInfo = await load_model_centroids(model.id);
       const totalCentroids = centroidsInfo?.nlist ?? 0;
       
-      // TODO(RELEASE): Simplify IVF diagnostics - keep efficiency message, reduce verbosity
-      console.info(`[Jarvis] IVF selected ${selectedNotes}/${totalNotes} notes (${efficiency}% filtered) from ${topCentroidIds.length}/${totalCentroids} centroids`);
-      log.debug(`CentroidIndex: IVF selected ${ivfCandidateNoteIds.size} notes from ${topCentroidIds.length} centroids`);
+      // Log IVF efficiency (debug mode only)
+      if (settings.notes_debug_mode) {
+        console.info(`[Jarvis] IVF selected ${selectedNotes}/${totalNotes} notes (${efficiency}% filtered) from ${topCentroidIds.length}/${totalCentroids} centroids`);
+      }
       
-      // DIAGNOSTIC: Validate IVF consistency
+      if (settings.notes_debug_mode) {
+        log.info(`CentroidIndex: IVF selected ${ivfCandidateNoteIds.size} notes from ${topCentroidIds.length} centroids`);
+      }
+      
+      // DIAGNOSTIC: Validate IVF consistency (debug mode only)
       // Warn only if efficiency is very low (<20%) which suggests a problem
-      if (efficiencyPct < 20) {
+      if (settings.notes_debug_mode && efficiencyPct < 20) {
         console.warn(`⚠️  Very low IVF efficiency (${efficiency}% < 20%) - possible mega-cluster issue`);
         console.warn(`   Selected centroids: ${topCentroidIds.length}/${totalCentroids} (${(topCentroidIds.length/totalCentroids*100).toFixed(1)}% probe rate)`);
         console.warn(`   Average notes per centroid: ${(selectedNotes / topCentroidIds.length).toFixed(1)}`);
@@ -1634,7 +1643,9 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     });
 
     if (userBlocks.length > 0) {
-      log.debug(`userData search: ${userBlocks.length} blocks from ${replaceIds.size} notes (${candidateIds.size} candidates)`);
+      if (settings.notes_debug_mode) {
+        log.info(`userData search: ${userBlocks.length} blocks from ${replaceIds.size} notes (${candidateIds.size} candidates)`);
+      }
       // Don't pollute model.embeddings cache when experimental mode is on
       // userData has its own proper LRU cache in userDataStore
       const replaceIdsArray = Array.from(replaceIds);
@@ -1668,7 +1679,9 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   // No need to recalculate - the corpus size doesn't change just because we filtered results
   const allowedCentroidIds = preloadAllowedCentroidIds;
 
-  log.debug(`Final filtering: ${combinedEmbeddings.length} blocks, IVF=${allowedCentroidIds ? `${allowedCentroidIds.size} centroids` : 'off'}`);
+  if (settings.notes_debug_mode) {
+    log.info(`Final filtering: ${combinedEmbeddings.length} blocks, IVF=${allowedCentroidIds ? `${allowedCentroidIds.size} centroids` : 'off'}`);
+  }
 
   const heapCapacity = tuning.candidateLimit; // Keep buffer aligned with streaming candidate cap.
   
@@ -1719,10 +1732,14 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   let nearest: BlockEmbedding[];
   if (heap) {
     nearest = heap.valuesDescending().map(entry => entry.value);
-    log.debug(`Heap-filtered to ${nearest.length} blocks (capacity: ${effectiveCapacity})`);
+    if (settings.notes_debug_mode) {
+      log.info(`Heap-filtered to ${nearest.length} blocks (capacity: ${effectiveCapacity})`);
+    }
   } else {
     nearest = filtered;
-    log.debug(`Filtered to ${nearest.length} blocks (similarity >= ${settings.notes_min_similarity})`);
+    if (settings.notes_debug_mode) {
+      log.info(`Filtered to ${nearest.length} blocks (similarity >= ${settings.notes_min_similarity})`);
+    }
   }
 
   if (!return_grouped_notes) {
@@ -1777,14 +1794,12 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     };
     }))).sort((a, b) => b.similarity - a.similarity).slice(0, settings.notes_max_hits);
   
-  log.info(`Returning ${result.length} notes (max: ${settings.notes_max_hits}), top similarity: ${result[0]?.similarity?.toFixed(3) || 'N/A'}`);
+  if (settings.notes_debug_mode) {
+    log.info(`Returning ${result.length} notes (max: ${settings.notes_max_hits}), top similarity: ${result[0]?.similarity?.toFixed(3) || 'N/A'}`);
+  }
   
-  // TODO(RELEASE): Remove IVF validation - only needed during testing
-  // Validate IVF recall by comparing with brute-force search
-  // Currently runs 100% of the time for debugging and measuring recall degradation
-  // Set DEBUG_IVF_RECALL = false to disable, or change to Math.random() < 0.01 for 1% monitoring
-  const DEBUG_IVF_RECALL = true;  // Toggle this to enable/disable validation
-  if (DEBUG_IVF_RECALL && settings.notes_db_in_user_data && preloadAllowedCentroidIds) {
+  // Validate IVF recall by comparing with brute-force search (only when debug mode enabled)
+  if (settings.notes_debug_mode && settings.notes_db_in_user_data && preloadAllowedCentroidIds) {
     validate_ivf_recall(query, rep_embedding, result, model, settings, current_id).catch(err => {
       log.error('IVF validation failed', err);
     });
@@ -1796,8 +1811,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 /**
  * Validate IVF recall by running the same search without IVF filtering and comparing top-K results.
  * This runs asynchronously after the main search completes to avoid blocking the user.
- * 
- * TODO(RELEASE): Remove this function - only needed for IVF development/testing
+ * Only runs when debug mode is enabled.
  */
 async function validate_ivf_recall(
   query: string,

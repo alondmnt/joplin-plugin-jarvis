@@ -112,6 +112,7 @@ export interface JarvisSettings {
   notes_abort_on_error: boolean;
   notes_embed_timeout: number;
   notes_db_in_user_data: boolean;
+  notes_debug_mode: boolean;
   notes_device_profile: 'auto' | 'desktop' | 'mobile';
   notes_device_profile_effective: 'desktop' | 'mobile';
   notes_device_platform?: string;
@@ -364,6 +365,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
     notes_db_in_user_data: await joplin.settings.value('notes_db_in_user_data'),
+    notes_debug_mode: await joplin.settings.value('notes_debug_mode'),
     notes_device_profile: rawProfileSetting,
     notes_device_profile_effective: effectiveProfile,
     notes_device_platform: detectedPlatform,
@@ -717,6 +719,15 @@ export async function register_settings() {
       advanced: true,
       label: 'Notes: Store embeddings in note properties (experimental)',
       description: 'Default: false (uses local SQLite, desktop only). When enabled, stores the search index inside your notes so it syncs across devices. Required for mobile app. May increase note size and sync time.',
+    },
+    'notes_debug_mode': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Enable debug mode (verbose logging and index validation)',
+      description: 'Shows detailed diagnostics for centroid training, indexing, and validates search quality. Useful for troubleshooting note properties mode, but may slow down searches. Default: false',
     },
     'notes_embed_timeout': {
       value: 120,

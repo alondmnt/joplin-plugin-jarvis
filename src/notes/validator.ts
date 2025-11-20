@@ -234,12 +234,6 @@ export class ValidationTracker {
     
     this.lastValidationStats = stats;
     
-    // Log performance metrics
-    log.info(
-      `Validation: checked ${stats.checkedCount} notes in ${stats.durationMs}ms, ` +
-      `${stats.mismatchCount} mismatches (${this.allMismatches.length} total accumulated)`
-    );
-    
     return stats;
   }
   
