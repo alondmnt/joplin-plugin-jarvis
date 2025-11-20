@@ -94,6 +94,14 @@ export class CentroidNoteIndex {
   }
 
   /**
+   * Get the set of centroid IDs that have at least one note assigned.
+   * Used to avoid probing empty centroids in IVF search.
+   */
+  get_populated_centroid_ids(): Set<number> {
+    return new Set(this.index.keys());
+  }
+
+  /**
    * Look up which notes contain blocks assigned to the given centroid IDs.
    * Returns union of all notes across the provided centroids.
    */

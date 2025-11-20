@@ -1459,7 +1459,19 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     if (nprobe <= 0) {
       return null;
     }
-    const topIds = select_top_centroid_ids(queryVector, centroids, nprobe);
+    
+    // Get populated centroid IDs for diagnostic purposes (measures empty centroid probing)
+    let populatedCentroidIds: Set<number> | undefined;
+    if (settings.notes_debug_mode) {
+      try {
+        const centroidIndex = await get_or_init_centroid_index(model.id, settings);
+        populatedCentroidIds = centroidIndex.get_populated_centroid_ids();
+      } catch (error) {
+        log.warn('Failed to get populated centroid IDs for diagnostics', error);
+      }
+    }
+    
+    const topIds = select_top_centroid_ids(queryVector, centroids, nprobe, populatedCentroidIds, settings.notes_debug_mode);
     if (topIds.length === 0) {
       return null;
     }

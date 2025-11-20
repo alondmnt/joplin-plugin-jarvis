@@ -255,6 +255,8 @@ export function select_top_centroid_ids(
   query: Float32Array,
   centroids: LoadedCentroids,
   nprobe: number,
+  populatedCentroidIds?: Set<number>,
+  debugMode?: boolean,
 ): number[] {
   if (nprobe <= 0 || centroids.nlist === 0) {
     return [];
@@ -266,7 +268,17 @@ export function select_top_centroid_ids(
   const probeCount = Math.min(nprobe, scores.length);
   const indices = Array.from({ length: scores.length }, (_, i) => i);
   indices.sort((a, b) => scores[b] - scores[a]);
-  return indices.slice(0, probeCount);
+  const topIds = indices.slice(0, probeCount);
+  
+  // Diagnostic: Check if we're probing empty centroids (only in debug mode)
+  if (debugMode && populatedCentroidIds) {
+    const emptyProbes = topIds.filter(id => !populatedCentroidIds.has(id)).length;
+    if (emptyProbes > 0) {
+      console.warn(`[Jarvis] Probing ${emptyProbes}/${topIds.length} empty centroids (${(emptyProbes/topIds.length*100).toFixed(0)}% waste)`);
+    }
+  }
+  
+  return topIds;
 }
 
 /**
@@ -290,14 +302,15 @@ export function choose_nprobe(
   }
   
   // Adaptive nprobe based on nlist size for optimal speed/accuracy tradeoff
-  // Aggressive probe rates for maximum speedup while maintaining >85% recall
+  // Higher probe rates account for naturally sparse centroids (40-50% populated)
+  // Target: >90% recall while maintaining 3-5x speedup
   let base: number;
   if (nlist <= 64) {
-    base = Math.ceil(nlist * 0.20);  // 20% for small nlist
+    base = Math.ceil(nlist * 0.25);  // 25% for small nlist
   } else if (nlist <= 256) {
-    base = Math.ceil(nlist * 0.12);  // 12% for medium nlist
+    base = Math.ceil(nlist * 0.15);  // 15% for medium nlist
   } else {
-    base = Math.ceil(nlist * 0.075);  // 7.5% for large nlist - aggressive but safe
+    base = Math.ceil(nlist * 0.10);  // 10% for large nlist - accounts for sparse centroids
   }
   
   const probes = Math.max(min, base);
