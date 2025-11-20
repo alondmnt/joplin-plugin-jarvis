@@ -186,7 +186,7 @@ export async function assign_missing_centroids(
       );
     }
 
-    if (!notes.has_more) {
+    if (!hasMoreNotes) {
       break;
     }
     page += 1;
@@ -245,11 +245,6 @@ async function assign_note_centroids(
 
   // Decode q8 vectors
   const decoded = decode_q8_vectors(shard);
-  
-  // Clear large base64 strings after decoding to free memory
-  delete (shard as any).vectorsB64;
-  delete (shard as any).scalesB64;
-  delete (shard as any).centroidIdsB64;
 
   // Dequantize to Float32Array for centroid assignment
   // Each row: vector[i] = q8.vectors[i] * q8.scales[rowIndex]
@@ -275,9 +270,13 @@ async function assign_note_centroids(
     centroidIds,
   });
 
+  // CRITICAL: Use updatedPayload which has ALL fields (vectors, scales, centroids)
+  // NOT shard which was mutated by deleting fields!
   const updatedShard: EmbShard = {
-    ...shard,
-    centroidIdsB64: updatedPayload.centroidIdsB64,
+    ...shard,  // Keep metadata fields like epoch
+    vectorsB64: updatedPayload.vectorsB64,      // Preserve vectors
+    scalesB64: updatedPayload.scalesB64,        // Preserve scales
+    centroidIdsB64: updatedPayload.centroidIdsB64,  // Add centroids
   };
 
   // Write updated shard back to userData

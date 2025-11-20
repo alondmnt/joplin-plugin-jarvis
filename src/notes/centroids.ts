@@ -41,7 +41,7 @@ const MIN_VALID_CLUSTERS = 2;
 export const MIN_TOTAL_ROWS_FOR_IVF = 2048;
 
 const DEFAULT_MAX_SAMPLE = 20000;
-const MIN_SAMPLES_PER_LIST = 32;
+const MIN_SAMPLES_PER_LIST = 10;  // Reduced from 32 - sufficient for k-means++ initialization
 
 /**
  * Estimate a suitable `nlist` based on total rows. Values are clamped to powers
@@ -49,6 +49,7 @@ const MIN_SAMPLES_PER_LIST = 32;
  */
 export function estimate_nlist(totalRows: number, options: { min?: number; max?: number } = {}): number {
   if (!Number.isFinite(totalRows) || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
+    console.info(`[Jarvis] estimate_nlist: totalRows=${totalRows} < threshold=${MIN_TOTAL_ROWS_FOR_IVF}, returning 0`);
     return 0;
   }
   const min = Math.max(options.min ?? 32, 2);
@@ -61,7 +62,12 @@ export function estimate_nlist(totalRows: number, options: { min?: number; max?:
   const raw = Math.max(min, Math.min(max, Math.round(sqrt)));
   // Round to the nearest power-of-two so shard ids align with preset IVF probes.
   const power = Math.pow(2, Math.round(Math.log2(raw)));
-  return Math.max(min, Math.min(max, power));
+  const result = Math.max(min, Math.min(max, power));
+  
+  // DIAGNOSTIC: Log calculation steps
+  console.info(`[Jarvis] estimate_nlist: totalRows=${totalRows}, sqrt*6=${sqrt.toFixed(1)}, raw=${raw}, power=${power}, min=${min}, max=${max}, result=${result}`);
+  
+  return result;
 }
 
 /**
@@ -272,22 +278,29 @@ export function choose_nprobe(
     return 0;
   }
   const min = Math.max(1, options.min ?? 8);
-  // Adaptive probe rate for highly imbalanced data (234:1 ratio observed)
-  // Mega-clusters dominate when imbalance is high, so use conservative probe rates
-  let probePercent = 0.10;  // Default for small nlist (32-128)
-  if (nlist >= 1024) {
-    probePercent = 0.05;    // 5% for 1024 centroids (~51 probes)
-  } else if (nlist >= 512) {
-    probePercent = 0.05;    // 5% for 512 centroids (~26 probes)
-  } else if (nlist >= 256) {
-    probePercent = 0.075;   // 7.5% for 256 centroids (~19 probes)
+  const smallSet = options.smallSet ?? 20;
+  
+  // For small candidate pools, use higher probe ratio to ensure good recall
+  if (candidateCount < 100) {
+    return Math.min(nlist, smallSet);
   }
-  const base = Math.max(min, Math.round(nlist * probePercent));
-  let probes = Math.max(min, base);
-  if (candidateCount > 0 && candidateCount < 2000) {
-    const smallSet = Math.max(1, options.smallSet ?? Math.round(probes / 2));
-    probes = Math.max(smallSet, min);
+  
+  // Adaptive nprobe based on nlist size for optimal speed/accuracy tradeoff
+  // Mobile-friendly defaults: ~10-20% probe rate
+  let base: number;
+  if (nlist <= 64) {
+    base = Math.ceil(nlist * 0.30);  // 30% for small nlist
+  } else if (nlist <= 256) {
+    base = Math.ceil(nlist * 0.20);  // 20% for medium nlist
+  } else {
+    base = Math.ceil(nlist * 0.15);  // 15% for large nlist (e.g., 72/484)
   }
+  
+  const probes = Math.max(min, base);
+  
+  // DIAGNOSTIC: Log IVF probe selection
+  console.info(`[Jarvis] choose_nprobe: nlist=${nlist}, candidateCount=${candidateCount}, min=${min}, returning=${probes} (${(probes/nlist*100).toFixed(1)}% probe rate)`);
+  
   return Math.min(nlist, probes);
 }
 
@@ -324,9 +337,9 @@ export async function train_centroids_async(
     return null;
   }
   
-  // For large nlist (>=128), run k-means multiple times to find better clustering
-  // This significantly reduces imbalance for highly clustered data
-  const numRuns = requested >= 128 ? 3 : 1;
+  // Single k-means run is sufficient - multiple runs don't significantly improve results
+  // and add considerable training time (3x slower)
+  const numRuns = 1;
   let bestCentroids: Float32Array | null = null;
   let bestImbalance = Infinity;
   
@@ -432,9 +445,9 @@ export function train_centroids(
     return null;
   }
   
-  // For large nlist (>=128), run k-means multiple times to find better clustering
-  // This significantly reduces imbalance for highly clustered data
-  const numRuns = requested >= 128 ? 3 : 1;
+  // Single k-means run is sufficient - multiple runs don't significantly improve results
+  // and add considerable training time (3x slower)
+  const numRuns = 1;
   let bestCentroids: Float32Array | null = null;
   let bestImbalance = Infinity;
   

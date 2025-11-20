@@ -418,36 +418,56 @@ function evaluate_centroid_refresh(args: {
     payload,
   } = args;
 
+  console.info(`[Jarvis] evaluate_centroid_refresh called`, {
+    totalRows,
+    desiredNlist,
+    dim,
+    hasPayload: !!payload,
+    payloadNlist: payload?.nlist,
+    payloadDim: payload?.dim,
+    settingsMatch,
+  });
+
   if (desiredNlist < 2 || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
+    console.info(`[Jarvis] Refresh not needed: corpus too small or desiredNlist < 2`);
     return null;
   }
   if (!payload?.b64) {
+    console.info(`[Jarvis] Refresh needed: missingPayload`);
     return { reason: 'missingPayload' };
   }
   if (!payload.dim || payload.dim !== dim) {
+    console.info(`[Jarvis] Refresh needed: dimMismatch (${payload.dim} vs ${dim})`);
     return { reason: 'dimMismatch' };
   }
   const payloadNlist = payload.nlist ?? 0;
   if (payloadNlist !== desiredNlist) {
+    console.info(`[Jarvis] Refresh needed: nlistMismatch (${payloadNlist} vs ${desiredNlist})`);
     return { reason: 'nlistMismatch' };
   }
   const payloadVersion = payload.version ?? '';
   if (String(payloadVersion) !== String(embeddingVersion ?? '')) {
+    console.info(`[Jarvis] Refresh needed: versionMismatch (${payloadVersion} vs ${embeddingVersion})`);
     return { reason: 'versionMismatch' };
   }
   if (!settingsMatch) {
+    console.info(`[Jarvis] Refresh needed: settingsChanged`);
     return { reason: 'settingsChanged' };
   }
   const previousRows = anchorMeta?.rowCount ?? 0;
   if (!previousRows) {
+    console.info(`[Jarvis] Refresh needed: bootstrap (no previous rowCount)`);
     return { reason: 'bootstrap' };
   }
   if (totalRows > previousRows * 1.3) {
+    console.info(`[Jarvis] Refresh needed: rowGrowth (${totalRows} > ${previousRows * 1.3})`);
     return { reason: 'rowGrowth' };
   }
   if (totalRows < previousRows * 0.7) {
+    console.info(`[Jarvis] Refresh needed: rowShrink (${totalRows} < ${previousRows * 0.7})`);
     return { reason: 'rowShrink' };
   }
+  console.info(`[Jarvis] Refresh NOT needed: all checks passed`);
   return null;
 }
 
@@ -694,13 +714,13 @@ export async function train_centroids_from_existing_embeddings(
     const trainingStartTime = Date.now();
     
     // Sample directly from userData (model.embeddings is empty in userData mode)
-    // Balance efficiency vs quality: cap at 50% of corpus even if it means fewer samples per centroid
+    // Balance efficiency vs quality: use smaller sample size for faster training
     const baseSampleLimit = derive_sample_limit(desiredNlist);
-    const minSamplesForQuality = desiredNlist * 100;  // Ideal: 100 per centroid
-    const minSamplesRequired = desiredNlist * 20;     // Minimum: 20 per centroid (to avoid nlist reduction)
-    const maxCorpusSamples = Math.floor(totalRows * 0.50);  // Read at most 50% of corpus
+    const minSamplesForQuality = desiredNlist * 50;   // Target: 50 per centroid (reduced from 100)
+    const minSamplesRequired = desiredNlist * 10;     // Minimum: 10 per centroid (sufficient for k-means)
+    const maxCorpusSamples = Math.floor(totalRows * 0.30);  // Read at most 30% of corpus (reduced from 50%)
     
-    // Priority: don't exceed 50% of corpus, but try to get 20 samples/centroid minimum
+    // Priority: balance quality with speed - use fewer samples for faster training
     const minSamplesNeeded = Math.min(
       minSamplesForQuality,
       Math.min(minSamplesRequired, maxCorpusSamples)
@@ -817,8 +837,8 @@ export async function train_centroids_from_existing_embeddings(
       });
       
       // Check if we have enough samples for reliable k-means
-      // Rule of thumb: need at least 20-50 samples per centroid
-      const minSamplesNeeded = desiredNlist * 20;
+      // Rule of thumb: need at least 10 samples per centroid (sufficient for k-means++)
+      const minSamplesNeeded = desiredNlist * 10;
       if (validSamples.length < minSamplesNeeded) {
         log.warn('Low sample count for k-means training', {
           valid: validSamples.length,
@@ -843,9 +863,9 @@ export async function train_centroids_from_existing_embeddings(
       log.info('Sample validation passed', { totalSamples: samples.length });
     }
     
-    // Adjust nlist if we don't have enough samples (need at least 20 samples per centroid)
+    // Adjust nlist if we don't have enough samples (need at least 10 samples per centroid)
     let actualNlist = desiredNlist;
-    const maxNlistForSamples = Math.floor(samples.length / 20);
+    const maxNlistForSamples = Math.floor(samples.length / 10);
     if (maxNlistForSamples < desiredNlist) {
       actualNlist = Math.max(32, maxNlistForSamples); // Minimum 32 centroids
       log.warn('Reducing nlist due to insufficient samples', {

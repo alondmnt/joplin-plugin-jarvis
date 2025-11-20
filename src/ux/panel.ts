@@ -55,6 +55,13 @@ export async function update_progress_bar(
   const mainMessage = 'Updating note database...';
   const stageMessage = stage ? `<p class="jarvis-semantic-note" style="font-style: italic; opacity: 0.8;">${stage}</p>` : '';
   
+  // Show context-appropriate progress label based on the stage
+  let progressLabel = `Total notes processed: ${processed} / ${total}`;
+  if (stage && (stage.includes('Training search index') || stage.includes('Assigning centroid'))) {
+    // During centroid training/assignment, show generic progress label
+    progressLabel = `Progress: ${processed} / ${total}`;
+  }
+  
   await joplin.views.panels.setHtml(panel, `
   <html>
   <div class="container">
@@ -62,7 +69,7 @@ export async function update_progress_bar(
     <p class="jarvis-semantic-note">${mainMessage}</p>
     ${stageMessage}
     <progress class="jarvis-semantic-progress" value="${processed}" max="${total}"></progress>
-    <p class="jarvis-semantic-note">Total notes processed: ${processed} / ${total}</p>
+    <p class="jarvis-semantic-note">${progressLabel}</p>
     <button class="jarvis-cancel-button">Cancel</button>
   </div>
   `);

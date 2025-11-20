@@ -1281,6 +1281,25 @@ export function reset_centroid_index(): void {
 }
 
 /**
+ * Get diagnostics from the global centroid index (for monitoring/debugging).
+ * Returns null if index is not built yet.
+ */
+export async function get_centroid_index_diagnostics(
+  modelId: string,
+  settings: JarvisSettings
+): Promise<ReturnType<CentroidNoteIndex['get_diagnostics']> | null> {
+  if (!settings.notes_db_in_user_data) {
+    return null;
+  }
+  
+  if (!globalCentroidIndex || globalCentroidIndex.get_model_id() !== modelId || !globalCentroidIndex.is_built()) {
+    return null;
+  }
+  
+  return globalCentroidIndex.get_diagnostics();
+}
+
+/**
  * Update a single note in the centroid-to-note index (called after embedding a note).
  */
 export async function update_centroid_index_for_note(noteId: string, modelId: string): Promise<void> {
@@ -1531,8 +1550,9 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       log.debug(`CentroidIndex: IVF selected ${ivfCandidateNoteIds.size} notes from ${topCentroidIds.length} centroids`);
       
       // DIAGNOSTIC: Validate IVF consistency
-      if (efficiencyPct < 50) {
-        console.warn(`⚠️  Low IVF efficiency (${efficiency}% < 50%) - possible mega-cluster issue`);
+      // Warn only if efficiency is very low (<20%) which suggests a problem
+      if (efficiencyPct < 20) {
+        console.warn(`⚠️  Very low IVF efficiency (${efficiency}% < 20%) - possible mega-cluster issue`);
         console.warn(`   Selected centroids: ${topCentroidIds.length}/${totalCentroids} (${(topCentroidIds.length/totalCentroids*100).toFixed(1)}% probe rate)`);
         console.warn(`   Average notes per centroid: ${(selectedNotes / topCentroidIds.length).toFixed(1)}`);
         console.warn(`   This suggests highly imbalanced cluster distribution`);
@@ -1758,7 +1778,155 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }))).sort((a, b) => b.similarity - a.similarity).slice(0, settings.notes_max_hits);
   
   log.info(`Returning ${result.length} notes (max: ${settings.notes_max_hits}), top similarity: ${result[0]?.similarity?.toFixed(3) || 'N/A'}`);
+  
+  // TODO(RELEASE): Remove IVF validation - only needed during testing
+  // Validate IVF recall by comparing with brute-force search
+  // Currently runs 100% of the time for debugging and measuring recall degradation
+  // Set DEBUG_IVF_RECALL = false to disable, or change to Math.random() < 0.01 for 1% monitoring
+  const DEBUG_IVF_RECALL = true;  // Toggle this to enable/disable validation
+  if (DEBUG_IVF_RECALL && settings.notes_db_in_user_data && preloadAllowedCentroidIds) {
+    validate_ivf_recall(query, rep_embedding, result, model, settings, current_id).catch(err => {
+      log.error('IVF validation failed', err);
+    });
+  }
+  
   return result;
+}
+
+/**
+ * Validate IVF recall by running the same search without IVF filtering and comparing top-K results.
+ * This runs asynchronously after the main search completes to avoid blocking the user.
+ * 
+ * TODO(RELEASE): Remove this function - only needed for IVF development/testing
+ */
+async function validate_ivf_recall(
+  query: string,
+  queryEmbedding: Float32Array,
+  ivfResults: NoteEmbedding[],
+  model: TextEmbeddingModel,
+  settings: JarvisSettings,
+  currentNoteId: string
+): Promise<void> {
+  const log = getLogger();
+  
+  try {
+    console.info('[Jarvis] 🔍 IVF Validation: Running brute-force search for comparison...');
+    const startTime = Date.now();
+    
+    // Get all notes without IVF filtering
+    const { get_all_note_ids_with_embeddings } = await import('./embeddings');
+    const allNotesResult = await get_all_note_ids_with_embeddings(model.id);
+    const allNoteIds = Array.from(allNotesResult.noteIds).filter(id => id !== currentNoteId);
+    
+    // Read embeddings for ALL notes (brute-force)
+    const userDataStore = new UserDataEmbStore();
+    const bruteForceEmbeddings = await read_user_data_embeddings({
+      store: userDataStore,
+      noteIds: allNoteIds,
+      modelId: model.id,
+      maxRows: undefined,  // No limit - read everything
+      allowedCentroidIds: null,  // DISABLE IVF filtering
+      currentModel: model,
+      currentSettings: extract_embedding_settings_for_validation(settings),
+      validationTracker: null
+    });
+    
+    // Flatten to blocks and compute similarities
+    const allBlocks: BlockEmbedding[] = [];
+    for (const noteResult of bruteForceEmbeddings) {
+      allBlocks.push(...noteResult.blocks);
+    }
+    
+    // Compute similarities using Q8 (same as IVF path for fair comparison)
+    const queryQ8 = quantize_vector_to_q8(queryEmbedding);
+    for (const block of allBlocks) {
+      if (block.q8 && block.q8.values.length > 0) {
+        block.similarity = cosine_similarity_q8(block.q8, queryQ8);
+      } else {
+        // Fallback to Float32 if Q8 not available (shouldn't happen in userData mode)
+        block.similarity = calc_similarity(queryEmbedding, block.embedding);
+      }
+    }
+    
+    // Sort by similarity
+    const sortedBlocks = allBlocks.sort((a, b) => b.similarity - a.similarity);
+    
+    // Group by note and aggregate (same logic as main search)
+    const grouped = sortedBlocks.reduce((acc: {[note_id: string]: BlockEmbedding[]}, embed) => {
+      if (!acc[embed.id]) {
+        acc[embed.id] = [];
+      }
+      acc[embed.id].push(embed);
+      return acc;
+    }, {});
+    
+    const bruteForceResults: NoteEmbedding[] = [];
+    for (const [note_id, note_embed] of Object.entries(grouped)) {
+      const sorted_embed = note_embed.sort((a, b) => b.similarity - a.similarity);
+      let agg_sim: number;
+      if (settings.notes_agg_similarity === 'max') {
+        agg_sim = sorted_embed[0].similarity;
+      } else if (settings.notes_agg_similarity === 'avg') {
+        agg_sim = sorted_embed.reduce((acc, embd) => acc + embd.similarity, 0) / sorted_embed.length;
+      }
+      
+      bruteForceResults.push({
+        id: note_id,
+        title: '', // Don't need titles for validation
+        embeddings: sorted_embed,
+        similarity: agg_sim,
+      });
+    }
+    
+    bruteForceResults.sort((a, b) => b.similarity - a.similarity);
+    const bruteForceTopK = bruteForceResults.slice(0, settings.notes_max_hits);
+    
+    const elapsedMs = Date.now() - startTime;
+    
+    // Compare results
+    const k = Math.min(settings.notes_max_hits, ivfResults.length, bruteForceTopK.length);
+    const ivfTopKIds = new Set(ivfResults.slice(0, k).map(r => r.id));
+    const bruteForceTopKIds = new Set(bruteForceTopK.slice(0, k).map(r => r.id));
+    
+    let matches = 0;
+    for (const id of ivfTopKIds) {
+      if (bruteForceTopKIds.has(id)) {
+        matches++;
+      }
+    }
+    
+    const recall = k > 0 ? (matches / k) * 100 : 0;
+    const precision = k > 0 ? (matches / ivfTopKIds.size) * 100 : 0;
+    
+    // Log results
+    console.info(`[Jarvis] 🔍 IVF Validation Results (top-${k}):`);
+    console.info(`   Recall: ${recall.toFixed(1)}% (${matches}/${k} ground truth results found)`);
+    console.info(`   Precision: ${precision.toFixed(1)}% (${matches}/${ivfTopKIds.size} IVF results correct)`);
+    console.info(`   Brute-force time: ${elapsedMs}ms vs IVF time: <instant>`);
+    console.info(`   Total notes: ${allNoteIds.length}, Total blocks: ${allBlocks.length}`);
+    
+    if (recall < 90) {
+      console.warn(`⚠️  Low recall detected! IVF may be filtering out relevant results.`);
+      console.warn(`   Missing from IVF results:`, Array.from(bruteForceTopKIds).filter(id => !ivfTopKIds.has(id)).slice(0, 3));
+    } else {
+      console.info(`✅ IVF recall is excellent!`);
+    }
+    
+    // Log top-5 similarity comparison
+    console.info(`[Jarvis] Top-5 similarity comparison:`);
+    for (let i = 0; i < Math.min(5, k); i++) {
+      const ivfSim = ivfResults[i]?.similarity?.toFixed(4) || 'N/A';
+      const bruteSim = bruteForceTopK[i]?.similarity?.toFixed(4) || 'N/A';
+      const ivfId = ivfResults[i]?.id?.substring(0, 8) || 'N/A';
+      const bruteId = bruteForceTopK[i]?.id?.substring(0, 8) || 'N/A';
+      const match = ivfId === bruteId ? '✅' : '❌';
+      console.info(`   ${i + 1}. IVF: ${ivfSim} (${ivfId}) vs Brute: ${bruteSim} (${bruteId}) ${match}`);
+    }
+    
+  } catch (error) {
+    log.error('IVF validation error', error);
+    console.error('[Jarvis] IVF validation failed:', error);
+  }
 }
 
 // calculate the cosine similarity between two embeddings

@@ -385,36 +385,123 @@ export async function update_note_db(
     }
   }
 
-  // After anchor metadata is updated, check if centroids need bootstrap training
-  // This handles the case where anchor was just created/recreated and has rowCount but no centroids yet
+  // After anchor metadata is updated, check if centroids need retraining
+  // Check for: missing centroids, nlist mismatch, or dimension mismatch
+  console.info('[Jarvis] Checking if centroid retraining is needed...', {
+    aborted: abortController.signal.aborted,
+    userDataMode: settings.notes_db_in_user_data,
+    hasModelId: !!model?.id,
+    hasAnchorId: !!anchorId,
+    alreadyFlagged: model?.needsCentroidBootstrap
+  });
+  
   if (
     !abortController.signal.aborted
     && settings.notes_db_in_user_data
     && model?.id
     && anchorId
     && !model.needsCentroidBootstrap // Don't re-check if already flagged
-    && actually_processed_notes === 0 // Only check if no notes were processed
   ) {
+    console.info('[Jarvis] Proceeding with centroid check...');
     try {
       const anchorMeta = await read_anchor_meta_data(anchorId);
+      console.info('[Jarvis] Anchor metadata:', {
+        hasAnchorMeta: !!anchorMeta,
+        rowCount: anchorMeta?.rowCount,
+        threshold: MIN_TOTAL_ROWS_FOR_IVF
+      });
+      
       if (anchorMeta && anchorMeta.rowCount && anchorMeta.rowCount >= MIN_TOTAL_ROWS_FOR_IVF) {
         const { read_centroids } = await import('../notes/anchorStore');
+        const { estimate_nlist } = await import('../notes/centroids');
         const centroidPayload = await read_centroids(anchorId);
+        const desiredNlist = estimate_nlist(anchorMeta.rowCount);
+        
+        console.info('[Jarvis] Centroid status:', {
+          hasCentroidPayload: !!centroidPayload?.b64,
+          payloadNlist: centroidPayload?.nlist,
+          payloadDim: centroidPayload?.dim,
+          anchorDim: anchorMeta?.dim,
+          desiredNlist,
+        });
+        
         if (!centroidPayload?.b64) {
           console.warn(`Jarvis: Centroids missing but corpus has ${anchorMeta.rowCount} rows (≥${MIN_TOTAL_ROWS_FOR_IVF}) - flagging for training`);
           model.needsCentroidBootstrap = true;
+        } else if (centroidPayload.dim !== anchorMeta.dim) {
+          console.warn(`Jarvis: Centroid dimension mismatch (${centroidPayload.dim} vs ${anchorMeta.dim}) - flagging for retraining`);
+          model.needsCentroidBootstrap = true;
+        } else if (centroidPayload.nlist !== desiredNlist && desiredNlist > 0) {
+          // Allow some tolerance: trained nlist might be reduced due to insufficient samples
+          // Only flag for retraining if the difference is > 30% or trained nlist is way too small
+          const ratio = centroidPayload.nlist / desiredNlist;
+          const tooSmall = centroidPayload.nlist < Math.max(32, desiredNlist * 0.5);  // Less than 50% of desired
+          const tooBig = centroidPayload.nlist > desiredNlist * 1.5;  // More than 150% of desired
+          
+          if (tooSmall || tooBig) {
+            console.warn(`Jarvis: Centroid nlist significantly different (${centroidPayload.nlist} vs ${desiredNlist}, ratio ${ratio.toFixed(2)}) - flagging for retraining`);
+            model.needsCentroidBootstrap = true;
+          } else {
+            console.info(`[Jarvis] Centroid nlist slightly different (${centroidPayload.nlist} vs ideal ${desiredNlist}, ratio ${ratio.toFixed(2)}) but within acceptable range - keeping existing centroids`);
+          }
+        } else {
+          console.info('[Jarvis] Centroids are up to date, no retraining needed');
+          
+          // CRITICAL: Check if centroid assignments match the trained centroid count
+          // This can happen if training succeeded but assignment used stale/cached centroids
+          // Check the centroid index to see how many centroids actually have notes
+          // Use the global index (building it if needed) to avoid wasteful temporary index creation
+          if (!model.needsCentroidReassignment) {
+            console.info('[Jarvis] Checking centroid index coverage...');
+            try {
+              // Build/init the global index so we can check coverage AND use it for search later
+              await build_centroid_index_on_startup(model.id, settings);
+              
+              // Now get the global index to check its state
+              const { get_centroid_index_diagnostics } = await import('../notes/embeddings');
+              const diagnostics = await get_centroid_index_diagnostics(model.id, settings);
+              
+              if (diagnostics) {
+                const uniqueCentroids = diagnostics.uniqueCentroids;
+                
+                console.info('[Jarvis] Centroid index stats:', {
+                  uniqueCentroids,
+                  trainedCentroids: centroidPayload.nlist,
+                  notesInIndex: diagnostics.stats.notesWithEmbeddings,
+                  centroidMappings: diagnostics.stats.centroidMappings,
+                });
+                
+                // If less than 50% of trained centroids have notes, assignments are stale
+                const coverage = uniqueCentroids / centroidPayload.nlist;
+                if (coverage < 0.5) {
+                  console.warn(`Jarvis: Only ${uniqueCentroids}/${centroidPayload.nlist} centroids have notes (${(coverage * 100).toFixed(0)}% coverage) - flagging for reassignment`);
+                  model.needsCentroidReassignment = true;
+                } else {
+                  console.info(`[Jarvis] Centroid coverage is good: ${uniqueCentroids}/${centroidPayload.nlist} (${(coverage * 100).toFixed(0)}%)`);
+                }
+              } else {
+                console.warn('[Jarvis] Could not get centroid index diagnostics');
+              }
+            } catch (error) {
+              console.error('Failed to check centroid index coverage', error);
+            }
+          }
         }
+      } else {
+        console.info('[Jarvis] Corpus too small for IVF, skipping centroid check');
       }
     } catch (error) {
-      console.debug('Failed to check centroid bootstrap status', error);
+      console.error('Failed to check centroid bootstrap status', error);
     }
+  } else {
+    console.info('[Jarvis] Skipping centroid check (conditions not met)');
   }
 
   // If bootstrap was flagged (either at startup or just now), train centroids directly
-  // This handles the edge case where incremental sweeps stop early with no new notes
-  // Avoids needlessly recalculating embeddings - just trains from existing vectors in memory
-  if (model.needsCentroidBootstrap && actually_processed_notes === 0 && !abortController.signal.aborted && settings.notes_db_in_user_data) {
-    console.warn('Jarvis: Bootstrap needed but no notes were processed - training centroids from existing embeddings');
+  // This handles both initial bootstrap and nlist/dimension changes
+  // Avoids needlessly recalculating embeddings - just trains from existing vectors in userData
+  if (model.needsCentroidBootstrap && !abortController.signal.aborted && settings.notes_db_in_user_data) {
+    console.warn('Jarvis: Centroid training needed - training from existing embeddings in userData');
     
     // Get dimension from anchor metadata (actual stored dimension), not hardcoded fallback
     let modelDim = embeddingDim; // Try captured dim first
@@ -440,11 +527,11 @@ export async function update_note_db(
       );
       
       if (success) {
-        console.info('Jarvis: Emergency centroid training completed');
+        console.info('Jarvis: Centroid training completed');
         model.needsCentroidBootstrap = false;
         model.needsCentroidReassignment = true;
       } else {
-        console.error('Jarvis: Emergency centroid training failed');
+        console.error('Jarvis: Centroid training failed');
       }
     }
   }
@@ -460,27 +547,64 @@ export async function update_note_db(
   ) {
     console.info('Jarvis: centroids were trained/retrained, assigning centroid IDs to all notes', { modelId: model.id });
     
+    // Get expected nlist from anchor metadata to verify correct centroids are loaded
+    let expectedNlist = 0;
+    try {
+      const anchorMeta = await read_anchor_meta_data(anchorId);
+      if (anchorMeta && anchorMeta.rowCount) {
+        const { estimate_nlist } = await import('../notes/centroids');
+        expectedNlist = estimate_nlist(anchorMeta.rowCount);
+      }
+    } catch (error) {
+      console.warn('Failed to determine expected nlist, will accept any valid centroids', error);
+    }
+    
     // userData writes can be delayed. Retry loading centroids to ensure they're available before assignment.
+    // Note: Training may adjust nlist down from estimated value, so we check for reasonable range.
+    // Must be substantial (>= 25% of expected) to avoid loading stale small centroids
     const maxRetries = 5;
     const delayMs = 200;
     let centroidsAvailable = false;
+    const minAcceptableNlist = expectedNlist > 0 ? Math.max(32, Math.floor(expectedNlist * 0.25)) : 32;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       await new Promise(resolve => setTimeout(resolve, delayMs));
       
+      // Clear cache before each attempt to force fresh read from userData
+      const { clear_centroid_cache } = await import('../notes/centroidLoader');
+      clear_centroid_cache(model.id);
+      
       const loaded = await load_model_centroids(model.id);
-      if (loaded && loaded.nlist > 0 && loaded.data && loaded.data.length > 0) {
+      // Accept nlist if it's reasonable: >= minAcceptableNlist and <= expectedNlist
+      // This filters out stale small centroids while allowing training adjustments
+      const nlistReasonable = expectedNlist === 0 
+        || (loaded && loaded.nlist >= minAcceptableNlist && loaded.nlist <= expectedNlist);
+      
+      if (loaded && loaded.nlist > 0 && loaded.data && loaded.data.length > 0 && nlistReasonable) {
         centroidsAvailable = true;
+        const matchStatus = loaded.nlist === expectedNlist ? 'exact match' : 
+          `${loaded.nlist} centroids (expected ~${expectedNlist}, training adjusted based on samples)`;
         console.info(`Jarvis: centroids loaded successfully after ${attempt} attempt(s)`, { 
           modelId: model.id, 
           nlist: loaded.nlist,
+          expectedNlist,
+          minAcceptableNlist,
+          matchStatus,
           delayMs: delayMs * attempt
         });
         break;
       }
       
       if (attempt < maxRetries) {
-        console.warn(`Jarvis: centroids not yet available, retrying... (${attempt}/${maxRetries})`, { modelId: model.id });
+        console.warn(`Jarvis: centroids not yet available or invalid, retrying... (${attempt}/${maxRetries})`, { 
+          modelId: model.id,
+          hasLoaded: !!loaded,
+          loadedNlist: loaded?.nlist,
+          expectedNlist,
+          minAcceptableNlist,
+          hasData: loaded?.data ? loaded.data.length > 0 : false,
+          nlistReasonable
+        });
       }
     }
     
@@ -508,14 +632,18 @@ export async function update_note_db(
           ...result,
         });
         
-        // CRITICAL: Refresh centroid index after assignment so it picks up new centroid IDs
+        // CRITICAL: Rebuild centroid index after assignment so it picks up new centroid IDs
         // Without this, search will return 0 results because index was built before assignment
+        // We must reset the index first to force a full rebuild (not just refresh) because
+        // centroid assignment doesn't update user_updated_time, so refresh() would miss the changes
         try {
           console.info('Jarvis: rebuilding centroid index after assignment...');
+          const { reset_centroid_index } = await import('../notes/embeddings');
+          reset_centroid_index(); // Force full rebuild by clearing the global index
           await build_centroid_index_on_startup(model.id, settings);
-          console.info('Jarvis: centroid index refreshed successfully');
+          console.info('Jarvis: centroid index rebuilt successfully');
         } catch (error) {
-          console.warn('Jarvis: failed to refresh centroid index after assignment', {
+          console.warn('Jarvis: failed to rebuild centroid index after assignment', {
             modelId: model.id,
             error: String((error as any)?.message ?? error),
           });

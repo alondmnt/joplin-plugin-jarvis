@@ -103,6 +103,19 @@ export class CentroidNoteIndex {
         }
       }
     }
+    
+    // TODO(RELEASE): Remove diagnostic logging
+    // DIAGNOSTIC: Check index state during lookup
+    const indexSize = this.index.size;
+    const requestedCentroids = centroidIds.length;
+    if (indexSize < 20) {
+      console.error(`🔴 CENTROID INDEX BUG: Only ${indexSize} centroids in index!`);
+      console.error(`   Requested centroids: ${requestedCentroids}`);
+      console.error(`   Available centroid IDs:`, Array.from(this.index.keys()).sort((a, b) => a - b));
+      console.error(`   Index stats:`, this.get_stats());
+      console.error(`   This means centroid ASSIGNMENT failed or index is stale!`);
+    }
+    
     return result;
   }
 
