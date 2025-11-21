@@ -773,6 +773,12 @@ async function register_workspace_listeners(
 
   await joplin.views.panels.onMessage(runtime.panel, async (message) => {
     if (message.name === 'openRelatedNote') {
+      // Dismiss plugin panels first (required for web/mobile to allow note opening)
+      try {
+        await joplin.commands.execute('dismissPluginPanels');
+      } catch {
+        // Ignore errors (not on mobile/web, or old version)
+      }
       await joplin.commands.execute('openNote', message.note);
       if (message.line > 0) {
         await wait_ms(runtime.delay_scroll);
