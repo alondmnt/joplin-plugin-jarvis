@@ -396,12 +396,12 @@ async function register_content_scripts(): Promise<void> {
   await joplin.contentScripts.register(
     ContentScriptType.CodeMirrorPlugin,
     'jarvis.cm5scroller',
-    './content_scripts/cm5scroller.js',
+    './cm5scroller.js',
   );
   await joplin.contentScripts.register(
     ContentScriptType.CodeMirrorPlugin,
     'jarvis.cm6scroller',
-    './content_scripts/cm6scroller.js',
+    './cm6scroller.js',
   );
 }
 
