@@ -173,21 +173,34 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
           console.info(`Jarvis: Training search index (${desiredNlist} centroids from ${totalRows} blocks)...`);
           
           const sampleLimit = Math.min(totalRows, derive_sample_limit(desiredNlist));
-          const samples = collect_centroid_samples(model, noteId, blocks, sampleLimit);
-          const trained = train_centroids(samples, dim, { nlist: desiredNlist });
+          // In userData mode, sample from existing userData storage instead of model.embeddings (which is empty)
+          // This ensures we get proper samples even during settings-change rebuilds
+          const samples = await sample_from_user_data(model.id, dim, sampleLimit, settings.notes_debug_mode);
+          
+          let trained: Float32Array | null = null;
+          if (samples.length < desiredNlist) {
+            log.warn('Not enough samples for centroid training, skipping for now', { samples: samples.length, desiredNlist, totalRows });
+            // Skip training - refresh flag will remain, can retry later
+          } else {
+            trained = train_centroids(samples, dim, { nlist: desiredNlist });
+          }
           if (trained) {
+            // Calculate actual nlist from trained array
+            const actualNlist = Math.floor(trained.length / dim);
+            
             // Validate k-means results
             if (settings.notes_debug_mode) {
               log.info('About to validate k-means results', {
                 trainedLength: trained.length,
-                expectedLength: desiredNlist * dim,
+                expectedLength: actualNlist * dim,
                 dim,
                 desiredNlist,
+                actualNlist,
                 samplesLength: samples.length,
               });
             }
             
-            const validation = validate_kmeans_results(trained, dim, desiredNlist, samples);
+            const validation = validate_kmeans_results(trained, dim, actualNlist, samples);
             
             // Always log imbalance ratio to console for performance diagnostics
             console.info(`[Jarvis] Centroid distribution: imbalance ratio ${validation.diagnostics.imbalanceRatio.toFixed(0)}:1 (${validation.diagnostics.emptyCentroids} empty)`);
@@ -226,9 +239,9 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
               p50Rows: number;
               p90Rows: number;
             } | null = null;
-            if (samples.length > 0 && desiredNlist > 0) {
+            if (samples.length > 0 && actualNlist > 0) {
               const assignments = assign_centroid_ids(trained, dim, samples);
-              const counts = new Array(desiredNlist).fill(0);
+              const counts = new Array(actualNlist).fill(0);
               for (const id of assignments) {
                 if (id < counts.length) {
                   counts[id] += 1;
@@ -263,12 +276,13 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
               };
             }
             centroids = trained;
+            // Let encode_centroids calculate nlist from actual trained array size
+            // Don't pass explicit nlist - it may differ from desiredNlist if samples were limited
             centroidPayload = encode_centroids({
               centroids: trained,
               dim,
               format: 'f32',
               version: model.embedding_version ?? 0,
-              nlist: desiredNlist,
               updatedAt,
               trainedOn: {
                 totalRows,
@@ -276,7 +290,10 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
               },
             });
             await write_centroids(anchorId, centroidPayload);
-            console.info(`Jarvis: Training complete - ${desiredNlist} centroids created in ${Date.now() - trainingStartTime}ms`);
+            const statusMsg = actualNlist !== desiredNlist 
+              ? `${actualNlist} centroids created (adjusted from ${desiredNlist} due to limited samples)`
+              : `${actualNlist} centroids created`;
+            console.info(`Jarvis: Training complete - ${statusMsg} in ${Date.now() - trainingStartTime}ms`);
             
             // Clear centroid cache so next search will load the newly trained centroids
             clear_centroid_cache(model.id);
@@ -291,6 +308,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
             log.info('Rebuilt IVF centroids', {
               modelId: model.id,
               desiredNlist,
+              actualNlist,
               totalRows,
               samples: samples.length,
               reason,
@@ -309,14 +327,14 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
               settings: embeddingSettings,
               updatedAt: new Date().toISOString(),
               rowCount: totalRows,
-              nlist: desiredNlist,
+              nlist: actualNlist,
               centroidUpdatedAt: centroidPayload.updatedAt,
               centroidHash: centroidPayload.hash,
             });
             log.info(`Updated anchor metadata after training to prevent repeated rebuilds`, {
               modelId: model.id,
               rowCount: totalRows,
-              nlist: desiredNlist,
+              nlist: actualNlist,
             });
             
             // Flag that centroid reassignment is needed after this sweep completes
@@ -1099,28 +1117,51 @@ async function sample_from_user_data(
       [noteIds[i], noteIds[j]] = [noteIds[j], noteIds[i]];
     }
     
-    // Process notes until we have enough samples
-    // With early termination, we avoid reading all notes
+    // Use reservoir sampling to efficiently sample from corpus
+    // This ensures we don't read too many notes/blocks
     const samples: Float32Array[] = [];
     let notesProcessed = 0;
+    let blocksScanned = 0;  // Total blocks seen (for reservoir sampling)
     
-    // Estimate notes needed based on average blocks per note
-    // Add 50% buffer to account for notes with fewer blocks than average
-    const estimatedNotesNeeded = Math.ceil(sampleLimit / 10 * 1.5);
-    const maxNotesToCheck = Math.min(noteIds.length, estimatedNotesNeeded);
+    // Calculate notes needed based on actual corpus statistics
+    // Use ACTUAL totalBlocks from the query result for accurate estimation
+    const totalBlocks = result.totalBlocks ?? 0;
+    const estimatedAvgBlocksPerNote = totalBlocks > 0 ? totalBlocks / noteIds.length : 15;
     
-    log.info('Sample collection plan', {
-      sampleLimit,
-      estimatedAvgBlocksPerNote: 10,
-      estimatedNotesNeeded,
-      maxNotesToCheck,
-      percentageOfNotes: `${(maxNotesToCheck / noteIds.length * 100).toFixed(1)}%`
-    });
+    // Target: read only as many notes as needed to get sampleLimit samples
+    // Dynamic cap: prefer 30-40% of notes, but allow up to 60% if needed for sample quality
+    const notesNeededForSamples = Math.ceil(sampleLimit / estimatedAvgBlocksPerNote);
+    const notesWithBuffer = Math.ceil(notesNeededForSamples * 1.15);  // 15% buffer
+    
+    // Adaptive cap based on corpus size
+    let percentageCap = 0.40;  // Default: 40% of notes
+    if (notesNeededForSamples / noteIds.length > 0.40) {
+      // If we need more than 40% to reach sample target, increase cap to 60%
+      percentageCap = 0.60;
+    }
+    
+    const maxNotesToCheck = Math.min(
+      notesWithBuffer,
+      Math.ceil(noteIds.length * percentageCap)
+    );
+    
+    if (debugMode) {
+      log.info('Sample collection plan', {
+        sampleLimit,
+        totalNotes: noteIds.length,
+        totalBlocks,
+        estimatedAvgBlocksPerNote: estimatedAvgBlocksPerNote.toFixed(1),
+        notesNeededForSamples,
+        maxNotesToCheck,
+        percentageOfNotes: `${(maxNotesToCheck / noteIds.length * 100).toFixed(1)}%`
+      });
+    }
     
     for (const noteId of noteIds) {
-      if (samples.length >= sampleLimit) break;
       if (notesProcessed >= maxNotesToCheck) {
-        log.info(`Early termination: collected ${samples.length} samples from ${notesProcessed} notes`);
+        if (debugMode) {
+          log.info(`Early termination: collected ${samples.length} samples from ${notesProcessed} notes (scanned ${blocksScanned} blocks)`);
+        }
         break;
       }
       notesProcessed++;

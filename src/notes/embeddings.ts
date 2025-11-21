@@ -1475,6 +1475,29 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     if (topIds.length === 0) {
       return null;
     }
+    
+    // DIAGNOSTIC: Log centroid hash and populated coverage (debug mode only)
+    if (settings.notes_debug_mode && populatedCentroidIds) {
+      const populatedCount = populatedCentroidIds.size;
+      const populatedInProbe = topIds.filter(id => populatedCentroidIds.has(id)).length;
+      const emptyInProbe = topIds.length - populatedInProbe;
+      const coverage = centroids.nlist > 0 ? (populatedCount / centroids.nlist * 100).toFixed(1) : '0';
+      const probeWaste = topIds.length > 0 ? (emptyInProbe / topIds.length * 100).toFixed(1) : '0';
+      
+      log.info(`[Jarvis] Centroid stats: ${populatedCount}/${centroids.nlist} populated (${coverage}% coverage), probing ${topIds.length} (${emptyInProbe} empty = ${probeWaste}% waste)`);
+      
+      if (centroids.hash) {
+        log.info(`[Jarvis] Centroid hash: ${centroids.hash.substring(0, 16)}...`);
+      }
+      
+      // CRITICAL: If >50% of probed centroids are empty, this explains low recall!
+      if (emptyInProbe / topIds.length > 0.5) {
+        log.warn(`🔴 CRITICAL: ${probeWaste}% of probed centroids are EMPTY! This severely impacts recall.`);
+        log.warn(`   Populated centroids: ${populatedCount}/${centroids.nlist} (${coverage}% coverage)`);
+        log.warn(`   This suggests: (1) Centroid training used different data than assignments, OR`);
+        log.warn(`                  (2) Centroid index is stale/not rebuilt after reassignment`);
+      }
+    }
     if (tuning.profile === 'mobile' && tuning.parentTargetSize > 0) {
       // On mobile devices try routing through the canonical parent map so we only probe
       // a handful of coarse lists before expanding back to children.
@@ -1947,10 +1970,16 @@ async function validate_ivf_recall(
     console.info(`   Total notes: ${allNoteIds.length}, Total blocks: ${allBlocks.length}`);
     
     if (recall < 90) {
-      console.warn(`⚠️  Low recall detected! IVF may be filtering out relevant results.`);
-      console.warn(`   Missing from IVF results:`, Array.from(bruteForceTopKIds).filter(id => !ivfTopKIds.has(id)).slice(0, 3));
+      log.warn(`⚠️  Low recall detected! IVF may be filtering out relevant results.`);
+      log.warn(`   Missing from IVF results:`, Array.from(bruteForceTopKIds).filter(id => !ivfTopKIds.has(id)).slice(0, 3));
+      log.warn(`   Possible causes:`);
+      log.warn(`   1. Centroid IDs are stale (not reassigned after retraining)`);
+      log.warn(`   2. Centroid-to-note index is stale (not rebuilt after reassignment)`);
+      log.warn(`   3. Too many empty centroids (check "populated" stats above)`);
+      log.warn(`   4. nprobe too low (try increasing notes_search_min_nprobe in settings)`);
+      log.warn(`   SELF-HEALING: Delete catalog note + run "Update DB" to rebuild everything`);
     } else {
-      console.info(`✅ IVF recall is excellent!`);
+      log.info(`✅ IVF recall is excellent!`);
     }
     
     // Log top-5 similarity comparison
