@@ -63,37 +63,75 @@ interface UpdateManager {
 
 joplin.plugins.register({
 	onStart: async function() {
-    const runtime = await initialize_runtime();
+    // Phase 1: Lightweight initialization (settings, dialogs, panel)
+    // This should never fail and ensures UI is always available
+    const partialRuntime = await initialize_runtime_ui();
+    
+    // Create stub models for Phase 2 (will be replaced in Phase 3)
+    const stub_embed = { model: null, initialized: false } as any;
+    const stub_gen = { model: null, initialized: false } as any;
+    
+    // Create panel with stub model - panel must exist before registering commands
+    const panel = await joplin.views.panels.create('jarvis.relatedNotes');
+    register_panel(panel, partialRuntime.settings, stub_embed);
+    
+    const runtime: PluginRuntime = {
+      ...partialRuntime,
+      model_embed: stub_embed,
+      model_gen: stub_gen,
+      panel: panel,
+    } as PluginRuntime;
+    
     const updates = create_update_manager(runtime);
     const find_notes_debounce = debounce(find_notes, PANEL_DEBOUNCE_SECONDS * 1000);
 
-    if (runtime.model_embed.model) {
-      find_notes_debounce(runtime.model_embed, runtime.panel);
-    }
-
-    // Validate anchor metadata on startup to catch and correct any drift
-    // This runs before the initial sweep to ensure accurate baseline
-    if (runtime.model_embed.id && runtime.settings.notes_db_in_user_data) {
-      await validate_anchor_metadata_on_startup(runtime.model_embed.id, runtime.settings);
-      
-      // Bootstrap centroids if missing (must happen after anchor validation to have accurate rowCount)
-      await bootstrap_missing_centroids_on_startup(runtime.model_embed, runtime.settings);
-    }
-
-    await run_initial_sweep(runtime, updates);
-    schedule_full_sweep_timer(runtime, updates);
-
+    // Phase 2: Register all commands, menus, and UI elements
+    // Do this BEFORE loading models so users always see the UI
     await register_content_scripts();
     await register_commands_and_menus(runtime, updates, find_notes_debounce);
     await register_workspace_listeners(runtime, updates, find_notes_debounce);
     await register_settings_handler(runtime, updates, find_notes_debounce);
+
+    // Phase 3: Heavy initialization (models, DB) - can fail without breaking UI
+    try {
+      await initialize_models_and_db(runtime);
+
+      if (runtime.model_embed.model) {
+        find_notes_debounce(runtime.model_embed, runtime.panel);
+      }
+
+      // Validate anchor metadata on startup to catch and correct any drift
+      // This runs before the initial sweep to ensure accurate baseline
+      if (runtime.model_embed.id && runtime.settings.notes_db_in_user_data) {
+        await validate_anchor_metadata_on_startup(runtime.model_embed.id, runtime.settings);
+        
+        // Bootstrap centroids if missing (must happen after anchor validation to have accurate rowCount)
+        await bootstrap_missing_centroids_on_startup(runtime.model_embed, runtime.settings);
+      }
+
+      await run_initial_sweep(runtime, updates);
+      schedule_full_sweep_timer(runtime, updates);
+    } catch (error) {
+      console.error('Jarvis: Model/DB initialization failed - UI is available but some features may not work', error);
+      
+      // Show user-friendly error message
+      try {
+        await joplin.views.dialogs.showMessageBox(
+          'Jarvis: Some features failed to initialize. The plugin UI is available but embedding/chat features may not work. Check the console for details.'
+        );
+      } catch (dialogError) {
+        console.error('Jarvis: Could not show error dialog', dialogError);
+      }
+    }
 	},
 });
 
 /**
- * Initialize runtime state, load models, dialogs, and UI components.
+ * Phase 1: Initialize lightweight UI components (settings, dialogs).
+ * This should never fail and ensures UI is always available.
+ * Models will be loaded later in Phase 3.
  */
-async function initialize_runtime(): Promise<PluginRuntime> {
+async function initialize_runtime_ui(): Promise<Partial<PluginRuntime>> {
   const log = getLogger();
   await register_settings();
   const settings = await get_settings();
@@ -109,11 +147,36 @@ async function initialize_runtime(): Promise<PluginRuntime> {
   let delay_db_update = 60 * settings.notes_db_update_delay;
   const abort_timeout = 10;  // minutes
 
+  return {
+    log,
+    settings,
+    dialogAsk,
+    model_switch_dialog,
+    model_management_dialog,
+    delay_scroll,
+    delay_db_update,
+    abort_timeout,
+    pending_note_ids: new Set<string>(),
+    update_abort_controller: null,
+    update_start_time: null,
+    initial_sweep_completed: false,
+    full_sweep_timer: null,
+    suppressModelSwitchRevert: false,
+  };
+}
+
+/**
+ * Phase 3: Load models and initialize database.
+ * This is the heavy lifting that can fail without breaking the UI.
+ */
+async function initialize_models_and_db(runtime: PluginRuntime): Promise<void> {
   await wait_ms(STARTUP_DELAY_SECONDS * 1000);
 
-  const model_embed = await load_embedding_model(settings);
+  // Load the actual embedding model (replaces stub)
+  const model_embed = await load_embedding_model(runtime.settings);
+  runtime.model_embed = model_embed;
 
-  if (settings.notes_db_in_user_data) {
+  if (runtime.settings.notes_db_in_user_data) {
     try {
       await ensure_catalog_note();
     } catch (error) {
@@ -125,33 +188,15 @@ async function initialize_runtime(): Promise<PluginRuntime> {
   }
 
   if (await skip_db_init_dialog(model_embed)) {
-    delay_db_update = 0;
+    runtime.delay_db_update = 0;
   }
 
-  const panel = await joplin.views.panels.create('jarvis.relatedNotes');
-  register_panel(panel, settings, model_embed);
+  // Update panel with the real model (panel was created in Phase 1)
+  register_panel(runtime.panel, runtime.settings, model_embed);
 
-  const model_gen = await load_generation_model(settings);
-
-  return {
-    log,
-    settings,
-    dialogAsk,
-    model_switch_dialog,
-    model_management_dialog,
-    model_embed,
-    model_gen,
-    panel,
-    delay_scroll,
-    delay_db_update,
-    abort_timeout,
-    pending_note_ids: new Set<string>(),
-    update_abort_controller: null,
-    update_start_time: null,
-    initial_sweep_completed: false,
-    full_sweep_timer: null,
-    suppressModelSwitchRevert: false,
-  };
+  // Load the actual generation model (replaces stub)
+  const model_gen = await load_generation_model(runtime.settings);
+  runtime.model_gen = model_gen;
 }
 
 /**
