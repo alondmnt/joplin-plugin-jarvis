@@ -159,6 +159,7 @@ const baseConfig = {
 	mode: 'production',
 	target: 'node',
 	stats: 'errors-only',
+	// devtool: 'source-map',  // Disabled for production (adds 26MB to package)
 	module: {
 		rules: [
 			{
@@ -183,6 +184,10 @@ const baseConfig = {
 	},
 	optimization: {
 		minimize: true,
+		// Enable code splitting for dynamic imports (lazy loading)
+		// This allows TensorFlow to be loaded only when needed
+		usedExports: true,
+		sideEffects: false,
 	},
 };
 
@@ -202,6 +207,8 @@ const pluginConfig = Object.assign({}, baseConfig, {
 	output: {
 		filename: 'index.js',
 		path: distDir,
+		// Configure chunk naming for dynamic imports
+		chunkFilename: '[name].chunk.js',
 	},
 	plugins: [
 		new CopyPlugin({

@@ -7,10 +7,88 @@ function requireNodeFs(): typeof import('fs') {
   }
   return nodeFs;
 }
-import * as tf from '@tensorflow/tfjs';
-import * as use from '@tensorflow-models/universal-sentence-encoder';
+// TensorFlow.js lazy loading - these are only needed for Universal Sentence Encoder
+// By not importing them at the top level, we avoid bundling ~5MB of TensorFlow code
+// into the main plugin bundle, dramatically reducing load time on mobile
+let tf: typeof import('@tensorflow/tfjs') | null = null;
+let use: typeof import('@tensorflow-models/universal-sentence-encoder') | null = null;
+async function loadTensorFlow(): Promise<typeof import('@tensorflow/tfjs')> {
+  if (!tf) {
+    // Suppress TensorFlow.js kernel registration warnings during backend setup
+    const originalWarn = console.warn;
+    console.warn = (...args) => {
+      if (args[0]?.includes?.('kernel') && args[0]?.includes?.('already registered')) {
+        return; // Suppress "kernel already registered" warnings
+      }
+      originalWarn.apply(console, args);
+    };
+    
+    tf = await import('@tensorflow/tfjs');
+    
+    // Try to use WebGPU for best GPU performance, fall back to WebGL
+    // WebGPU is faster but only available in newer Electron/Chrome versions
+    try {
+      await tf.setBackend('webgpu');
+      await tf.ready();
+      console.log('TensorFlow.js using WebGPU backend (GPU accelerated)');
+    } catch (e) {
+      try {
+        await tf.setBackend('webgl');
+        await tf.ready();
+        console.log('TensorFlow.js using WebGL backend (GPU accelerated)');
+      } catch (e2) {
+        // Fall back to CPU if neither WebGPU nor WebGL available
+        await tf.setBackend('cpu');
+        await tf.ready();
+        console.warn('TensorFlow.js using CPU backend (no GPU acceleration available)');
+      }
+    }
+    
+    // Restore original console.warn
+    console.warn = originalWarn;
+  }
+  return tf;
+}
+async function loadUSE(): Promise<typeof import('@tensorflow-models/universal-sentence-encoder')> {
+  if (!use) {
+    use = await import('@tensorflow-models/universal-sentence-encoder');
+  }
+  return use;
+}
+
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { encodingForModel } from 'js-tiktoken';
+// js-tiktoken removed - using estimation only (always was in practice)
+// Better token estimation that handles various text types more accurately than length/4
+// This is what we were using as fallback, now it's the only method
+function estimateTokens(text: string): number {
+  if (!text) return 0;
+  
+  // More sophisticated estimation based on empirical BPE tokenizer behavior:
+  // - ASCII/English: ~4 chars per token
+  // - Mixed case with punctuation: ~3.5 chars per token  
+  // - Unicode/CJK: ~2-3 chars per token
+  // - Code: ~3 chars per token
+  
+  const hasUnicode = /[^\x00-\x7F]/.test(text);
+  const hasCJK = /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]/.test(text);
+  const punctuationRatio = (text.match(/[.,:;!?(){}[\]"'`]/g) || []).length / text.length;
+  
+  let charsPerToken = 4.0;
+  
+  if (hasCJK) {
+    // CJK characters are typically 2-3 chars per token
+    charsPerToken = 2.5;
+  } else if (hasUnicode) {
+    // Other Unicode is typically 3-3.5 chars per token
+    charsPerToken = 3.2;
+  } else if (punctuationRatio > 0.1) {
+    // Heavy punctuation (like code) is ~3-3.5 chars per token
+    charsPerToken = 3.5;
+  }
+  
+  return Math.ceil(text.length / charsPerToken);
+}
+
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings } from '../ux/settings';
 import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, ModelError } from '../utils';
@@ -194,7 +272,6 @@ function resolveAdapterKey(modelId: string): string | null {
   return bestMatch?.key ?? null;
 }
 
-tf.setBackend('webgl');
 const test_prompt = 'I am conducting a communitcation test. I need you to reply with a single word and absolutely nothing else: "Ack".';
 const dialogPreview = joplin.views.dialogs.create('joplin.preview.dialog');
 
@@ -352,8 +429,7 @@ export class TextEmbeddingModel {
   public max_block_size: number = null;
   public online: boolean = null;
   public model: any = null;
-  public tokenizer: any = encodingForModel('text-embedding-ada-002');
-  // we're using the above as a default BPE tokenizer just for counting tokens
+  // Using estimation-only for token counting (simpler, instant, good enough)
 
   // error handling
   public abort_on_error: boolean = true;
@@ -573,7 +649,7 @@ export class TextEmbeddingModel {
 
   // estimate the number of tokens in the given text
   count_tokens(text: string): number {
-    return this.tokenizer.encode(text).length;
+    return estimateTokens(text);
   }
 
   // rate limiter
@@ -639,16 +715,21 @@ class USEEmbedding extends TextEmbeddingModel {
 
   async _load_model() {
     try {
+      // Lazy-load TensorFlow and USE only when this model is actually selected
+      console.log('Loading TensorFlow.js (this may take a moment on first use)...');
+      const [tfModule, useModule] = await Promise.all([loadTensorFlow(), loadUSE()]);
+      console.log('TensorFlow.js loaded successfully');
+      
       const data_dir = await joplin.plugins.dataDir();
       try {
-        this.model = await use.load({
+        this.model = await useModule.load({
           modelUrl: 'indexeddb://jarvisUSEModel',
           vocabUrl: data_dir + '/use_vocab.json'
         });
         console.log('USEEmbedding loaded from cache');
 
       } catch (e) {
-        this.model = await use.load();
+        this.model = await useModule.load();
         console.log('USEEmbedding loaded from web');
 
         if (this.allowFsCache) {
@@ -965,8 +1046,7 @@ export class TextGenerationModel {
   public type: string = 'completion';  // this may be used to process the prompt differently
   public temperature: number = 0.5;
   public top_p: number = 1;
-  public tokenizer: any = encodingForModel('gpt-3.5-turbo');
-  // we're using the above as a default BPE tokenizer just for counting tokens
+  // Using estimation-only for token counting (simpler, instant, good enough)
 
   // chat
   public base_chat: Array<ChatEntry> = [];
@@ -1063,7 +1143,7 @@ export class TextGenerationModel {
 
   // estimate the number of tokens in the given text
   count_tokens(text: string): number {
-    return this.tokenizer.encode(text).length;
+    return estimateTokens(text);
   }
 
   // rate limiter
