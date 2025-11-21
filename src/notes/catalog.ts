@@ -25,6 +25,11 @@ let inFlightCatalogCreation: Promise<string> | null = null;
 const inFlightAnchorCreation = new Map<string, Promise<string>>();
 let inFlightFolderCreation: Promise<string> | null = null;
 
+// In-memory cache for catalog ID to prevent race conditions during search index delays
+// This survives for the session duration and avoids creating duplicates when Joplin's
+// search index hasn't updated yet after catalog creation
+let cachedCatalogId: string | null = null;
+
 const SYSTEM_FOLDER_TITLE = 'Jarvis Database';
 
 /**
@@ -123,6 +128,23 @@ export interface ModelRegistry {
  * @returns Catalog note identifier when found; otherwise null.
  */
 export async function get_catalog_note_id(): Promise<string | null> {
+  // Check in-memory cache FIRST to avoid race conditions during search index delays
+  // This is critical when a catalog was just created but Joplin's search hasn't indexed it yet
+  if (cachedCatalogId) {
+    try {
+      // Verify cached ID still exists and is valid
+      const note = await joplin.data.get(['notes', cachedCatalogId], { fields: ['id', 'deleted_time'] });
+      if (note && (!note.deleted_time || note.deleted_time === 0)) {
+        return cachedCatalogId;
+      }
+      // Cached note was deleted, clear cache
+      cachedCatalogId = null;
+    } catch (_) {
+      // Cached ID no longer exists, clear cache
+      cachedCatalogId = null;
+    }
+  }
+  
   try {
     const candidates: any[] = [];
     let page = 1;
@@ -162,12 +184,20 @@ export async function get_catalog_note_id(): Promise<string | null> {
     if (!candidates.length) {
       // Fallback: locate by exact title irrespective of tag, then let ensure_catalog_note tag/seed userData
       const fallback = await find_catalog_by_title();
-      if (fallback) return fallback;
+      if (fallback) {
+        cachedCatalogId = fallback; // Cache the result
+        return fallback;
+      }
       log.debug('Catalog note not found via tag+userData');
       return null;
     }
     candidates.sort((a: any, b: any) => (a.created_time ?? 0) - (b.created_time ?? 0));
     const catalogId = candidates[0].id ?? null;
+    
+    // Cache the result for future calls
+    if (catalogId) {
+      cachedCatalogId = catalogId;
+    }
     
     // Clear candidates array
     clearObjectReferences(candidates);
@@ -330,19 +360,33 @@ export async function ensure_catalog_note(): Promise<string> {
     return inFlightCatalogCreation;
   }
 
-  const found = await get_catalog_note_id();
-  if (found) {
-    await ensure_note_tag(found);
-    return found;
-  }
-
-  // Check lock again after the await (another call might have started creation)
-  if (inFlightCatalogCreation) {
-    return inFlightCatalogCreation;
-  }
-
-  // Create the promise and set the lock immediately (no delay between them)
+  // Set lock IMMEDIATELY (synchronously) before any await
+  // This claims ownership and prevents other callers from starting creation
   inFlightCatalogCreation = (async () => {
+    try {
+      const found = await get_catalog_note_id();
+      if (found) {
+        await ensure_note_tag(found);
+        // Cache is already updated in get_catalog_note_id()
+        return found;
+      }
+
+      // No catalog found, proceed with creation
+      return await createCatalogInternal();
+    } finally {
+      inFlightCatalogCreation = null;
+    }
+  })();
+
+  return inFlightCatalogCreation;
+}
+
+/**
+ * Internal helper that performs the actual catalog creation logic.
+ * Should only be called after ensuring no catalog exists.
+ */
+async function createCatalogInternal(): Promise<string> {
+  return (async () => {
     // Triple-check inside the lock after acquiring it
     const again = await get_catalog_note_id();
     if (again) {
@@ -355,6 +399,9 @@ export async function ensure_catalog_note(): Promise<string> {
     const existingByTitle = await find_catalog_by_title();
     if (existingByTitle) {
       log.info('Found existing catalog by title, adopting it', { noteId: existingByTitle });
+      // Cache the ID immediately
+      cachedCatalogId = existingByTitle;
+      
       try {
         const reg = await joplin.data.userDataGet<any>(ModelType.Note, existingByTitle, REGISTRY_KEY);
         if (!reg) {
@@ -378,6 +425,9 @@ export async function ensure_catalog_note(): Promise<string> {
         body: catalog_body(),
         parent_id: folderId,
       });
+      // Cache the ID immediately to prevent race conditions before search index updates
+      cachedCatalogId = note.id;
+      
       // Seed empty registry marker BEFORE tagging so the note is immediately discoverable
       // by get_catalog_note_id() which searches by tag+userData presence
       // CRITICAL: Don't catch errors here - let them propagate so outer callers can defer
@@ -391,6 +441,9 @@ export async function ensure_catalog_note(): Promise<string> {
       // If creation failed (e.g., due to concurrent or platform issues), adopt by title if present
       const adoptId = await find_catalog_by_title();
       if (adoptId) {
+        // Cache the ID immediately
+        cachedCatalogId = adoptId;
+        
         try {
           // Ensure registry exists
           const reg = await joplin.data.userDataGet<any>(ModelType.Note, adoptId, REGISTRY_KEY);
@@ -412,12 +465,6 @@ export async function ensure_catalog_note(): Promise<string> {
       throw creationError;
     }
   })();
-
-  try {
-    return await inFlightCatalogCreation;
-  } finally {
-    inFlightCatalogCreation = null;
-  }
 }
 
 /**

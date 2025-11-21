@@ -917,8 +917,40 @@ export async function train_centroids_from_existing_embeddings(
       }
     });
     if (!trained) {
-      log.error('Centroid training failed');
+      log.error('Centroid training failed - train_centroids_async returned null');
       return false;
+    }
+    
+    // CRITICAL: Validate trained centroids have correct size before proceeding
+    const expectedLength = actualNlist * dim;
+    if (trained.length !== expectedLength) {
+      log.error('Centroid training produced incorrect buffer size', {
+        expectedLength,
+        actualLength: trained.length,
+        expectedNlist: actualNlist,
+        dim,
+        difference: trained.length - expectedLength
+      });
+      return false;
+    }
+    
+    // CRITICAL: Verify we have the minimum acceptable number of centroids
+    const MIN_VALID_CLUSTERS = 2;
+    if (actualNlist < MIN_VALID_CLUSTERS) {
+      log.error('Centroid training produced insufficient clusters', {
+        actualNlist,
+        minRequired: MIN_VALID_CLUSTERS
+      });
+      return false;
+    }
+    
+    if (settings.notes_debug_mode) {
+      log.info('Centroid training completed successfully', {
+        nlist: actualNlist,
+        dim,
+        bufferSize: trained.length,
+        expectedSize: expectedLength
+      });
     }
     
     // Validate k-means results

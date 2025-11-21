@@ -74,10 +74,54 @@ export async function read_anchor_meta_data(noteId: string): Promise<AnchorMetad
 
 /**
  * Store IVF centroids (base64 payload) on the anchor note.
+ * Validates payload size and verifies write by reading back.
  */
 export async function write_centroids(noteId: string, payload: CentroidPayload): Promise<void> {
+  const MIN_VALID_CLUSTERS = 2;
+  
+  // Validate payload before write
+  if (payload.nlist < MIN_VALID_CLUSTERS) {
+    throw new Error(`Invalid centroid count: ${payload.nlist} < ${MIN_VALID_CLUSTERS}`);
+  }
+  
+  if (!payload.b64 || payload.b64.length === 0) {
+    throw new Error('Centroid payload has empty base64 data');
+  }
+  
+  // Validate base64 size matches expected centroid data size
+  const expectedSize = payload.dim * payload.nlist * Float32Array.BYTES_PER_ELEMENT;
+  const b64 = payload.b64;
+  // Calculate actual decoded size accounting for base64 padding
+  const actualSize = Math.floor((b64.length * 3) / 4) - (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0);
+  
+  if (Math.abs(expectedSize - actualSize) > 16) {  // Allow small padding tolerance
+    throw new Error(
+      `Centroid size mismatch: expected ${expectedSize} bytes (${payload.nlist} × ${payload.dim} × 4), ` +
+      `but base64 decodes to ${actualSize} bytes`
+    );
+  }
+  
+  log.info('Writing centroids', { noteId, nlist: payload.nlist, dim: payload.dim });
+  
   await joplin.data.userDataSet(ModelType.Note, noteId, CENTROIDS_KEY, payload);
-  log.info('Anchor centroids updated', { noteId, format: payload.format, dim: payload.dim, nlist: payload.nlist });
+  
+  // VERIFY write succeeded by reading back
+  const readback = await read_centroids(noteId);
+  if (!readback || readback.nlist !== payload.nlist || readback.dim !== payload.dim) {
+    throw new Error(
+      `Centroid write verification failed: wrote ${payload.nlist} centroids (dim ${payload.dim}), ` +
+      `but read back ${readback?.nlist ?? 0} centroids (dim ${readback?.dim ?? 0})`
+    );
+  }
+  
+  if (!readback.b64 || Math.abs(readback.b64.length - b64.length) > 4) {
+    throw new Error(
+      `Centroid data size mismatch after write: wrote ${b64.length} bytes, ` +
+      `read ${readback.b64?.length ?? 0} bytes`
+    );
+  }
+  
+  log.info('Centroids verified', { noteId, nlist: payload.nlist });
 }
 
 export async function read_centroids(noteId: string): Promise<CentroidPayload | null> {

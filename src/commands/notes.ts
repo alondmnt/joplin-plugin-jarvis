@@ -685,27 +685,75 @@ export async function update_note_db(
     && model?.id
     && !settings.notes_model_first_build_completed?.[model.id]
   ) {
-    // Close legacy SQLite database
-    if (model.db && typeof model.db.close === 'function') {
-      try {
-        await new Promise<void>((resolve, reject) => {
-          model.db.close((error: any) => {
-            if (error) {
-              reject(error);
-            } else {
-              resolve();
-            }
-          });
-        });
-      } catch (error) {
-        console.warn('Jarvis: failed to close legacy SQLite database after first build', error);
+    // CRITICAL: Validate centroids before marking first build complete
+    // If centroids are expected but invalid, we must NOT disable SQLite fallback
+    let shouldCompleteFirstBuild = true;
+    
+    // Recalculate expected nlist from anchor metadata for validation
+    let validationExpectedNlist = 0;
+    try {
+      const anchorMeta = await read_anchor_meta_data(anchorId);
+      if (anchorMeta && anchorMeta.rowCount) {
+        const { estimate_nlist } = await import('../notes/centroids');
+        validationExpectedNlist = estimate_nlist(anchorMeta.rowCount, { debug: settings.notes_debug_mode });
+      }
+    } catch (error) {
+      if (settings.notes_debug_mode) {
+        console.debug('Could not determine expected nlist for validation', error);
       }
     }
-    model.db = null;
-    model.disableDbLoad = true;
     
-    await mark_model_first_build_completed(model.id);
-    console.info('Jarvis: first userData build completed, disabled legacy SQLite access', { modelId: model.id });
+    if (validationExpectedNlist > 0) {
+      // Centroids were expected for this corpus size - verify they're valid
+      const loadedCentroids = await load_model_centroids(model.id);
+      const minAcceptable = Math.max(32, Math.floor(validationExpectedNlist * 0.25));
+      
+      if (!loadedCentroids || loadedCentroids.nlist < minAcceptable || !loadedCentroids.data || loadedCentroids.data.length === 0) {
+        console.error('Jarvis: first build validation failed - centroids invalid or insufficient', {
+          modelId: model.id,
+          loadedNlist: loadedCentroids?.nlist ?? 0,
+          expectedNlist: validationExpectedNlist,
+          minAcceptableNlist: minAcceptable,
+          hasData: !!loadedCentroids?.data,
+          dataLength: loadedCentroids?.data?.length ?? 0
+        });
+        console.warn('Jarvis: keeping SQLite fallback enabled - userData database not ready');
+        shouldCompleteFirstBuild = false;
+      } else if (settings.notes_debug_mode) {
+        console.info('Jarvis: first build validation passed', {
+          modelId: model.id,
+          loadedNlist: loadedCentroids.nlist,
+          expectedNlist: validationExpectedNlist,
+          minAcceptableNlist: minAcceptable
+        });
+      }
+    }
+    
+    if (shouldCompleteFirstBuild) {
+      // Close legacy SQLite database
+      if (model.db && typeof model.db.close === 'function') {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            model.db.close((error: any) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve();
+              }
+            });
+          });
+        } catch (error) {
+          console.warn('Jarvis: failed to close legacy SQLite database after first build', error);
+        }
+      }
+      model.db = null;
+      model.disableDbLoad = true;
+      
+      await mark_model_first_build_completed(model.id);
+      console.info('Jarvis: first userData build completed, disabled legacy SQLite access', { modelId: model.id });
+    } else {
+      console.warn('Jarvis: first build NOT marked complete - will retry on next sweep', { modelId: model.id });
+    }
   }
 
   // Show settings mismatch dialog if mismatches were found during sweep (only for force=false sweeps)
