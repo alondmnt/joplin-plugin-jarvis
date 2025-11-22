@@ -688,7 +688,8 @@ async function register_commands_and_menus(
   // On mobile, add "Update Jarvis note DB" button to NoteToolbar
   // This is needed because imported notes with old timestamps won't be caught by incremental sweeps
   // and mobile doesn't have easy access to the Tools menu
-  if (runtime.settings.notes_device_profile_effective === 'mobile') {
+  // Note: Use actual platform detection, not effective profile (which is for performance tuning)
+  if (runtime.settings.notes_device_platform === 'mobile') {
     await joplin.views.toolbarButtons.create(
       'jarvis.toolbar.notes.db.update',
       'jarvis.notes.db.update',
