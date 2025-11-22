@@ -14,6 +14,7 @@ import { TopKHeap } from './topK';
 import { load_model_centroids, load_parent_map } from './centroidLoader';
 import { choose_nprobe, select_top_centroid_ids, MIN_TOTAL_ROWS_FOR_IVF } from './centroids';
 import { CentroidNoteIndex } from './centroidNoteIndex';
+import { assign_single_note_centroids } from './centroidAssignment';
 import { read_anchor_meta_data, write_anchor_metadata } from './anchorStore';
 import { resolve_anchor_note_id, get_catalog_note_id } from './catalog';
 
@@ -801,9 +802,17 @@ async function update_note(note: any,
 
     // Write embeddings to appropriate storage
     if (settings.notes_db_in_user_data) {
-      // userData mode: Write to userData first, then update centroid index
-      // Must be sequential: centroid index reads from userData
+      // userData mode: Write to userData first, then assign centroids, then update reverse index
+      // Must be sequential: centroid assignment and index update both read from userData
       await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId, anchorId, corpusRowCountAccumulator);
+      
+      // Assign centroid IDs immediately if centroids exist (ensures new notes are IVF-searchable)
+      // This is an optimization - if it fails, centroids will be assigned during next DB sweep
+      await assign_single_note_centroids(note.id, model.id, userDataStore).catch(error => {
+        log.debug(`Failed to assign centroids for note ${note.id} (will be assigned in next sweep)`, error);
+      });
+      
+      // Update reverse index (centroid -> notes mapping) for IVF search
       await update_centroid_index_for_note(note.id, model.id).catch(error => {
         log.warn(`Failed to update centroid index for note ${note.id}`, error);
       });

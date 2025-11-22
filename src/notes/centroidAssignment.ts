@@ -197,6 +197,62 @@ export async function assign_missing_centroids(
 }
 
 /**
+ * Assign centroid IDs to a single note immediately after embedding.
+ * This ensures newly embedded notes are immediately searchable via IVF.
+ * 
+ * Fails gracefully if:
+ * - Centroids don't exist yet (corpus too small or not yet trained)
+ * - Note doesn't have embeddings
+ * - Any other error (logged but doesn't throw)
+ * 
+ * @param noteId - Note identifier
+ * @param modelId - Model identifier
+ * @param store - UserData store instance
+ * @returns true if centroids were assigned, false if skipped or failed
+ */
+export async function assign_single_note_centroids(
+  noteId: string,
+  modelId: string,
+  store: UserDataEmbStore
+): Promise<boolean> {
+  try {
+    // Load centroids for this model
+    const centroids = await load_model_centroids(modelId);
+    
+    // If centroids don't exist, skip silently (they'll be assigned during next sweep)
+    if (!centroids || !centroids.data || centroids.nlist === 0) {
+      log.debug('Skipping centroid assignment: centroids not available', { noteId, modelId });
+      return false;
+    }
+
+    // Assign centroid IDs to the note
+    const updated = await assign_note_centroids(
+      noteId,
+      modelId,
+      centroids.data,
+      centroids.dim,
+      centroids.hash,
+      store,
+      false // Don't force reassignment
+    );
+
+    if (updated) {
+      log.debug('Assigned centroids to newly embedded note', { noteId, modelId });
+    }
+
+    return updated;
+  } catch (error) {
+    // Log but don't throw - this is an optimization, not critical
+    log.debug('Failed to assign centroids to single note (will be assigned in next sweep)', { 
+      noteId, 
+      modelId, 
+      error 
+    });
+    return false;
+  }
+}
+
+/**
  * Assign centroid IDs to a single note if it has embeddings for the given model
  * and either lacks centroid IDs or has stale ones (centroid hash mismatch).
  * 
