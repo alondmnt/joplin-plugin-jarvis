@@ -8,7 +8,7 @@ import { find_notes, update_note_db, skip_db_init_dialog } from './commands/note
 import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
-import { find_nearest_notes, validate_anchor_metadata_on_startup, bootstrap_missing_centroids_on_startup } from './notes/embeddings';
+import { find_nearest_notes, validate_anchor_metadata_on_startup, bootstrap_missing_centroids_on_startup, clear_corpus_cache } from './notes/embeddings';
 import { ensure_catalog_note, get_catalog_note_id, resolve_anchor_note_id } from './notes/catalog';
 import { register_panel, update_panel } from './ux/panel';
 import { get_settings, register_settings, set_folders, get_model_last_sweep_time, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
@@ -254,7 +254,7 @@ async function claim_centroid_refresh(runtime: PluginRuntime): Promise<boolean> 
   if (!runtime.settings.notes_db_in_user_data) {
     return false;
   }
-  if (runtime.settings.notes_device_profile_effective === 'mobile') {
+  if (runtime.settings.notes_device_platform === 'mobile') {
     return false;
   }
 
@@ -798,6 +798,8 @@ async function register_workspace_listeners(
         message.query,
         runtime.model_embed,
         runtime.settings,
+        true,
+        runtime.panel
       );
       await update_panel(runtime.panel, nearest, runtime.settings);
     }
@@ -838,6 +840,11 @@ async function register_settings_handler(
     if (notesModelChanged) {
       const newModelId = resolve_embedding_model_id(runtime.settings);
       const oldModelId = resolve_embedding_model_id(previousSettings);
+      
+      // Clear old model's in-memory cache to free memory
+      if (oldModelId && oldModelId !== newModelId) {
+        clear_corpus_cache(oldModelId);
+      }
 
       if (runtime.settings.notes_db_in_user_data && newModelId) {
         let coverageStats: ModelCoverageStats | null = null;

@@ -390,17 +390,19 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
   if (!settings.notes_embed_tags) { model.version += 't'; }
 
   if (model) {
-    const isMobile = settings.notes_device_profile_effective === 'mobile';
+    const isMobile = settings.notes_device_platform === 'mobile';
     model.allowFsCache = !isMobile;
     const firstBuildCompleted = Boolean(settings.notes_model_first_build_completed?.[model?.id ?? '']);
-    model.disableDbLoad = isMobile || firstBuildCompleted;
-    if (firstBuildCompleted) {
-      console.info('Jarvis: skipping legacy SQLite load (first build completed)', { modelId: model?.id });
+    // Skip legacy SQLite if: mobile (not supported) OR (userData enabled AND first build completed)
+    // If userData is disabled, always load legacy SQLite (even if firstBuildCompleted was set previously)
+    model.disableDbLoad = isMobile || (settings.notes_db_in_user_data && firstBuildCompleted);
+    if (settings.notes_db_in_user_data && firstBuildCompleted) {
+      console.info('Jarvis: skipping legacy SQLite load (userData enabled, first build completed)', { modelId: model?.id });
     } else if (isMobile) {
       console.info('Jarvis: skipping legacy SQLite load (mobile platform)', { modelId: model?.id, experimental: settings.notes_db_in_user_data });
     }
     model.disableModelLoad = isMobile && !settings.notes_db_in_user_data;
-    
+
     console.info(`Jarvis: model load config - platform=${isMobile ? 'mobile' : 'desktop'}, firstBuild=${firstBuildCompleted}, disableDbLoad=${model.disableDbLoad}, disableModelLoad=${model.disableModelLoad}, experimental=${settings.notes_db_in_user_data}`);
   }
 

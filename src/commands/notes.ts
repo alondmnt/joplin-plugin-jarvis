@@ -973,7 +973,7 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
   }
   let nearest;
   try {
-    nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings);
+    nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings, true, panel);
   } catch (error) {
     if (error instanceof ModelError) {
       await joplin.views.dialogs.showMessageBox(`Error: ${error.message}`);

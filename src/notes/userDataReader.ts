@@ -17,6 +17,8 @@ export interface ReadEmbeddingsOptions {
   currentModel?: TextEmbeddingModel;
   currentSettings?: EmbeddingSettings;
   validationTracker?: ValidationTracker;
+  // Optional progress callback: (processed: number, total: number, stage?: string) => Promise<void>
+  onProgress?: (processed: number, total: number, stage?: string) => Promise<void>;
 }
 
 export interface NoteEmbeddingsResult {
@@ -42,7 +44,7 @@ export interface NoteEmbeddingsResult {
  * mismatch). Caller can then show dialog after search completes with human-readable diffs.
  */
 export async function read_user_data_embeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
-  const { store, modelId, noteIds, maxRows, allowedCentroidIds, onBlock, currentModel, currentSettings, validationTracker } = options;
+  const { store, modelId, noteIds, maxRows, allowedCentroidIds, onBlock, currentModel, currentSettings, validationTracker, onProgress } = options;
   const results: NoteEmbeddingsResult[] = [];
   const decoder = new ShardDecoder();
   const cache = new ShardLRUCache(4);
@@ -54,7 +56,17 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
   const notesMetaForValidation: Array<{ noteId: string; meta: NoteEmbMeta; modelId: string }> = [];
   const shouldValidate = currentModel && currentSettings && validationTracker;
 
-  for (const noteId of noteIds) {
+  const totalNotes = noteIds.length;
+  // Update progress every 10 notes (or every 50 for very large sets)
+  const PROGRESS_INTERVAL = totalNotes > 500 ? 50 : 10;
+
+  for (let i = 0; i < noteIds.length; i++) {
+    const noteId = noteIds[i];
+    
+    // Update progress periodically (every PROGRESS_INTERVAL notes, or on last note)
+    if (onProgress && (i % PROGRESS_INTERVAL === 0 || i === noteIds.length - 1)) {
+      await onProgress(i + 1, totalNotes, `Loading embeddings... (${i + 1}/${totalNotes} notes)`);
+    }
     if (remaining <= 0) {
       break;
     }

@@ -24,6 +24,10 @@ export class TopKHeap<T> {
     if (this.capacity === 0) {
       return false;
     }
+    // Reject NaN scores explicitly (NaN comparisons always return false, causing heap corruption)
+    if (!Number.isFinite(score)) {
+      return false;
+    }
     if (score < this.minScore) {
       return false;
     }

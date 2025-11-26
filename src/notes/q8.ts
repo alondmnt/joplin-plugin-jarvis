@@ -107,6 +107,7 @@ export function quantize_vector_to_q8(vector: Float32Array): QuantizedVector {
 
 /**
  * Compute cosine similarity between a q8 row and q8 query. Both vectors must share the same dimension.
+ * Cosine similarity is scale-invariant, so scales are not needed here.
  */
 export function cosine_similarity_q8(row: QuantizedRowView, query: QuantizedVector): number {
   const dim = query.values.length;
@@ -114,8 +115,15 @@ export function cosine_similarity_q8(row: QuantizedRowView, query: QuantizedVect
     throw new Error(`q8 dimension mismatch: row=${row.values.length}, query=${dim}`);
   }
   let dot = 0;
+  let normRow = 0;
+  let normQuery = 0;
   for (let i = 0; i < dim; i += 1) {
-    dot += row.values[i] * query.values[i];
+    const r = row.values[i];
+    const q = query.values[i];
+    dot += r * q;
+    normRow += r * r;
+    normQuery += q * q;
   }
-  return dot * row.scale * query.scale;
+  const denom = Math.sqrt(normRow * normQuery);
+  return denom > 0 ? dot / denom : 0;
 }

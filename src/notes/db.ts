@@ -210,7 +210,7 @@ export async function get_all_embeddings(db: any): Promise<BlockEmbedding[]> {
               level: row.level,
               title: row.title,
               embedding: embedding,
-              similarity: 0,
+              // Note: similarity is intentionally omitted so it gets calculated during search
             };
           }));
         }

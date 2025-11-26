@@ -1,6 +1,7 @@
 import joplin from 'api';
 import { createHash } from '../utils/crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
+import { update_progress_bar } from '../ux/panel';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { UserDataEmbStore, EmbeddingSettings } from './userDataStore';
 import { prepare_user_data_embeddings } from './userDataIndexer';
@@ -17,6 +18,7 @@ import { CentroidNoteIndex } from './centroidNoteIndex';
 import { assign_single_note_centroids } from './centroidAssignment';
 import { read_anchor_meta_data, write_anchor_metadata } from './anchorStore';
 import { resolve_anchor_note_id, get_catalog_note_id } from './catalog';
+import { SimpleCorpusCache, canUseInMemoryCache } from './embeddingCache';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
 const userDataStore = new UserDataEmbStore();
@@ -24,6 +26,12 @@ const log = getLogger();
 
 // Global centroid-to-note index instance (initialized lazily)
 let globalCentroidIndex: CentroidNoteIndex | null = null;
+
+// Per-model in-memory cache instances
+const corpusCaches = new Map<string, SimpleCorpusCache>();
+
+// Cache corpus size per model to avoid repeated anchor reads (persists across function calls)
+const corpusSizeCache = new Map<string, number>();
 
 /**
  * Get all note IDs that have embeddings in userData.
@@ -362,7 +370,7 @@ export interface BlockEmbedding {
   level: number;  // heading level
   title: string;  // heading title
   embedding: Float32Array;  // block embedding
-  similarity: number;  // similarity to the query
+  similarity?: number;  // similarity to the query (computed during search)
   q8?: QuantizedRowView;  // optional q8 view used for cosine scoring
   centroidId?: number;  // optional IVF list id (when shards store assignments)
 }
@@ -630,6 +638,18 @@ async function update_note(note: any,
       
       // Remove from centroid index (in-memory, synchronous)
       remove_note_from_centroid_index(note.id, model.id);
+      
+      // Incrementally update cache (remove blocks for deleted note)
+      const cache = corpusCaches.get(model.id);
+      if (cache?.isBuilt()) {
+        // Note deleted - remove its blocks incrementally
+        await cache.updateNote(userDataStore, model.id, note.id, '').catch(error => {
+          log.warn(`Failed to incrementally update cache for deleted note ${note.id}, invalidating`, error);
+          cache.invalidate();
+        });
+      } else {
+        cache?.invalidate();
+      }
     }
     
     return { embeddings: [] };
@@ -816,6 +836,18 @@ async function update_note(note: any,
       await update_centroid_index_for_note(note.id, model.id).catch(error => {
         log.warn(`Failed to update centroid index for note ${note.id}`, error);
       });
+      
+      // Incrementally update cache (replace blocks for updated note)
+      const cache = corpusCaches.get(model.id);
+      if (cache?.isBuilt()) {
+        // Note updated - replace its blocks incrementally
+        await cache.updateNote(userDataStore, model.id, note.id, hash).catch(error => {
+          log.warn(`Failed to incrementally update cache for note ${note.id}, invalidating`, error);
+          cache.invalidate();
+        });
+      } else {
+        cache?.invalidate();
+      }
     } else {
       // Legacy mode: SQLite is primary storage, clean up any old userData
       await insert_note_embeddings(model.db, new_embd, model);
@@ -1322,6 +1354,19 @@ function remove_note_from_centroid_index(noteId: string, modelId: string): void 
 }
 
 /**
+ * Clear in-memory cache for a model (called on model switch).
+ * Frees memory from old model.
+ */
+export function clear_corpus_cache(modelId: string): void {
+  const cache = corpusCaches.get(modelId);
+  if (cache) {
+    cache.invalidate();
+    corpusCaches.delete(modelId);
+    log.info(`[Cache] Cleared cache for model ${modelId}`);
+  }
+}
+
+/**
  * Show validation dialog when mismatched embeddings are detected
  * Offers user choice to rebuild affected notes or continue with mismatched embeddings
  */
@@ -1363,11 +1408,19 @@ async function show_validation_dialog(
 
 // given a list of embeddings, find the nearest ones to the query
 export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, markup_language: number, current_title: string, query: string,
-    model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true):
+    model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true, panel?: string):
     Promise<NoteEmbedding[]> {
 
   let searchStartTime = 0;  // Will be set right before IVF/userData search starts
   let combinedEmbeddings = embeddings;
+
+  // Clear stale similarities from previous searches on legacy embeddings
+  // (Cache results have fresh similarities and empty embedding arrays)
+  for (const embed of combinedEmbeddings) {
+    if (embed.embedding && embed.embedding.length > 0) {
+      embed.similarity = undefined;
+    }
+  }
 
   // convert HTML to Markdown if needed (must happen before hash calculation)
   if (markup_language === 2) {
@@ -1436,7 +1489,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   const tuning = resolve_search_tuning(settings);
 
-  const queryQ8 = quantize_vector_to_q8(rep_embedding);
+  let queryQ8 = quantize_vector_to_q8(rep_embedding);
 
   const computeAllowedCentroids = async (queryVector: Float32Array, candidateCount: number): Promise<Set<number> | null> => {
     if (!settings.notes_db_in_user_data) {
@@ -1543,26 +1596,39 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   if (rep_embedding && settings.notes_db_in_user_data) {
     // On userData path, use corpus size from anchor metadata (not loaded embeddings count)
-    // This determines IVF suitability based on TOTAL corpus, not filtered results
+    // This determines whether to use cache (memory-based) or IVF (size-based)
     let corpusSize = 0;
+    
+    if (corpusSizeCache.has(model.id)) {
+      corpusSize = corpusSizeCache.get(model.id)!;
+    } else {
     try {
       const catalogId = await get_catalog_note_id();
       if (!catalogId) {
         log.debug('IVF: Catalog note not found, corpus size unknown');
+          // Cache 0 to avoid repeated catalog lookups
+          corpusSizeCache.set(model.id, 0);
       } else {
         const anchorId = await resolve_anchor_note_id(catalogId, model.id);
         if (!anchorId) {
           log.debug('IVF: Anchor note not found for model, corpus size unknown', { modelId: model.id });
+            // Cache 0 to avoid repeated anchor lookups
+            corpusSizeCache.set(model.id, 0);
         } else {
           const anchorMeta = await read_anchor_meta_data(anchorId);
           if (!anchorMeta) {
             log.debug('IVF: Anchor metadata not found, corpus size unknown', { anchorId });
+              // Cache 0 to avoid repeated metadata reads
+              corpusSizeCache.set(model.id, 0);
           } else if (!anchorMeta.rowCount || anchorMeta.rowCount === 0) {
             if (settings.notes_debug_mode) {
-              log.info('IVF: Anchor rowCount is 0 or missing, corpus likely empty');
+                log.info('IVF: Anchor rowCount is 0 or missing, corpus likely empty or not yet built');
             }
+              // Cache 0 to avoid repeated anchor reads (corpus may be empty or not initialized)
+              corpusSizeCache.set(model.id, 0);
           } else {
             corpusSize = anchorMeta.rowCount;
+              corpusSizeCache.set(model.id, corpusSize);
             if (settings.notes_debug_mode) {
               log.info(`IVF: Read corpus size from anchor: ${corpusSize} rows`, { anchorId, modelId: model.id });
             }
@@ -1571,12 +1637,59 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       }
     } catch (error) {
       log.warn('Failed to read corpus size from anchor, IVF will be disabled', error);
+        // Cache 0 on error to avoid repeated failed attempts
+        corpusSizeCache.set(model.id, 0);
+      }
     }
     
+    // Check memory-based cache threshold FIRST (primary optimization)
+    // Only compute IVF centroids if corpus is too large for cache
+    const isDesktop = settings.notes_device_platform !== 'mobile';
+    const queryDim = rep_embedding?.length ?? 0;
+    
+    // If corpusSize is 0 or unknown, we can't make cache decision - fall back to IVF or brute-force
+    // corpusSize = 0 means either empty corpus or metadata not available yet
+    let canUseCache = false;
+    if (corpusSize > 0 && queryDim > 0) {
+      canUseCache = canUseInMemoryCache(corpusSize, queryDim, isDesktop);
+    } else if (corpusSize === 0 && queryDim > 0) {
+      // Corpus size unknown (0) - can't use cache safely, fall back to IVF or brute-force
+      if (settings.notes_debug_mode) {
+        log.info(`[Cache] Corpus size unknown (0), skipping cache decision - will use IVF or brute-force`);
+      }
+      canUseCache = false;
+    }
+    
+    if (canUseCache) {
+      if (settings.notes_debug_mode) {
+        const memMB = (corpusSize * queryDim * 1.15 * 1.076) / (1024 * 1024);
+        log.info(`[Cache] Corpus fits in memory: ${corpusSize} blocks @ ${queryDim}-dim ≈ ${memMB.toFixed(1)}MB, using cache (skipping IVF)`);
+      }
+      // Skip IVF computation - we'll use cache instead
+      preloadAllowedCentroidIds = null;
+    } else {
+      // Corpus too large for cache OR corpus size unknown - use IVF (if available) or brute-force
+      if (corpusSize > 0) {
     preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, corpusSize);
+      } else {
+        // Corpus size unknown - can't use IVF (needs size), will fall back to brute-force
+        if (settings.notes_debug_mode) {
+          log.info(`[Cache] Corpus size unknown, skipping IVF - will use brute-force search`);
+        }
+        preloadAllowedCentroidIds = null;
+      }
+    }
   } else if (rep_embedding) {
     // Legacy path: use loaded embeddings count
-    preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, combinedEmbeddings.length);
+    // Note: computeAllowedCentroids returns null immediately in legacy mode (userData not enabled)
+    // This is correct - IVF is not used in legacy SQLite mode
+    const candidateCount = combinedEmbeddings.length;
+    if (candidateCount > 0) {
+      preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, candidateCount);
+    } else {
+      // No embeddings loaded yet - IVF not applicable
+      preloadAllowedCentroidIds = null;
+    }
   }
   
   // If IVF is enabled and we have centroid IDs, use centroid-to-note index to filter candidates
@@ -1641,6 +1754,95 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     
     candidateIds.add(current_id);
     
+    // === In-Memory Cache Path ===
+    // For small corpuses, cache all embeddings in RAM and search without I/O
+    // Cache decision already made above based on memory threshold
+    const isDesktop = settings.notes_device_platform !== 'mobile';
+    const queryDim = rep_embedding?.length ?? 0;
+    
+    // Use cache if preloadAllowedCentroidIds is null (meaning memory check passed)
+    const useCache = queryDim > 0 && preloadAllowedCentroidIds === null;
+    
+    if (useCache) {
+      const estimatedBlocks = candidateIds.size * 10;  // For logging only
+      // Small corpus: use in-memory cache
+      log.info(`[Cache] Using in-memory cache (${candidateIds.size} notes, ~${estimatedBlocks} blocks @ ${queryDim}-dim)`);
+      
+      let cache = corpusCaches.get(model.id);
+      if (!cache) {
+        cache = new SimpleCorpusCache();
+        corpusCaches.set(model.id, cache);
+      }
+      
+      // Build cache if needed (handles concurrent builds gracefully)
+      await cache.ensureBuilt(
+        userDataStore,
+        model.id,
+        Array.from(candidateIds),
+        queryDim,
+        panel && settings ? async (processed, total, stage) => {
+          await update_progress_bar(panel, processed, total, settings, stage);
+        } : undefined
+      );
+      
+      // Search in pure RAM (10-50ms, no I/O)
+      // Use same capacity logic as main search path: chat needs more results
+      const heapCapacity = tuning.candidateLimit;
+      const effectiveCapacity = return_grouped_notes ? heapCapacity : heapCapacity * 4;
+      const queryQ8 = quantize_vector_to_q8(rep_embedding);
+      const cacheResults = cache.search(queryQ8, effectiveCapacity, settings.notes_min_similarity);
+      
+      // Convert cache results to BlockEmbedding format
+      const userBlocks = cacheResults.map(result => ({
+        id: result.noteId,
+        hash: result.noteHash,
+        line: result.lineNumber,
+        body_idx: result.bodyStart,
+        length: result.bodyLength,
+        level: result.headingLevel,
+        title: result.title,
+        embedding: new Float32Array(0),
+        similarity: result.similarity,
+      }));
+      
+      // Always log cache usage (not just debug mode)
+      const cacheStats = cache.getStats();
+      log.info(`[Cache] Search complete: ${userBlocks.length} results from ${cacheStats.blocks} cached blocks (${cacheStats.memoryMB.toFixed(1)}MB)`);
+      
+      // Debug: Check cache result similarities
+      if (settings.notes_debug_mode && userBlocks.length > 0) {
+        const firstBlock = userBlocks[0];
+        log.info(`[Cache] First block similarity: ${firstBlock.similarity?.toFixed(3) || 'undefined'}, id: ${firstBlock.id.substring(0, 8)}, line: ${firstBlock.line}`);
+        const nanCount = userBlocks.filter(b => isNaN(b.similarity) || b.similarity === undefined).length;
+        if (nanCount > 0) {
+          log.warn(`[Cache] ${nanCount}/${userBlocks.length} blocks have NaN/undefined similarity!`);
+        }
+      }
+      
+      if (settings.notes_debug_mode) {
+        // TEMPORARY: Validate cache precision/recall against brute-force baseline
+        const { validate_and_report } = await import('./cacheValidator');
+        await validate_and_report(
+          cache,
+          userDataStore,
+          model.id,
+          Array.from(candidateIds),
+          rep_embedding,
+          { precision: 0.95, recall: 0.95, debugMode: true }
+        );
+      }
+      
+      // Replace legacy blocks with cache results
+      const replaceIds = new Set(cacheResults.map(r => r.noteId));
+      const legacyBlocks = combinedEmbeddings.filter(embed => !replaceIds.has(embed.id));
+      combinedEmbeddings = legacyBlocks.concat(userBlocks);
+      
+      // Clear cache results after conversion (prevent memory leak)
+      clearObjectReferences(cacheResults);
+      
+      // Skip to final processing (bypass userData loading path)
+    } else {
+      // Large corpus or IVF enabled: use existing userData loading path
     const replaceIds = new Set<string>();
     const userBlocksHeap = new TopKHeap<BlockEmbedding>(tuning.candidateLimit, {
       minScore: settings.notes_min_similarity,
@@ -1712,6 +1914,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       // Show dialog with human-readable diffs
       await show_validation_dialog(mismatchSummary, mismatchedNoteIds, model, settings);
     }
+    }  // End of userData loading path (cache bypass)
   }
 
   // include links in the representation of the query using the updated candidate pool
@@ -1720,6 +1923,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     if (links_embedding) {
       rep_embedding = calc_mean_embedding_float32([rep_embedding, links_embedding],
         [1 - settings.notes_include_links, settings.notes_include_links]);
+      // Recalculate queryQ8 after rep_embedding is updated (needed for similarity calculations)
+      queryQ8 = quantize_vector_to_q8(rep_embedding);
     }
   }
 
@@ -1749,7 +1954,11 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   for (const embed of combinedEmbeddings) {
     let similarity: number;
-    if (embed.q8 && embed.q8.values.length === queryQ8.values.length) {
+    
+    // If similarity already set (e.g., from cache), use it directly
+    if (embed.similarity !== undefined && !isNaN(embed.similarity)) {
+      similarity = embed.similarity;
+    } else if (embed.q8 && embed.q8.values.length === queryQ8.values.length) {
       similarity = cosine_similarity_q8(embed.q8, queryQ8);
     } else {
       similarity = calc_similarity(rep_embedding, embed.embedding);
@@ -1821,7 +2030,16 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       agg_sim = sorted_embed[0].similarity;
     } else if (settings.notes_agg_similarity === 'avg') {
       agg_sim = sorted_embed.reduce((acc, embd) => acc + embd.similarity, 0) / sorted_embed.length;
+    } else {
+      // Fallback to max if unknown aggregation method
+      agg_sim = sorted_embed[0].similarity;
     }
+    
+    // Debug: Check for NaN similarities
+    if (settings.notes_debug_mode && (isNaN(agg_sim) || agg_sim === undefined)) {
+      log.warn(`[Cache] NaN similarity detected for note ${note_id}: agg=${agg_sim}, method=${settings.notes_agg_similarity}, block[0].similarity=${sorted_embed[0]?.similarity}`);
+    }
+    
     return { note_id, sorted_embed, agg_sim };
   });
   notesWithScores.sort((a, b) => b.agg_sim - a.agg_sim);
