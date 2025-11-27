@@ -116,7 +116,6 @@ export interface JarvisSettings {
   notes_device_profile: 'auto' | 'desktop' | 'mobile';
   notes_device_profile_effective: 'desktop' | 'mobile';
   notes_device_platform?: string;
-  notes_anchor_cache?: Record<string, string>;
   notes_search_candidate_limit?: number;
   notes_search_max_rows?: number;
   notes_search_time_budget_ms?: number;
@@ -373,7 +372,6 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_max_shard_bytes: await joplin.settings.value('notes_max_shard_bytes'),
     notes_model_first_build_completed: firstBuildCompleted,
     notes_model_last_sweep_time: lastSweepTimes,
-    notes_anchor_cache: safe_parse_anchor_cache(await joplin.settings.value('notes_anchor_cache')),
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
@@ -1344,35 +1342,7 @@ export async function register_settings() {
       label: 'Notes: Last incremental sweep timestamps (internal)',
       description: 'Internal map tracking per-model last successful incremental sweep (Unix timestamp ms). Do not modify.',
     },
-    'notes_anchor_cache': {
-      value: '{}',
-      type: SettingItemType.String,
-      section: 'jarvis.notes',
-      public: false,
-      advanced: true,
-      label: 'Notes: Anchor cache (internal)',
-      description: 'Internal cache of modelId→anchorNoteId for quick lookup. Do not modify.',
-    }
   });
-}
-
-/**
- * Safely parse the notes_anchor_cache setting from JSON.
- * Returns empty object on parse failure.
- * 
- * @param raw - Raw setting value (JSON string)
- * @returns Map of anchor key to anchor note ID
- */
-function safe_parse_anchor_cache(raw: any): Record<string, string> {
-  if (typeof raw !== 'string' || !raw.trim()) {
-    return {};
-  }
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    console.warn('Failed to parse notes_anchor_cache; resetting');
-    return {};
-  }
 }
 
 /**

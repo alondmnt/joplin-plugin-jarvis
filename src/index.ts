@@ -8,8 +8,8 @@ import { find_notes, update_note_db, skip_db_init_dialog } from './commands/note
 import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
-import { find_nearest_notes, validate_anchor_metadata_on_startup, clear_corpus_cache } from './notes/embeddings';
-import { ensure_catalog_note, get_catalog_note_id, resolve_anchor_note_id } from './notes/catalog';
+import { find_nearest_notes, validate_model_metadata_on_startup, clear_corpus_cache } from './notes/embeddings';
+import { ensure_catalog_note, get_catalog_note_id } from './notes/catalog';
 import { register_panel, update_panel } from './ux/panel';
 import { get_settings, register_settings, set_folders, get_model_last_sweep_time, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
 import type { JarvisSettings } from './ux/settings';
@@ -22,7 +22,6 @@ import {
   resolve_embedding_model_id,
   prompt_model_switch_decision,
 } from './notes/modelSwitch';
-import { read_anchor_meta_data, write_anchor_metadata } from './notes/anchorStore';
 import { open_model_management_dialog } from './ux/modelManagement';
 
 const STARTUP_DELAY_SECONDS = 5;
@@ -100,10 +99,10 @@ joplin.plugins.register({
         find_notes_debounce(runtime.model_embed, runtime.panel);
       }
 
-      // Validate anchor metadata on startup to catch and correct any drift
+      // Validate model metadata on startup to catch and correct any drift
       // This runs before the initial sweep to ensure accurate baseline
       if (runtime.model_embed.id && runtime.settings.notes_db_in_user_data) {
-        await validate_anchor_metadata_on_startup(runtime.model_embed.id, runtime.settings);
+        await validate_model_metadata_on_startup(runtime.model_embed.id, runtime.settings);
       }
 
       await run_initial_sweep(runtime, updates);

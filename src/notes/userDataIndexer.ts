@@ -6,9 +6,9 @@ import { build_block_row_meta } from './blockMeta';
 import { quantize_per_row } from './q8';
 import { build_shards } from './shards';
 import {
-  AnchorMetadata,
-  read_anchor_meta_data,
-} from './anchorStore';
+  CatalogModelMetadata,
+  read_model_metadata,
+} from './catalogMetadataStore';
 import { getLogger } from '../utils/logger';
 
 export interface PrepareUserDataParams {
@@ -19,7 +19,6 @@ export interface PrepareUserDataParams {
   settings: JarvisSettings;
   store: EmbStore;
   catalogId?: string;
-  anchorId?: string;
   corpusRowCountAccumulator?: { current: number };
 }
 
@@ -155,22 +154,22 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
 }
 
 /**
- * Compute final anchor metadata after a sweep completes.
+ * Compute final model metadata after a sweep completes.
  *
  * @param model - The embedding model
  * @param settings - Jarvis settings for extracting embedding configuration
- * @param anchorId - Anchor note ID to read existing metadata from
+ * @param catalogId - Catalog note ID where model metadata is stored
  * @param totalRows - Total embedding rows (blocks) counted during sweep
  * @param dim - Embedding dimension captured from sweep
- * @returns AnchorMetadata object ready to be persisted
+ * @returns CatalogModelMetadata object ready to be persisted
  */
-export async function compute_final_anchor_metadata(
+export async function compute_final_model_metadata(
   model: TextEmbeddingModel,
   settings: JarvisSettings,
-  anchorId: string,
+  catalogId: string,
   totalRows: number,
   dim: number,
-): Promise<AnchorMetadata | null> {
+): Promise<CatalogModelMetadata | null> {
   try {
     const embeddingSettings = extract_embedding_settings(settings);
 
@@ -178,13 +177,13 @@ export async function compute_final_anchor_metadata(
       return null; // No embeddings yet
     }
 
-    const anchorMeta = await read_anchor_meta_data(anchorId);
-    const finalDim = dim > 0 ? dim : (anchorMeta?.dim ?? 0);
+    const existingMeta = await read_model_metadata(catalogId, model.id);
+    const finalDim = dim > 0 ? dim : (existingMeta?.dim ?? 0);
     if (finalDim === 0) {
       return null; // No dimension information available
     }
 
-    const metadata: AnchorMetadata = {
+    const metadata: CatalogModelMetadata = {
       modelId: model.id,
       dim: finalDim,
       version: model.version ?? 'unknown',
@@ -195,13 +194,13 @@ export async function compute_final_anchor_metadata(
 
     return metadata;
   } catch (error) {
-    log.warn('Failed to compute anchor metadata', { modelId: model.id, error });
+    log.warn('Failed to compute model metadata', { modelId: model.id, error });
     return null;
   }
 }
 
 /**
- * Compare two anchor metadata objects to see if they meaningfully differ.
+ * Compare two model metadata objects to see if they meaningfully differ.
  * Ignores updatedAt timestamp since that always changes.
  * For count stats (rowCount), requires at least 15% change to be considered different.
  *
@@ -210,9 +209,9 @@ export async function compute_final_anchor_metadata(
  * @param countChangeThreshold - Minimum percentage change (0-1) required for count stats (default 0.15 = 15%)
  * @returns true if metadata has meaningfully changed, false otherwise
  */
-export function anchor_metadata_changed(
-  a: AnchorMetadata | null,
-  b: AnchorMetadata | null,
+export function model_metadata_changed(
+  a: CatalogModelMetadata | null,
+  b: CatalogModelMetadata | null,
   countChangeThreshold: number = 0.15,
 ): boolean {
   if (!a || !b) {

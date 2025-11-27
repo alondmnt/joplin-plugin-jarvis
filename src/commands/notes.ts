@@ -1,15 +1,15 @@
 import joplin from 'api';
 import { ModelType } from 'api/types';
 import { find_nearest_notes, update_embeddings, get_all_note_ids_with_embeddings } from '../notes/embeddings';
-import { ensure_catalog_note, ensure_model_anchor, get_catalog_note_id } from '../notes/catalog';
+import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
 import { ModelError, clearApiResponse, clearObjectReferences } from '../utils';
 import { UserDataEmbStore, EmbeddingSettings } from '../notes/userDataStore';
 import type { JarvisSettings } from '../ux/settings';
-import { compute_final_anchor_metadata, anchor_metadata_changed } from '../notes/userDataIndexer';
-import { read_anchor_meta_data, write_anchor_metadata } from '../notes/anchorStore';
+import { compute_final_model_metadata, model_metadata_changed } from '../notes/userDataIndexer';
+import { read_model_metadata, write_model_metadata } from '../notes/catalogMetadataStore';
 
 /**
  * Refresh embeddings for either the entire notebook set or a specific list of notes.
@@ -59,18 +59,17 @@ export async function update_note_db(
   console.info(`Jarvis: starting update (mode: ${mode}, force: ${force}, last sweep: ${lastSweepDate}, incrementalSweep: ${incrementalSweep})`);
 
 
-  // Ensure catalog and model anchor once before processing notes to prevent
+  // Ensure catalog once before processing notes to prevent
   // concurrent per-note creation races when the experimental userData index is enabled.
   let catalogId: string | undefined;
-  let anchorId: string | undefined;
   if (settings.notes_db_in_user_data && model?.id) {
     try {
       catalogId = await ensure_catalog_note();
-      anchorId = await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
+      await register_model(catalogId, model.id);
     } catch (error) {
       const msg = String((error as any)?.message ?? error);
       if (!/SQLITE_CONSTRAINT|UNIQUE constraint failed/i.test(msg)) {
-        console.debug('Jarvis: deferred ensure anchor (update_note_db)', msg);
+        console.debug('Jarvis: deferred ensure catalog (update_note_db)', msg);
       }
     }
   }
@@ -83,31 +82,31 @@ export async function update_note_db(
 
   const isFullSweep = !noteIds || noteIds.length === 0;
 
-  // Track total embedding rows created during sweep (for userData anchor metadata)
+  // Track total embedding rows created during sweep (for userData model metadata)
   // This avoids loading all embeddings into memory to count them
   let totalEmbeddingRows = 0;
   let embeddingDim = 0;  // Track dimension from first batch (needed when model.embeddings is empty)
   
-  // Initialize corpus row count accumulator from anchor metadata (for userData mode)
+  // Initialize corpus row count accumulator from model metadata (for userData mode)
   // Used for ALL sweeps (full and incremental) to track running corpus size
-  // Updated at end of sweep to keep anchor metadata accurate
+  // Updated at end of sweep to keep model metadata accurate
   let corpusRowCountAccumulator: { current: number } | undefined;
-  if (settings.notes_db_in_user_data && anchorId) {
+  if (settings.notes_db_in_user_data && catalogId && model?.id) {
     try {
-      const anchorMeta = await read_anchor_meta_data(anchorId);
-      let initialCount = anchorMeta?.rowCount ?? 0;
-      
-      // If anchor metadata is missing or has rowCount=0, count existing embeddings
+      const modelMeta = await read_model_metadata(catalogId, model.id);
+      let initialCount = modelMeta?.rowCount ?? 0;
+
+      // If model metadata is missing or has rowCount=0, count existing embeddings
       // ONLY do this for FULL sweeps - incremental sweeps should trust existing metadata
       // This prevents undercounting when notes are deleted between sweeps
       if ((!initialCount || initialCount === 0) && isFullSweep) {
-        console.debug('Jarvis: anchor rowCount missing or zero, counting existing embeddings (full sweep)...');
+        console.debug('Jarvis: model rowCount missing or zero, counting existing embeddings (full sweep)...');
         const countResult = await get_all_note_ids_with_embeddings(model.id);
         if (countResult.totalBlocks && countResult.totalBlocks > 0) {
           initialCount = countResult.totalBlocks;
         }
       }
-      
+
       corpusRowCountAccumulator = { current: initialCount };
       console.debug('Jarvis: initialized corpus row count accumulator', {
         modelId: model.id,
@@ -143,7 +142,7 @@ export async function update_note_db(
       while (batch.length >= model.page_size && !abortController.signal.aborted) {
         const chunk = batch.splice(0, model.page_size);
         const result = await process_batch_and_update_progress(
-          chunk, model, settings, abortController, force, catalogId, anchorId, panel,
+          chunk, model, settings, abortController, force, catalogId, panel,
           () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
           (count) => { processed_notes += count; },
           corpusRowCountAccumulator
@@ -161,7 +160,7 @@ export async function update_note_db(
     // Process remaining notes
     if (!abortController.signal.aborted) {
       const result = await process_batch_and_update_progress(
-        batch, model, settings, abortController, force, catalogId, anchorId, panel,
+        batch, model, settings, abortController, force, catalogId, panel,
         () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
         (count) => { processed_notes += count; },
         corpusRowCountAccumulator
@@ -206,7 +205,7 @@ export async function update_note_db(
       }
       
       const result = await process_batch_and_update_progress(
-        batch, model, settings, abortController, force, catalogId, anchorId, panel,
+        batch, model, settings, abortController, force, catalogId, panel,
         () => ({ processed: processed_notes, total: total_notes }),
         (count) => { processed_notes += count; total_notes += count; },  // Adjust estimate as we go
         corpusRowCountAccumulator
@@ -269,7 +268,7 @@ export async function update_note_db(
       });
       if (notes.items) {
         const result = await process_batch_and_update_progress(
-          notes.items, model, settings, abortController, force, catalogId, anchorId, panel,
+          notes.items, model, settings, abortController, force, catalogId, panel,
           () => ({ processed: processed_notes, total: total_notes }),
           (count) => { processed_notes += count; },
           corpusRowCountAccumulator
@@ -306,14 +305,14 @@ export async function update_note_db(
     console.debug(`Jarvis: updated last sweep time to ${new Date(timestamp).toISOString()}`);
   }
 
-  // Update anchor metadata with final stats after sweep completes
-  // Updates after ALL sweeps (full and incremental) to keep anchor accurate
+  // Update model metadata with final stats after sweep completes
+  // Updates after ALL sweeps (full and incremental) to keep metadata accurate
   // Uses 15% threshold to avoid excessive writes when counts change minimally
   // This replaces the per-note updates that were causing excessive log spam
-  if (!abortController.signal.aborted && settings.notes_db_in_user_data && anchorId && model?.id && corpusRowCountAccumulator) {
+  if (!abortController.signal.aborted && settings.notes_db_in_user_data && catalogId && model?.id && corpusRowCountAccumulator) {
     try {
-      const currentMetadata = await read_anchor_meta_data(anchorId);
-      
+      const currentMetadata = await read_model_metadata(catalogId, model.id);
+
       // For FULL non-incremental sweeps, do a final recount to catch deleted notes
       // Incremental sweeps can't detect deletions, so they rely on startup validation
       let finalRowCount = corpusRowCountAccumulator.current;
@@ -330,7 +329,7 @@ export async function update_note_db(
           }
         }
       }
-      
+
       // If dimension wasn't captured during sweep (all notes skipped), read it from an existing note
       let finalDim = embeddingDim;
       if (finalDim === 0 && finalRowCount > 0) {
@@ -345,31 +344,31 @@ export async function update_note_db(
           }
         }
       }
-      
-      const newMetadata = await compute_final_anchor_metadata(model, settings, anchorId, finalRowCount, finalDim);
-      
-      if (newMetadata && anchor_metadata_changed(currentMetadata, newMetadata)) {
-        await write_anchor_metadata(anchorId, newMetadata);
-        console.debug('Jarvis: anchor metadata updated after sweep', {
+
+      const newMetadata = await compute_final_model_metadata(model, settings, catalogId, finalRowCount, finalDim);
+
+      if (newMetadata && model_metadata_changed(currentMetadata, newMetadata)) {
+        await write_model_metadata(catalogId, model.id, newMetadata);
+        console.debug('Jarvis: model metadata updated after sweep', {
           modelId: model.id,
           rowCount: newMetadata.rowCount,
           sweepType: isFullSweep ? (incrementalSweep ? 'incremental' : 'full') : 'specific',
         });
       } else if (newMetadata) {
-        console.debug('Jarvis: anchor metadata unchanged (<15% change), skipping update', {
+        console.debug('Jarvis: model metadata unchanged (<15% change), skipping update', {
           modelId: model.id,
           rowCount: newMetadata.rowCount,
           oldRowCount: currentMetadata?.rowCount,
         });
       } else {
-        console.warn('Jarvis: failed to compute anchor metadata (dimension unavailable?)', {
+        console.warn('Jarvis: failed to compute model metadata (dimension unavailable?)', {
           modelId: model.id,
           finalDim,
           finalRowCount,
         });
       }
     } catch (error) {
-      console.warn('Jarvis: failed to update anchor metadata after sweep', {
+      console.warn('Jarvis: failed to update model metadata after sweep', {
         modelId: model.id,
         error: String((error as any)?.message ?? error),
       });
@@ -523,7 +522,6 @@ async function process_batch_and_update_progress(
   abortController: AbortController,
   force: boolean,
   catalogId: string | undefined,
-  anchorId: string | undefined,
   panel: string,
   getProgress: () => { processed: number; total: number },
   onProcessed: (count: number) => void,
@@ -537,12 +535,12 @@ async function process_batch_and_update_progress(
   if (batch.length === 0) {
     return { settingsMismatches: [], totalRows: 0, dim: 0, actuallyProcessed: 0 };
   }
-  
+
   // Filter out excluded notes early to avoid unnecessary processing
   const filteredBatch = await filter_excluded_notes(batch, settings, catalogId);
-  
+
   // Process only the filtered batch
-  const result = await update_embeddings(filteredBatch, model, settings, abortController, force, catalogId, anchorId, corpusRowCountAccumulator);
+  const result = await update_embeddings(filteredBatch, model, settings, abortController, force, catalogId, corpusRowCountAccumulator);
   
   // Track actually processed notes (after filtering but before skipping)
   const actuallyProcessed = filteredBatch.length;
