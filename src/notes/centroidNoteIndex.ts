@@ -48,6 +48,8 @@ export class CentroidNoteIndex {
   private index: Map<number, Set<string>> = new Map();
   // Track which centroids each note has (for efficient updates/removals)
   private noteToCentroids: Map<string, Set<number>> = new Map();
+  // Track parent folder ID for each note (for folder exclusion filtering)
+  private noteToParent: Map<string, string> = new Map();
   private stats: IndexBuildStats = {
     notesProcessed: 0,
     notesWithEmbeddings: 0,
@@ -74,9 +76,23 @@ export class CentroidNoteIndex {
   /**
    * Get all note IDs that have embeddings (regardless of centroid).
    * Much faster than scanning all notes with userData reads.
+   *
+   * @param excludedFolders - Optional set of folder IDs to exclude from results
    */
-  get_all_note_ids(): Set<string> {
-    return new Set(this.noteToCentroids.keys());
+  get_all_note_ids(excludedFolders?: Set<string>): Set<string> {
+    if (!excludedFolders || excludedFolders.size === 0) {
+      return new Set(this.noteToCentroids.keys());
+    }
+
+    // Filter out notes in excluded folders
+    const result = new Set<string>();
+    for (const noteId of this.noteToCentroids.keys()) {
+      const parentId = this.noteToParent.get(noteId);
+      if (!parentId || !excludedFolders.has(parentId)) {
+        result.add(noteId);
+      }
+    }
+    return result;
   }
 
   /**
@@ -104,18 +120,30 @@ export class CentroidNoteIndex {
   /**
    * Look up which notes contain blocks assigned to the given centroid IDs.
    * Returns union of all notes across the provided centroids.
+   *
+   * @param centroidIds - Centroid IDs to look up
+   * @param excludedFolders - Optional set of folder IDs to exclude from results
    */
-  lookup(centroidIds: number[]): Set<string> {
+  lookup(centroidIds: number[], excludedFolders?: Set<string>): Set<string> {
     const result = new Set<string>();
+    const hasExclusions = excludedFolders && excludedFolders.size > 0;
+
     for (const centroidId of centroidIds) {
       const noteIds = this.index.get(centroidId);
       if (noteIds) {
         for (const noteId of noteIds) {
+          // Filter by excluded folders if provided
+          if (hasExclusions) {
+            const parentId = this.noteToParent.get(noteId);
+            if (parentId && excludedFolders.has(parentId)) {
+              continue; // Skip notes in excluded folders
+            }
+          }
           result.add(noteId);
         }
       }
     }
-    
+
     // DIAGNOSTIC: Check index state during lookup (debug mode only)
     if (this.debugMode) {
       const indexSize = this.index.size;
@@ -128,15 +156,18 @@ export class CentroidNoteIndex {
         console.error(`   This means centroid ASSIGNMENT failed or index is stale!`);
       }
     }
-    
+
     return result;
   }
 
   /**
    * Update or add a single note to the index.
    * Reads the note's embeddings and updates centroid mappings.
+   *
+   * @param noteId - Note ID to update
+   * @param parentId - Optional parent folder ID (for exclusion filtering). If not provided, will be fetched.
    */
-  async update_note(noteId: string): Promise<void> {
+  async update_note(noteId: string, parentId?: string): Promise<void> {
     // Remove old mappings first
     this.remove_note(noteId);
 
@@ -196,6 +227,23 @@ export class CentroidNoteIndex {
       if (centroids.size > 0) {
         this.noteToCentroids.set(noteId, centroids);
         this.stats.centroidMappings += centroids.size;
+
+        // Store parent folder ID for exclusion filtering
+        // If not provided, fetch it (slower but ensures data integrity)
+        if (parentId !== undefined) {
+          this.noteToParent.set(noteId, parentId);
+        } else {
+          // Fetch parent_id if not provided (fallback for external callers)
+          try {
+            const note = await joplin.data.get(['notes', noteId], { fields: ['parent_id'] });
+            if (note?.parent_id) {
+              this.noteToParent.set(noteId, note.parent_id);
+            }
+            clearApiResponse(note);
+          } catch {
+            // Ignore - note may have been deleted
+          }
+        }
       }
     } catch (error) {
       log.warn(`CentroidIndex: Failed to update note ${noteId}`, error);
@@ -223,6 +271,7 @@ export class CentroidNoteIndex {
     }
 
     this.noteToCentroids.delete(noteId);
+    this.noteToParent.delete(noteId);
     this.stats.centroidMappings -= centroids.size;
   }
 
@@ -252,22 +301,22 @@ export class CentroidNoteIndex {
       let result: any = null;
       try {
         result = await joplin.data.get(['notes'], {
-          fields: ['id'],
+          fields: ['id', 'parent_id'],
           page,
           limit: 100, // Joplin API max per page
           order_by: 'user_updated_time',
           order_dir: 'DESC',
         });
 
-        const noteIds: string[] = result.items.map((item: any) => item.id);
+        const notes: Array<{ id: string; parent_id: string }> = result.items;
 
         // Process each note in this batch
-        for (const noteId of noteIds) {
-          await this.update_note(noteId);
+        for (const note of notes) {
+          await this.update_note(note.id, note.parent_id);
           totalProcessed++;
 
           // Check if note was added to index
-          if (this.noteToCentroids.has(noteId)) {
+          if (this.noteToCentroids.has(note.id)) {
             notesWithEmbeddings++;
           }
 
@@ -339,14 +388,14 @@ export class CentroidNoteIndex {
       let result: any = null;
       try {
         result = await joplin.data.get(['notes'], {
-          fields: ['id', 'user_updated_time'],
+          fields: ['id', 'parent_id', 'user_updated_time'],
           page,
           limit: 100,
           order_by: 'user_updated_time',
           order_dir: 'DESC',
         });
 
-        const notes: Array<{ id: string; user_updated_time: number }> = result.items;
+        const notes: Array<{ id: string; parent_id: string; user_updated_time: number }> = result.items;
 
         for (const note of notes) {
           // Check if we've reached notes older than last refresh
@@ -356,7 +405,7 @@ export class CentroidNoteIndex {
           }
 
           // Update this note in the index
-          await this.update_note(note.id);
+          await this.update_note(note.id, note.parent_id);
           refreshedCount++;
         }
 
@@ -462,6 +511,7 @@ export class CentroidNoteIndex {
   private clear(): void {
     this.index.clear();
     this.noteToCentroids.clear();
+    this.noteToParent.clear();
     this.stats.centroidMappings = 0;
   }
 
@@ -493,6 +543,10 @@ export class CentroidNoteIndex {
       bytes += 40; // Set overhead
       bytes += centroids.size * (8 + 8); // Each centroid ID + Set element overhead
     }
+
+    // noteToParent Map: noteId → parentId (folder ID)
+    // parentId is also ~36 chars = ~72 bytes
+    bytes += this.noteToParent.size * (40 + 72 + 72); // Map entry + noteId + parentId
 
     return bytes;
   }

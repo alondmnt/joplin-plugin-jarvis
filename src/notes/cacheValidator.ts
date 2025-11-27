@@ -28,6 +28,8 @@ export interface ValidationMetrics {
     error: number; // float32Similarity - q8Similarity
   }>;
   avgSimilarityError: number; // Average absolute error for missed results
+  cacheSearchMs: number;   // Time for cache search (Q8)
+  bruteForceMs: number;    // Time for brute force search (Float32)
 }
 
 interface RankedResult {
@@ -165,13 +167,17 @@ export async function validate_cache_results(
   }
   
   log.info(`[CacheValidator] Starting validation: k=${k}, minScore=${minScore}`);
-  
-  // Get cache results (using Q8 search)
+
+  // Get cache results (using Q8 search) - timed
   const queryQ8 = quantize_vector_to_q8(query);
+  const cacheSearchStart = Date.now();
   const cacheResults = cache.search(queryQ8, k, minScore);
-  
-  // Get ground truth (using Float32 brute-force)
+  const cacheSearchMs = Date.now() - cacheSearchStart;
+
+  // Get ground truth (using Float32 brute-force) - timed
+  const bruteForceStart = Date.now();
   const groundTruth = await compute_ground_truth(store, modelId, noteIds, query, k, minScore);
+  const bruteForceMs = Date.now() - bruteForceStart;
   
   // Debug: Log first few results from each method
   if (cacheResults.length > 0 && groundTruth.length > 0) {
@@ -348,6 +354,8 @@ export async function validate_cache_results(
     extraResults,
     missedSimilarityErrors,
     avgSimilarityError,
+    cacheSearchMs,
+    bruteForceMs,
   };
 }
 
@@ -372,6 +380,12 @@ export async function validate_and_report(
     
     const passed = metrics.precisionAt10 >= minPrecision && metrics.recallAt10 >= minRecall;
     
+    // Log timing comparison
+    const speedup = metrics.bruteForceMs > 0 ? (metrics.bruteForceMs / metrics.cacheSearchMs).toFixed(1) : 'N/A';
+    log.info(
+      `[CacheValidator] ⏱️ Timing: cache=${metrics.cacheSearchMs}ms, brute-force=${metrics.bruteForceMs}ms (${speedup}x speedup)`
+    );
+
     if (passed) {
       log.info(
         `[CacheValidator] ✅ PASS: P@10=${(metrics.precisionAt10 * 100).toFixed(1)}% ` +
@@ -387,7 +401,7 @@ export async function validate_and_report(
         `(<${(minRecall * 100).toFixed(0)}%)`
       );
     }
-    
+
     return passed;
   } catch (error) {
     log.error('[CacheValidator] Validation failed with error', error);

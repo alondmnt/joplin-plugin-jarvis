@@ -70,36 +70,40 @@ function estimateCacheBytes(numBlocks: number, dim: number): number {
 
 /**
  * Decide whether to use in-memory cache based on estimated memory.
- * Desktop can use more aggressive limits than mobile.
+ * Uses device profile (not actual platform) to allow mobile devices to use desktop limits.
+ *
+ * @param numBlocks - Estimated number of blocks in corpus
+ * @param dim - Embedding dimension
+ * @param profileIsDesktop - True if device profile is 'desktop' (from settings)
  */
 export function canUseInMemoryCache(
   numBlocks: number,
   dim: number,
-  isDesktop: boolean
+  profileIsDesktop: boolean
 ): boolean {
   // Sanity checks
   if (dim > MAX_DIM_FOR_CACHE) {
     log.warn(`[Cache] Dimension ${dim} exceeds max ${MAX_DIM_FOR_CACHE}, using IVF`);
     return false;
   }
-  
+
   const bytes = estimateCacheBytes(numBlocks, dim);
   const mb = bytes / (1024 * 1024);
-  
+
   // Hard limit applies to all platforms
   if (mb > CACHE_HARD_LIMIT_MB) {
     log.info(`[Cache] Estimated ${mb.toFixed(1)}MB exceeds hard limit ${CACHE_HARD_LIMIT_MB}MB, using IVF`);
     return false;
   }
-  
-  // Platform-specific soft limits
-  const limit = isDesktop ? CACHE_HARD_LIMIT_MB : CACHE_SOFT_LIMIT_MB;
+
+  // Profile-based soft limits (allows mobile with desktop profile to use higher limit)
+  const limit = profileIsDesktop ? CACHE_HARD_LIMIT_MB : CACHE_SOFT_LIMIT_MB;
   const canCache = mb <= limit;
-  
+
   if (!canCache) {
-    log.info(`[Cache] Estimated ${mb.toFixed(1)}MB exceeds ${isDesktop ? 'desktop' : 'mobile'} limit ${limit}MB, using IVF`);
+    log.info(`[Cache] Estimated ${mb.toFixed(1)}MB exceeds ${profileIsDesktop ? 'desktop' : 'mobile'} profile limit ${limit}MB, using IVF`);
   }
-  
+
   return canCache;
 }
 

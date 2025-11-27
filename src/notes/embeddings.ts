@@ -1644,14 +1644,17 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     
     // Check memory-based cache threshold FIRST (primary optimization)
     // Only compute IVF centroids if corpus is too large for cache
-    const isDesktop = settings.notes_device_platform !== 'mobile';
+    // Use device profile (not platform) to allow mobile with desktop profile to use higher cache limit
+    const deviceProfile = settings.notes_device_profile_effective
+      ?? (settings.notes_device_profile === 'mobile' ? 'mobile' : 'desktop');
+    const profileIsDesktop = deviceProfile !== 'mobile';
     const queryDim = rep_embedding?.length ?? 0;
     
     // If corpusSize is 0 or unknown, we can't make cache decision - fall back to IVF or brute-force
     // corpusSize = 0 means either empty corpus or metadata not available yet
     let canUseCache = false;
     if (corpusSize > 0 && queryDim > 0) {
-      canUseCache = canUseInMemoryCache(corpusSize, queryDim, isDesktop);
+      canUseCache = canUseInMemoryCache(corpusSize, queryDim, profileIsDesktop);
     } else if (corpusSize === 0 && queryDim > 0) {
       // Corpus size unknown (0) - can't use cache safely, fall back to IVF or brute-force
       if (settings.notes_debug_mode) {
@@ -1697,7 +1700,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     try {
       const centroidIndex = await get_or_init_centroid_index(model.id, settings);
       const topCentroidIds = Array.from(preloadAllowedCentroidIds);
-      ivfCandidateNoteIds = centroidIndex.lookup(topCentroidIds);
+      // Pass excluded folders to filter out notes in excluded folders from search results
+      ivfCandidateNoteIds = centroidIndex.lookup(topCentroidIds, settings.notes_exclude_folders);
       
       // Calculate and log IVF efficiency metrics
       const totalNotes = centroidIndex.get_all_note_ids().size;
@@ -1749,7 +1753,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       // IVF disabled or unavailable - build/refresh centroid index which already has noteIds cached
       // This is much faster than scanning all notes (index build is ~50-100ms vs full scan ~240ms)
       const centroidIndex = await get_or_init_centroid_index(model.id, settings);
-      candidateIds = centroidIndex.get_all_note_ids();
+      // Pass excluded folders to filter out notes in excluded folders from search/cache
+      candidateIds = centroidIndex.get_all_note_ids(settings.notes_exclude_folders);
     }
     
     candidateIds.add(current_id);
@@ -1757,9 +1762,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     // === In-Memory Cache Path ===
     // For small corpuses, cache all embeddings in RAM and search without I/O
     // Cache decision already made above based on memory threshold
-    const isDesktop = settings.notes_device_platform !== 'mobile';
     const queryDim = rep_embedding?.length ?? 0;
-    
+
     // Use cache if preloadAllowedCentroidIds is null (meaning memory check passed)
     const useCache = queryDim > 0 && preloadAllowedCentroidIds === null;
     
@@ -1790,8 +1794,10 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       const heapCapacity = tuning.candidateLimit;
       const effectiveCapacity = return_grouped_notes ? heapCapacity : heapCapacity * 4;
       const queryQ8 = quantize_vector_to_q8(rep_embedding);
+      const cacheSearchStart = Date.now();
       const cacheResults = cache.search(queryQ8, effectiveCapacity, settings.notes_min_similarity);
-      
+      const cacheSearchMs = Date.now() - cacheSearchStart;
+
       // Convert cache results to BlockEmbedding format
       const userBlocks = cacheResults.map(result => ({
         id: result.noteId,
@@ -1807,7 +1813,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       
       // Always log cache usage (not just debug mode)
       const cacheStats = cache.getStats();
-      log.info(`[Cache] Search complete: ${userBlocks.length} results from ${cacheStats.blocks} cached blocks (${cacheStats.memoryMB.toFixed(1)}MB)`);
+      log.info(`[Cache] Search complete: ${userBlocks.length} results from ${cacheStats.blocks} cached blocks in ${cacheSearchMs}ms (${cacheStats.memoryMB.toFixed(1)}MB)`);
       
       // Debug: Check cache result similarities
       if (settings.notes_debug_mode && userBlocks.length > 0) {
@@ -2049,12 +2055,26 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   const ivfSearchTimeMs = searchStartTime > 0 ? ivfSearchEndTime - searchStartTime : 0;
 
   // Now fetch titles (not included in timing)
-  const result = (await Promise.all(notesWithScores.slice(0, settings.notes_max_hits).map(async ({note_id, sorted_embed, agg_sim}) => {
+  // Also fetch parent_id to filter out notes in excluded folders (safeguard for edge cases)
+  // Fetch a small buffer of extra candidates to compensate for any filtered results
+  const hasExcludedFolders = settings.notes_exclude_folders && settings.notes_exclude_folders.size > 0;
+  const fetchLimit = hasExcludedFolders
+    ? Math.min(notesWithScores.length, settings.notes_max_hits + 5)  // Small buffer for filtered results
+    : settings.notes_max_hits;
+  const result = (await Promise.all(notesWithScores.slice(0, fetchLimit).map(async ({note_id, sorted_embed, agg_sim}) => {
     let title: string;
     let noteResponse: any = null;
     try {
-      noteResponse = await joplin.data.get(['notes', note_id], {fields: ['title']});
+      noteResponse = await joplin.data.get(['notes', note_id], {fields: ['title', 'parent_id']});
       title = noteResponse.title;
+
+      // Safeguard: filter out notes in excluded folders (catches edge cases like
+      // notes moved to excluded folder after cache was built, or settings changed mid-session)
+      if (hasExcludedFolders && noteResponse.parent_id && settings.notes_exclude_folders.has(noteResponse.parent_id)) {
+        clearObjectReferences(noteResponse);
+        return null; // Will be filtered out below
+      }
+
       clearObjectReferences(noteResponse);
     } catch (error) {
       clearObjectReferences(noteResponse);
@@ -2067,7 +2087,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       embeddings: sorted_embed,
       similarity: agg_sim,
     };
-    })));
+    }))).filter(r => r !== null).slice(0, settings.notes_max_hits);
   
   if (settings.notes_debug_mode) {
     log.info(`Returning ${result.length} notes (max: ${settings.notes_max_hits}), top similarity: ${result[0]?.similarity?.toFixed(3) || 'N/A'}`);
