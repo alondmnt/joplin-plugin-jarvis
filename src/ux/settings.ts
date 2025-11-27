@@ -1400,6 +1400,23 @@ export async function set_model_last_sweep_time(modelId: string, timestamp: numb
   console.debug('Jarvis: saved model last sweep time', { modelId, timestamp: new Date(timestamp).toISOString() });
 }
 
+/**
+ * Clear the last sweep time for a model (e.g., when model is deleted).
+ * This ensures the next sweep will be a full sweep, not incremental.
+ */
+export async function clear_model_last_sweep_time(modelId: string): Promise<void> {
+  if (!modelId) {
+    return;
+  }
+  const raw = await joplin.settings.value('notes_model_last_sweep_time');
+  const current = safe_parse_last_sweep_time(raw);
+  if (modelId in current) {
+    delete current[modelId];
+    await joplin.settings.setValue('notes_model_last_sweep_time', JSON.stringify(current));
+    console.debug('Jarvis: cleared model last sweep time', { modelId });
+  }
+}
+
 export async function set_folders(exclude: boolean, folder_id: string, settings: JarvisSettings) {
   settings.notes_exclude_folders.delete('');  // left when settings field is empty
   const T = await get_folder_tree();  // folderId: childrenIds

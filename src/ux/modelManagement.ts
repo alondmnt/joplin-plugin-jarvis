@@ -8,7 +8,7 @@ import { estimate_shard_size } from '../notes/shards';
 import { clear_all_corpus_caches } from '../notes/embeddings';
 import { clearApiResponse } from '../utils';
 import { update_progress_bar } from './panel';
-import { JarvisSettings } from './settings';
+import { JarvisSettings, clear_model_last_sweep_time } from './settings';
 
 const log = getLogger();
 
@@ -228,6 +228,7 @@ async function delete_model_data(
   }
 
   await remove_model_from_catalog(modelId);
+  await clear_model_last_sweep_time(modelId);
 
   return summary;
 }
@@ -292,10 +293,11 @@ async function delete_all_model_data(
     }
   }
 
-  // Remove all models from catalog
+  // Remove all models from catalog and clear sweep times
   for (const item of items) {
     try {
       await remove_model_from_catalog(item.modelId);
+      await clear_model_last_sweep_time(item.modelId);
     } catch (error) {
       log.warn('Delete all: failed to remove model from catalog', { modelId: item.modelId, error });
     }
