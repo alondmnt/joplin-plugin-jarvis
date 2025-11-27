@@ -242,11 +242,6 @@ async function parse_dropdown_setting(name: string): Promise<string> {
   }
 }
 
-function infer_device_profile(platform: string | undefined): 'desktop' | 'mobile' {
-  const normalized = (platform ?? '').toLowerCase();
-  return normalized === 'mobile' ? 'mobile' : 'desktop';
-}
-
 export async function get_settings(): Promise<JarvisSettings> {
   let model_id = await joplin.settings.value('model');
   if (model_id == 'openai-custom') {
@@ -274,20 +269,21 @@ export async function get_settings(): Promise<JarvisSettings> {
   const rawProfileSetting = (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile');
   const firstBuildCompleted = safe_parse_first_build_completed(await joplin.settings.value('notes_model_first_build_completed'));
   const lastSweepTimes = safe_parse_last_sweep_time(await joplin.settings.value('notes_model_last_sweep_time'));
-  let detectedPlatform = 'unknown';
-  let inferredProfile: 'desktop' | 'mobile' = 'desktop';
+
+  // Detect platform from Joplin API (defaults to 'desktop' on error)
+  let detectedPlatform = 'desktop';
   try {
     const info = await joplin.versionInfo();
-    if (info && typeof info === 'object' && typeof (info as any).platform === 'string') {
+    if (info && typeof (info as any).platform === 'string') {
       detectedPlatform = (info as any).platform;
-      // Per Joplin docs the platform string is either 'mobile' or 'desktop'.
-      inferredProfile = infer_device_profile((info as any).platform);
     }
-  } catch (error) {
-    detectedPlatform = 'unknown';
+  } catch {
+    // Keep default
   }
+
+  // Resolve profile: 'auto' uses detected platform, otherwise use explicit setting
   const effectiveProfile = rawProfileSetting === 'auto'
-    ? inferredProfile
+    ? (detectedPlatform.toLowerCase() === 'mobile' ? 'mobile' : 'desktop')
     : (rawProfileSetting === 'mobile' ? 'mobile' : 'desktop');
 
   const weight_relevance_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_relevance')) || 0);
