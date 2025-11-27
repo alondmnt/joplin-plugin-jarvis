@@ -4,12 +4,12 @@ import { getLogger } from '../utils/logger';
 import { EMB_META_KEY, NoteEmbMeta } from '../notes/userDataStore';
 import { ensure_catalog_note, load_model_registry, remove_model_from_catalog } from '../notes/catalog';
 import { read_model_metadata } from '../notes/catalogMetadataStore';
+import { estimate_shard_size } from '../notes/shards';
 import { clearApiResponse } from '../utils';
 
 const log = getLogger();
 
 const PAGE_SIZE = 100;
-const BYTES_PER_NOTE_ESTIMATE = 300 * 1024; // ≈300KB per note as documented
 
 interface ModelInventoryItem {
   modelId: string;
@@ -95,7 +95,7 @@ async function load_inventory_from_catalog(activeModelId: string): Promise<Model
     items.push({
       modelId,
       noteCount: metadata.noteCount ?? 0,
-      approxBytes: (metadata.noteCount ?? 0) * BYTES_PER_NOTE_ESTIMATE,
+      approxBytes: estimate_shard_size(metadata.dim ?? 0, metadata.rowCount ?? 0),
       lastUpdated: metadata.updatedAt,
       version: metadata.version,
       isActiveModel: modelId === activeModelId,

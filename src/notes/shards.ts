@@ -89,7 +89,7 @@ export function build_shards(options: BuildShardsOptions): EmbShard[] {
   }];
 }
 
-function estimate_shard_size(dim: number, rows: number): number {
+export function estimate_shard_size(dim: number, rows: number): number {
   const vectorBytes = rows * dim;
   const vectorB64 = base64_length(vectorBytes);
   const scalesBytes = rows * Float32Array.BYTES_PER_ELEMENT;
