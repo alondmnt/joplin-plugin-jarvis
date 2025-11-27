@@ -147,32 +147,28 @@ export async function validate_model_metadata_on_startup(modelId: string, settin
     }
 
     const modelMeta = await read_model_metadata(catalogId, modelId);
-    if (!modelMeta || !modelMeta.rowCount) {
-      log.debug('Startup validation: no model metadata to validate');
-      return;
-    }
+    const storedRowCount = modelMeta?.rowCount ?? 0;
+    const storedNoteCount = modelMeta?.noteCount ?? 0;
+    const dim = modelMeta?.dim ?? 0;
 
     log.info('Startup validation: scanning corpus to validate model metadata...');
     const scanStart = Date.now();
     const result = await get_all_note_ids_with_embeddings(modelId);
     const actualRowCount = result.totalBlocks ?? 0;
     const actualNoteCount = result.noteIds.size;
-    const storedRowCount = modelMeta.rowCount ?? 0;
-    const storedNoteCount = modelMeta.noteCount ?? 0;
-    const dim = modelMeta.dim ?? 0;
 
     // Always update in-memory stats with accurate values (for memory warnings etc.)
     setModelStats(modelId, { rowCount: actualRowCount, noteCount: actualNoteCount, dim });
 
-    if (actualRowCount === 0) {
+    if (actualRowCount === 0 && storedRowCount === 0) {
       log.debug('Startup validation: no embeddings found for model', { modelId });
       return;
     }
 
     // Check if drift exceeds 15% threshold for either rowCount or noteCount
-    // Only write to catalog note if drift is significant (to reduce sync conflicts)
-    const rowDrift = storedRowCount > 0 ? Math.abs(actualRowCount - storedRowCount) / storedRowCount : 1;
-    const noteDrift = storedNoteCount > 0 ? Math.abs(actualNoteCount - storedNoteCount) / storedNoteCount : 1;
+    // Also update if stored is 0 but actual is non-zero (aborted sweep recovery)
+    const rowDrift = storedRowCount > 0 ? Math.abs(actualRowCount - storedRowCount) / storedRowCount : (actualRowCount > 0 ? 1 : 0);
+    const noteDrift = storedNoteCount > 0 ? Math.abs(actualNoteCount - storedNoteCount) / storedNoteCount : (actualNoteCount > 0 ? 1 : 0);
     const needsUpdate = rowDrift >= 0.15 || noteDrift >= 0.15;
 
     if (needsUpdate) {
@@ -188,7 +184,10 @@ export async function validate_model_metadata_on_startup(modelId: string, settin
       });
 
       await write_model_metadata(catalogId, modelId, {
-        ...modelMeta,
+        modelId,
+        dim: dim || (modelMeta?.dim ?? 0),
+        version: modelMeta?.version,
+        settings: modelMeta?.settings,
         rowCount: actualRowCount,
         noteCount: actualNoteCount,
         updatedAt: new Date().toISOString(),
@@ -1305,36 +1304,38 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   let queryQ8 = quantize_vector_to_q8(rep_embedding);
 
   if (settings.notes_db_in_user_data) {
-    // Get all note IDs with embeddings for this model (filtering excluded folders/tags)
-    const result = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
-    const candidateIds = result.noteIds;
-    candidateIds.add(current_id);
-
     // Always use in-memory cache for userData mode
     const queryDim = rep_embedding?.length ?? 0;
 
     if (queryDim > 0) {
-      if (settings.notes_debug_mode) {
-        const estimatedBlocks = candidateIds.size * 10;  // For logging only
-        log.info(`[Cache] Using in-memory cache (${candidateIds.size} notes, ~${estimatedBlocks} blocks @ ${queryDim}-dim)`);
-      }
-      
       let cache = corpusCaches.get(model.id);
       if (!cache) {
         cache = new SimpleCorpusCache();
         corpusCaches.set(model.id, cache);
       }
-      
-      // Build cache if needed (handles concurrent builds gracefully)
-      await cache.ensureBuilt(
-        userDataStore,
-        model.id,
-        Array.from(candidateIds),
-        queryDim,
-        panel && settings ? async (processed, total, stage) => {
-          await update_progress_bar(panel, processed, total, settings, stage);
-        } : undefined
-      );
+
+      // Only scan for note IDs if cache needs building (expensive operation)
+      if (!cache.isBuilt()) {
+        const result = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
+        const candidateIds = result.noteIds;
+        candidateIds.add(current_id);
+
+        if (settings.notes_debug_mode) {
+          const estimatedBlocks = candidateIds.size * 10;
+          log.info(`[Cache] Building cache (${candidateIds.size} notes, ~${estimatedBlocks} blocks @ ${queryDim}-dim)`);
+        }
+
+        // Build cache (handles concurrent builds gracefully)
+        await cache.ensureBuilt(
+          userDataStore,
+          model.id,
+          Array.from(candidateIds),
+          queryDim,
+          panel && settings ? async (processed, total, stage) => {
+            await update_progress_bar(panel, processed, total, settings, stage);
+          } : undefined
+        );
+      }
       
       // Search in pure RAM (10-50ms, no I/O)
       // Use same capacity logic as main search path: chat needs more results
@@ -1375,12 +1376,14 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       
       if (settings.notes_debug_mode) {
         // TEMPORARY: Validate cache precision/recall against brute-force baseline
+        // Fetch note IDs only for validation (expensive, but only in debug mode)
+        const validationResult = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders, false);
         const { validate_and_report } = await import('./cacheValidator');
         await validate_and_report(
           cache,
           userDataStore,
           model.id,
-          Array.from(candidateIds),
+          Array.from(validationResult.noteIds),
           rep_embedding,
           { precision: 0.95, recall: 0.95, debugMode: true }
         );
