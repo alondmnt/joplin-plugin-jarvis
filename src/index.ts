@@ -460,31 +460,6 @@ async function register_commands_and_menus(
   });
 
   await joplin.commands.register({
-    name: 'jarvis.notes.db.updateSubset',
-    execute: async (args?: any) => {
-      const noteIds: string[] = Array.isArray(args)
-        ? args
-        : Array.isArray(args?.noteIds)
-          ? args.noteIds
-          : [];
-
-      if (!noteIds || noteIds.length === 0) {
-        runtime.log.info('Validation rebuild requested with no note IDs, skipping');
-        return;
-      }
-
-      const uniqueIds = Array.from(new Set(noteIds));
-
-      if (runtime.model_embed.model === null) {
-        await runtime.model_embed.initialize();
-      }
-
-      runtime.log.info(`Validation subset rebuild triggered for ${uniqueIds.length} notes`);
-      await updates.start_update({ force: true, noteIds: uniqueIds });
-    },
-  });
-
-  await joplin.commands.register({
     name: 'jarvis.notes.find',
     label: 'Find related notes',
     iconName: 'fas fa-search',
