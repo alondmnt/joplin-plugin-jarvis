@@ -5,6 +5,7 @@ import { EMB_META_KEY, NoteEmbMeta } from '../notes/userDataStore';
 import { ensure_catalog_note, load_model_registry, remove_model_from_catalog } from '../notes/catalog';
 import { read_model_metadata } from '../notes/catalogMetadataStore';
 import { estimate_shard_size } from '../notes/shards';
+import { clear_all_corpus_caches } from '../notes/embeddings';
 import { clearApiResponse } from '../utils';
 
 const log = getLogger();
@@ -158,6 +159,20 @@ async function scan_note_ids_for_model(modelId: string): Promise<string[]> {
 }
 
 /**
+ * Delete all shards for a model from a note.
+ */
+async function delete_shards_for_model(noteId: string, modelId: string, shardCount: number): Promise<void> {
+  for (let index = 0; index < shardCount; index += 1) {
+    const key = `jarvis/v1/emb/${modelId}/live/${index}` as const;
+    try {
+      await joplin.data.userDataDelete(ModelType.Note, noteId, key);
+    } catch (error) {
+      log.warn('Failed to delete shard', { modelId, noteId, index, error });
+    }
+  }
+}
+
+/**
  * Remove embeddings for the specified model from all provided notes and clean up catalog references.
  */
 async function delete_model_data(modelId: string, noteIds: string[]): Promise<DeletionSummary> {
@@ -178,14 +193,7 @@ async function delete_model_data(modelId: string, noteIds: string[]): Promise<De
 
       const modelMeta = meta.models[modelId];
       const shardCount = Math.max(1, modelMeta?.current?.shards ?? 1);
-      for (let index = 0; index < shardCount; index += 1) {
-        const key = `jarvis/v1/emb/${modelId}/live/${index}` as const;
-        try {
-          await joplin.data.userDataDelete(ModelType.Note, noteId, key);
-        } catch (error) {
-          log.warn('Model manager failed to delete shard', { modelId, noteId, index, error });
-        }
-      }
+      await delete_shards_for_model(noteId, modelId, shardCount);
 
       delete meta.models[modelId];
 
@@ -205,6 +213,74 @@ async function delete_model_data(modelId: string, noteIds: string[]): Promise<De
   }
 
   await remove_model_from_catalog(modelId);
+
+  return summary;
+}
+
+/**
+ * Remove ALL embeddings from all notes and clear the catalog.
+ * This is a complete reset of the embedding database.
+ */
+async function delete_all_model_data(items: ModelInventoryItem[]): Promise<DeletionSummary> {
+  const summary: DeletionSummary = {
+    updatedNotes: 0,
+    removedMeta: 0,
+    skippedNotes: 0,
+    errors: 0,
+  };
+
+  // Collect all unique note IDs across all models
+  const allNoteIds = new Set<string>();
+  for (const item of items) {
+    const noteIds = await scan_note_ids_for_model(item.modelId);
+    for (const noteId of noteIds) {
+      allNoteIds.add(noteId);
+    }
+  }
+
+  // Delete all userData from each note
+  for (const noteId of allNoteIds) {
+    try {
+      const meta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
+      if (!meta || !meta.models) {
+        summary.skippedNotes += 1;
+        continue;
+      }
+
+      // Delete shards for all models
+      for (const modelId of Object.keys(meta.models)) {
+        const modelMeta = meta.models[modelId];
+        const shardCount = Math.max(1, modelMeta?.current?.shards ?? 1);
+        await delete_shards_for_model(noteId, modelId, shardCount);
+      }
+
+      // Delete the metadata entirely
+      await joplin.data.userDataDelete(ModelType.Note, noteId, EMB_META_KEY);
+      summary.removedMeta += 1;
+    } catch (error) {
+      summary.errors += 1;
+      log.warn('Delete all: failed to process note', { noteId, error });
+    }
+  }
+
+  // Remove all models from catalog
+  for (const item of items) {
+    try {
+      await remove_model_from_catalog(item.modelId);
+    } catch (error) {
+      log.warn('Delete all: failed to remove model from catalog', { modelId: item.modelId, error });
+    }
+  }
+
+  // Clear in-memory caches
+  clear_all_corpus_caches();
+
+  log.info('Delete all completed', {
+    models: items.length,
+    notes: allNoteIds.size,
+    removedMeta: summary.removedMeta,
+    errors: summary.errors
+  });
 
   return summary;
 }
@@ -303,7 +379,7 @@ export async function open_model_management_dialog(dialogHandle: string): Promis
       ]
       : [
         { id: 'delete', title: 'Delete Model' },
-        { id: 'refresh', title: 'Refresh' },
+        { id: 'deleteAll', title: 'Delete All' },
         { id: 'close', title: 'Close' },
       ];
     await joplin.views.dialogs.setButtons(dialogHandle, buttons);
@@ -314,11 +390,6 @@ export async function open_model_management_dialog(dialogHandle: string): Promis
 
     if (action === 'close' || items.length === 0) {
       break;
-    }
-
-    if (action === 'refresh') {
-      message = 'Inventory refreshed.';
-      continue;
     }
 
     if (action === 'delete') {
@@ -361,6 +432,31 @@ export async function open_model_management_dialog(dialogHandle: string): Promis
       }
       if (summary.skippedNotes > 0) {
         parts.push(`Skipped ${summary.skippedNotes} notes (no metadata).`);
+      }
+      if (summary.errors > 0) {
+        parts.push(`Encountered ${summary.errors} errors (see log).`);
+      }
+      message = parts.join(' ');
+      continue;
+    }
+
+    if (action === 'deleteAll') {
+      const totalNotes = items.reduce((sum, item) => sum + item.noteCount, 0);
+      const totalStorage = items.reduce((sum, item) => sum + item.approxBytes, 0);
+      const confirm = await joplin.views.dialogs.showMessageBox(
+        `Delete ALL ${items.length} embedding models?\n\n` +
+        `This removes all embeddings from ${totalNotes} notes (${formatBytes(totalStorage)}).\n\n` +
+        `This action cannot be undone.`,
+      );
+      if (confirm !== 0) {
+        message = 'Deletion cancelled.';
+        continue;
+      }
+
+      const summary = await delete_all_model_data(items);
+      const parts = [`Removed all ${items.length} models.`];
+      if (summary.removedMeta > 0) {
+        parts.push(`Cleared metadata on ${summary.removedMeta} notes.`);
       }
       if (summary.errors > 0) {
         parts.push(`Encountered ${summary.errors} errors (see log).`);

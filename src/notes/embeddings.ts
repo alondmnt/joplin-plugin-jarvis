@@ -1182,6 +1182,18 @@ export function clear_corpus_cache(modelId: string): void {
 }
 
 /**
+ * Clear all corpus caches (all models).
+ * Used when deleting all models.
+ */
+export function clear_all_corpus_caches(): void {
+  for (const [modelId, cache] of corpusCaches) {
+    cache.invalidate();
+  }
+  corpusCaches.clear();
+  log.info('[Cache] Cleared all corpus caches');
+}
+
+/**
  * Show validation dialog when mismatched embeddings are detected
  * Offers user choice to rebuild affected notes or continue with mismatched embeddings
  */
