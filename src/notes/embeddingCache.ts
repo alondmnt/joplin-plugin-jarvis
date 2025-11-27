@@ -513,6 +513,14 @@ export class SimpleCorpusCache {
   }
 
   /**
+   * Get the dimension of cached embeddings.
+   * Returns 0 if cache is not built.
+   */
+  getDim(): number {
+    return this.dim;
+  }
+
+  /**
    * Get cache statistics.
    */
   getStats(): { blocks: number; memoryMB: number; buildTimeMs: number } {

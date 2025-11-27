@@ -1335,8 +1335,14 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         corpusCaches.set(model.id, cache);
       }
 
-      // Only scan for note IDs if cache needs building (expensive operation)
-      if (!cache.isBuilt()) {
+      // Check if cache needs rebuilding (not built, or dimension mismatch)
+      const needsBuild = !cache.isBuilt() || cache.getDim() !== queryDim;
+      if (needsBuild) {
+        if (cache.isBuilt() && cache.getDim() !== queryDim) {
+          log.warn(`[Cache] Dimension mismatch (cached=${cache.getDim()}, query=${queryDim}), invalidating`);
+          cache.invalidate();
+        }
+
         const result = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
         const candidateIds = result.noteIds;
         candidateIds.add(current_id);
