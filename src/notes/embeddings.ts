@@ -1,9 +1,10 @@
 import joplin from 'api';
+import { ModelType } from 'api/types';
 import { createHash } from '../utils/crypto';
 import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
 import { update_progress_bar } from '../ux/panel';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
-import { UserDataEmbStore, EmbeddingSettings } from './userDataStore';
+import { UserDataEmbStore, EmbeddingSettings, NoteEmbMeta, EMB_META_KEY } from './userDataStore';
 import { prepare_user_data_embeddings } from './userDataIndexer';
 import { read_user_data_embeddings } from './userDataReader';
 import { globalValidationTracker, extract_embedding_settings_for_validation, settings_equal } from './validator';
@@ -149,13 +150,29 @@ export async function validate_model_metadata_on_startup(modelId: string, settin
     const modelMeta = await read_model_metadata(catalogId, modelId);
     const storedRowCount = modelMeta?.rowCount ?? 0;
     const storedNoteCount = modelMeta?.noteCount ?? 0;
-    const dim = modelMeta?.dim ?? 0;
+    let dim = modelMeta?.dim ?? 0;
 
     log.info('Startup validation: scanning corpus to validate model metadata...');
     const scanStart = Date.now();
     const result = await get_all_note_ids_with_embeddings(modelId);
     const actualRowCount = result.totalBlocks ?? 0;
     const actualNoteCount = result.noteIds.size;
+
+    // Discover dimension from actual embeddings if missing from metadata
+    if (dim === 0 && actualNoteCount > 0) {
+      for (const noteId of Array.from(result.noteIds).slice(0, 5)) {
+        try {
+          const noteMeta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
+          if (noteMeta?.models?.[modelId]?.dim) {
+            dim = noteMeta.models[modelId].dim;
+            log.debug('Startup validation: discovered dimension from note', { noteId: noteId.substring(0, 8), dim });
+            break;
+          }
+        } catch (_) {
+          // Continue to next note
+        }
+      }
+    }
 
     // Always update in-memory stats with accurate values (for memory warnings etc.)
     setModelStats(modelId, { rowCount: actualRowCount, noteCount: actualNoteCount, dim });
@@ -167,9 +184,11 @@ export async function validate_model_metadata_on_startup(modelId: string, settin
 
     // Check if drift exceeds 15% threshold for either rowCount or noteCount
     // Also update if stored is 0 but actual is non-zero (aborted sweep recovery)
+    // Also update if dim was missing and we discovered it
     const rowDrift = storedRowCount > 0 ? Math.abs(actualRowCount - storedRowCount) / storedRowCount : (actualRowCount > 0 ? 1 : 0);
     const noteDrift = storedNoteCount > 0 ? Math.abs(actualNoteCount - storedNoteCount) / storedNoteCount : (actualNoteCount > 0 ? 1 : 0);
-    const needsUpdate = rowDrift >= 0.15 || noteDrift >= 0.15;
+    const dimMissing = (modelMeta?.dim ?? 0) === 0 && dim > 0;
+    const needsUpdate = rowDrift >= 0.15 || noteDrift >= 0.15 || dimMissing;
 
     if (needsUpdate) {
       log.warn('Startup validation: model metadata drift detected, correcting catalog...', {
@@ -178,6 +197,8 @@ export async function validate_model_metadata_on_startup(modelId: string, settin
         actualRowCount,
         storedNoteCount,
         actualNoteCount,
+        storedDim: modelMeta?.dim ?? 0,
+        actualDim: dim,
         rowDrift: `${(rowDrift * 100).toFixed(1)}%`,
         noteDrift: `${(noteDrift * 100).toFixed(1)}%`,
         scanTimeMs: Date.now() - scanStart,
@@ -185,7 +206,7 @@ export async function validate_model_metadata_on_startup(modelId: string, settin
 
       await write_model_metadata(catalogId, modelId, {
         modelId,
-        dim: dim || (modelMeta?.dim ?? 0),
+        dim,
         version: modelMeta?.version,
         settings: modelMeta?.settings,
         rowCount: actualRowCount,
