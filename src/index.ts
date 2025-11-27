@@ -455,7 +455,7 @@ async function register_commands_and_menus(
     name: 'jarvis.notes.manage_models',
     label: 'Manage Jarvis embedding models',
     execute: async () => {
-      await open_model_management_dialog(runtime.model_management_dialog);
+      await open_model_management_dialog(runtime.model_management_dialog, runtime.panel, runtime.settings);
     },
   });
 

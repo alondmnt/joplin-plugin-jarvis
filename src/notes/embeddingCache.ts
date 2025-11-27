@@ -349,7 +349,8 @@ export class SimpleCorpusCache {
     store: UserDataEmbStore,
     modelId: string,
     noteId: string,
-    noteHash: string
+    noteHash: string,
+    debugMode: boolean = false
   ): Promise<void> {
     if (!this.isBuilt()) {
       // Not built - full rebuild needed
@@ -359,7 +360,9 @@ export class SimpleCorpusCache {
 
     const dim = this.dim; // Use cached dimension
 
-    log.debug(`[Cache] Incrementally updating note ${noteId.substring(0, 8)}...`);
+    if (debugMode) {
+      log.info(`[Cache] Incrementally updating note ${noteId.substring(0, 8)}...`);
+    }
 
     // Read new embeddings for this note
     const results = await read_user_data_embeddings({
@@ -492,12 +495,14 @@ export class SimpleCorpusCache {
     // Clear extracted blocks array (releases Int8Array copies)
     clearObjectReferences(newBlocks);
 
-    const memoryMB = (this.q8Buffer.byteLength + this.blocks.length * BYTES_PER_BLOCK) / (1024 * 1024);
-    log.info(
-      `[Cache] Updated note ${noteId.substring(0, 8)}: ` +
-      `removed ${removedCount} blocks, added ${addedCount} blocks ` +
-      `(${this.blocks.length} total, ${memoryMB.toFixed(1)}MB)`
-    );
+    if (debugMode) {
+      const memoryMB = (this.q8Buffer.byteLength + this.blocks.length * BYTES_PER_BLOCK) / (1024 * 1024);
+      log.info(
+        `[Cache] Updated note ${noteId.substring(0, 8)}: ` +
+        `removed ${removedCount} blocks, added ${addedCount} blocks ` +
+        `(${this.blocks.length} total, ${memoryMB.toFixed(1)}MB)`
+      );
+    }
   }
 
   /**

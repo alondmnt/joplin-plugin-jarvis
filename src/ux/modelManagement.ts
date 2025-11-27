@@ -7,6 +7,8 @@ import { read_model_metadata } from '../notes/catalogMetadataStore';
 import { estimate_shard_size } from '../notes/shards';
 import { clear_all_corpus_caches } from '../notes/embeddings';
 import { clearApiResponse } from '../utils';
+import { update_progress_bar } from './panel';
+import { JarvisSettings } from './settings';
 
 const log = getLogger();
 
@@ -175,7 +177,12 @@ async function delete_shards_for_model(noteId: string, modelId: string, shardCou
 /**
  * Remove embeddings for the specified model from all provided notes and clean up catalog references.
  */
-async function delete_model_data(modelId: string, noteIds: string[]): Promise<DeletionSummary> {
+async function delete_model_data(
+  modelId: string,
+  noteIds: string[],
+  panel: string,
+  settings: JarvisSettings
+): Promise<DeletionSummary> {
   const summary: DeletionSummary = {
     updatedNotes: 0,
     removedMeta: 0,
@@ -183,11 +190,15 @@ async function delete_model_data(modelId: string, noteIds: string[]): Promise<De
     errors: 0,
   };
 
+  const total = noteIds.length;
+  let processed = 0;
+
   for (const noteId of noteIds) {
     try {
       const meta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
       if (!meta || !meta.models || !meta.models[modelId]) {
         summary.skippedNotes += 1;
+        processed += 1;
         continue;
       }
 
@@ -201,14 +212,18 @@ async function delete_model_data(modelId: string, noteIds: string[]): Promise<De
       if (remainingModels.length === 0) {
         await joplin.data.userDataDelete(ModelType.Note, noteId, EMB_META_KEY);
         summary.removedMeta += 1;
-        continue;
+      } else {
+        await joplin.data.userDataSet(ModelType.Note, noteId, EMB_META_KEY, meta);
+        summary.updatedNotes += 1;
       }
-
-      await joplin.data.userDataSet(ModelType.Note, noteId, EMB_META_KEY, meta);
-      summary.updatedNotes += 1;
     } catch (error) {
       summary.errors += 1;
       log.warn('Model manager failed to update note while deleting model', { modelId, noteId, error });
+    }
+
+    processed += 1;
+    if (processed % 10 === 0 || processed === total) {
+      await update_progress_bar(panel, processed, total, settings, `Deleting model "${modelId}"`);
     }
   }
 
@@ -221,7 +236,11 @@ async function delete_model_data(modelId: string, noteIds: string[]): Promise<De
  * Remove ALL embeddings from all notes and clear the catalog.
  * This is a complete reset of the embedding database.
  */
-async function delete_all_model_data(items: ModelInventoryItem[]): Promise<DeletionSummary> {
+async function delete_all_model_data(
+  items: ModelInventoryItem[],
+  panel: string,
+  settings: JarvisSettings
+): Promise<DeletionSummary> {
   const summary: DeletionSummary = {
     updatedNotes: 0,
     removedMeta: 0,
@@ -230,6 +249,7 @@ async function delete_all_model_data(items: ModelInventoryItem[]): Promise<Delet
   };
 
   // Collect all unique note IDs across all models
+  await update_progress_bar(panel, 0, 1, settings, 'Scanning notes...');
   const allNoteIds = new Set<string>();
   for (const item of items) {
     const noteIds = await scan_note_ids_for_model(item.modelId);
@@ -238,12 +258,16 @@ async function delete_all_model_data(items: ModelInventoryItem[]): Promise<Delet
     }
   }
 
+  const total = allNoteIds.size;
+  let processed = 0;
+
   // Delete all userData from each note
   for (const noteId of allNoteIds) {
     try {
       const meta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
       if (!meta || !meta.models) {
         summary.skippedNotes += 1;
+        processed += 1;
         continue;
       }
 
@@ -260,6 +284,11 @@ async function delete_all_model_data(items: ModelInventoryItem[]): Promise<Delet
     } catch (error) {
       summary.errors += 1;
       log.warn('Delete all: failed to process note', { noteId, error });
+    }
+
+    processed += 1;
+    if (processed % 10 === 0 || processed === total) {
+      await update_progress_bar(panel, processed, total, settings, 'Deleting all embeddings');
     }
   }
 
@@ -357,7 +386,11 @@ function build_dialog_html(items: ModelInventoryItem[], activeModelId: string, m
 /**
  * Present the model management dialog workflow, including refresh and deletion actions.
  */
-export async function open_model_management_dialog(dialogHandle: string): Promise<void> {
+export async function open_model_management_dialog(
+  dialogHandle: string,
+  panel: string,
+  settings: JarvisSettings
+): Promise<void> {
   const enabled = await joplin.settings.value('notes_db_in_user_data');
   if (!enabled) {
     await joplin.views.dialogs.showMessageBox('Model management requires the experimental per-note userData index to be enabled.');
@@ -422,7 +455,7 @@ export async function open_model_management_dialog(dialogHandle: string): Promis
         continue;
       }
 
-      const summary = await delete_model_data(selectedModelId, noteIds);
+      const summary = await delete_model_data(selectedModelId, noteIds, panel, settings);
       const parts = [`Removed model "${selectedModelId}".`];
       if (summary.updatedNotes > 0) {
         parts.push(`Updated ${summary.updatedNotes} notes.`);
@@ -453,7 +486,7 @@ export async function open_model_management_dialog(dialogHandle: string): Promis
         continue;
       }
 
-      const summary = await delete_all_model_data(items);
+      const summary = await delete_all_model_data(items, panel, settings);
       const parts = [`Removed all ${items.length} models.`];
       if (summary.removedMeta > 0) {
         parts.push(`Cleared metadata on ${summary.removedMeta} notes.`);

@@ -54,7 +54,8 @@ async function get_note_tags(noteId: string): Promise<string[]> {
  */
 export async function get_all_note_ids_with_embeddings(
   modelId?: string,
-  excludedFolders?: Set<string>
+  excludedFolders?: Set<string>,
+  debugMode: boolean = false
 ): Promise<{
   noteIds: Set<string>;
   totalBlocks?: number;
@@ -120,7 +121,9 @@ export async function get_all_note_ids_with_embeddings(
   }
 
   const duration = Date.now() - startTime;
-  log.debug(`Candidate selection: found ${noteIds.size} notes with embeddings${modelId ? `, ${totalBlocks} blocks for model ${modelId}` : ''}${excludedCount > 0 ? `, excluded ${excludedCount}` : ''} (took ${duration}ms)`);
+  if (debugMode) {
+    log.info(`Candidate selection: found ${noteIds.size} notes with embeddings${modelId ? `, ${totalBlocks} blocks for model ${modelId}` : ''}${excludedCount > 0 ? `, excluded ${excludedCount}` : ''} (took ${duration}ms)`);
+  }
   return { noteIds, totalBlocks: modelId ? totalBlocks : undefined };
 }
 
@@ -589,7 +592,7 @@ async function update_note(note: any,
       const cache = corpusCaches.get(model.id);
       if (cache?.isBuilt()) {
         // Note deleted - remove its blocks incrementally
-        await cache.updateNote(userDataStore, model.id, note.id, '').catch(error => {
+        await cache.updateNote(userDataStore, model.id, note.id, '', settings.notes_debug_mode).catch(error => {
           log.warn(`Failed to incrementally update cache for deleted note ${note.id}, invalidating`, error);
           cache.invalidate();
         });
@@ -774,7 +777,7 @@ async function update_note(note: any,
       const cache = corpusCaches.get(model.id);
       if (cache?.isBuilt()) {
         // Note updated - replace its blocks incrementally
-        await cache.updateNote(userDataStore, model.id, note.id, hash).catch(error => {
+        await cache.updateNote(userDataStore, model.id, note.id, hash, settings.notes_debug_mode).catch(error => {
           log.warn(`Failed to incrementally update cache for note ${note.id}, invalidating`, error);
           cache.invalidate();
         });
@@ -1303,7 +1306,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   if (settings.notes_db_in_user_data) {
     // Get all note IDs with embeddings for this model (filtering excluded folders/tags)
-    const result = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders);
+    const result = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
     const candidateIds = result.noteIds;
     candidateIds.add(current_id);
 
@@ -1311,9 +1314,10 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     const queryDim = rep_embedding?.length ?? 0;
 
     if (queryDim > 0) {
-      const estimatedBlocks = candidateIds.size * 10;  // For logging only
-      // Small corpus: use in-memory cache
-      log.info(`[Cache] Using in-memory cache (${candidateIds.size} notes, ~${estimatedBlocks} blocks @ ${queryDim}-dim)`);
+      if (settings.notes_debug_mode) {
+        const estimatedBlocks = candidateIds.size * 10;  // For logging only
+        log.info(`[Cache] Using in-memory cache (${candidateIds.size} notes, ~${estimatedBlocks} blocks @ ${queryDim}-dim)`);
+      }
       
       let cache = corpusCaches.get(model.id);
       if (!cache) {
@@ -1354,9 +1358,10 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         similarity: result.similarity,
       }));
       
-      // Always log cache usage (not just debug mode)
-      const cacheStats = cache.getStats();
-      log.info(`[Cache] Search complete: ${userBlocks.length} results from ${cacheStats.blocks} cached blocks in ${cacheSearchMs}ms (${cacheStats.memoryMB.toFixed(1)}MB)`);
+      if (settings.notes_debug_mode) {
+        const cacheStats = cache.getStats();
+        log.info(`[Cache] Search complete: ${userBlocks.length} results from ${cacheStats.blocks} cached blocks in ${cacheSearchMs}ms (${cacheStats.memoryMB.toFixed(1)}MB)`);
+      }
       
       // Debug: Check cache result similarities
       if (settings.notes_debug_mode && userBlocks.length > 0) {
