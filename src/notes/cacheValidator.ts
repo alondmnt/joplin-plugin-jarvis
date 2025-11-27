@@ -92,13 +92,12 @@ async function compute_ground_truth(
   log.info(`[CacheValidator] Computing ground truth for ${noteIds.length} notes @ k=${k}...`);
   const startTime = Date.now();
   
-  // Load all embeddings (no IVF, no validation)
+  // Load all embeddings (no validation)
   const results = await read_user_data_embeddings({
     store,
     modelId,
     noteIds,
     maxRows: undefined,
-    allowedCentroidIds: null,
     currentModel: null,
     currentSettings: null,
     validationTracker: null,

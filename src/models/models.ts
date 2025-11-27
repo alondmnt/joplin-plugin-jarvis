@@ -419,10 +419,6 @@ export class TextEmbeddingModel {
   public disableDbLoad = false;
   public allowFsCache = true;
   public initialized = false;
-  
-  // centroid management
-  public needsCentroidReassignment = false;  // set when centroids are trained/retrained
-  public needsCentroidBootstrap = false;     // set when centroids are missing but corpus >= threshold
 
   // model
   public id: string = null;

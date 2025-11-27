@@ -902,7 +902,7 @@ function anchor_title(modelId: string, version: string): string {
 function anchor_body(modelId: string): string {
   return `# Jarvis Model Anchor
 
-This note stores metadata and centroids for the Jarvis embedding model \
+This note stores metadata for the Jarvis embedding model \
 **${modelId}**. Do not edit or delete it unless you intend to rebuild the model index.
 `;
 }

@@ -3,7 +3,6 @@ import { ModelType } from 'api/types';
 import { getLogger } from '../utils/logger';
 import { UserDataEmbStore, EMB_META_KEY, NoteEmbMeta } from '../notes/userDataStore';
 import { remove_model_from_catalog } from '../notes/catalog';
-import { clear_centroid_cache } from '../notes/centroidLoader';
 import { clearApiResponse } from '../utils';
 
 const log = getLogger();
@@ -233,7 +232,6 @@ async function delete_model_data(modelId: string, noteIds: string[]): Promise<De
   }
 
   await remove_model_from_catalog(modelId);
-  clear_centroid_cache(modelId);
 
   return summary;
 }
@@ -376,7 +374,7 @@ export async function open_model_management_dialog(dialogHandle: string): Promis
 
       const noteIds = Array.from(noteIdsByModel.get(selectedModelId) ?? []);
       const confirm = await joplin.views.dialogs.showMessageBox(
-        `Delete model "${selectedModelId}"?\n\nThis removes embeddings from ${noteIds.length} notes and deletes associated centroids. This action cannot be undone.`,
+        `Delete model "${selectedModelId}"?\n\nThis removes embeddings from ${noteIds.length} notes. This action cannot be undone.`,
       );
       if (confirm !== 0) {
         message = 'Deletion cancelled.';

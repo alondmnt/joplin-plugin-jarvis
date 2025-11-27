@@ -19,10 +19,12 @@ import { BlockEmbedding } from './embeddings';
 const log = getLogger();
 
 // === Configuration ===
-const CACHE_SOFT_LIMIT_MB = 20;   // Mobile/conservative target
-const CACHE_HARD_LIMIT_MB = 50;   // Desktop/absolute cap
-const SAFETY_MARGIN = 1.15;       // 15% buffer for overhead
-const MAX_DIM_FOR_CACHE = 2048;   // Refuse pathologically large dims
+// Cache limits - always use in-memory cache for search
+const CACHE_MOBILE_LIMIT_MB = 100;   // Mobile limit
+const CACHE_DESKTOP_LIMIT_MB = 200;  // Desktop limit
+const CACHE_WARNING_THRESHOLD = 0.8; // Show warning at 80% capacity
+const SAFETY_MARGIN = 1.15;          // 15% buffer for overhead
+const MAX_DIM_FOR_CACHE = 2048;      // Refuse pathologically large dims
 
 const BYTES_PER_BLOCK = 68;       // Metadata overhead per block
 // Breakdown:
@@ -69,42 +71,63 @@ function estimateCacheBytes(numBlocks: number, dim: number): number {
 }
 
 /**
- * Decide whether to use in-memory cache based on estimated memory.
+ * Get the cache limit for the current platform.
  * Uses device profile (not actual platform) to allow mobile devices to use desktop limits.
  *
- * @param numBlocks - Estimated number of blocks in corpus
+ * @param profileIsDesktop - True if device profile is 'desktop' (from settings)
+ * @returns Cache limit in MB
+ */
+export function getCacheLimit(profileIsDesktop: boolean): number {
+  return profileIsDesktop ? CACHE_DESKTOP_LIMIT_MB : CACHE_MOBILE_LIMIT_MB;
+}
+
+/**
+ * Calculate cache capacity percentage for a given corpus size.
+ * Used for capacity warnings when approaching limits.
+ *
+ * @param numBlocks - Number of blocks in corpus
  * @param dim - Embedding dimension
  * @param profileIsDesktop - True if device profile is 'desktop' (from settings)
+ * @returns Capacity percentage (0-100+), or null if dimension is invalid
  */
-export function canUseInMemoryCache(
+export function calculateCacheCapacity(
   numBlocks: number,
   dim: number,
   profileIsDesktop: boolean
-): boolean {
-  // Sanity checks
-  if (dim > MAX_DIM_FOR_CACHE) {
-    log.warn(`[Cache] Dimension ${dim} exceeds max ${MAX_DIM_FOR_CACHE}, using IVF`);
-    return false;
+): number | null {
+  if (dim <= 0 || dim > MAX_DIM_FOR_CACHE) {
+    return null;
   }
 
   const bytes = estimateCacheBytes(numBlocks, dim);
   const mb = bytes / (1024 * 1024);
+  const limit = getCacheLimit(profileIsDesktop);
 
-  // Hard limit applies to all platforms
-  if (mb > CACHE_HARD_LIMIT_MB) {
-    log.info(`[Cache] Estimated ${mb.toFixed(1)}MB exceeds hard limit ${CACHE_HARD_LIMIT_MB}MB, using IVF`);
-    return false;
+  return (mb / limit) * 100;
+}
+
+/**
+ * Check if capacity warning should be shown (>= 80% of limit).
+ *
+ * @param numBlocks - Number of blocks in corpus
+ * @param dim - Embedding dimension
+ * @param profileIsDesktop - True if device profile is 'desktop' (from settings)
+ * @returns Warning info or null if no warning needed
+ */
+export function checkCapacityWarning(
+  numBlocks: number,
+  dim: number,
+  profileIsDesktop: boolean
+): { percentage: number; limitMB: number } | null {
+  const percentage = calculateCacheCapacity(numBlocks, dim, profileIsDesktop);
+  if (percentage === null || percentage < CACHE_WARNING_THRESHOLD * 100) {
+    return null;
   }
 
-  // Profile-based soft limits (allows mobile with desktop profile to use higher limit)
-  const limit = profileIsDesktop ? CACHE_HARD_LIMIT_MB : CACHE_SOFT_LIMIT_MB;
-  const canCache = mb <= limit;
-
-  if (!canCache) {
-    log.info(`[Cache] Estimated ${mb.toFixed(1)}MB exceeds ${profileIsDesktop ? 'desktop' : 'mobile'} profile limit ${limit}MB, using IVF`);
-  }
-
-  return canCache;
+  return {
+    percentage: Math.round(percentage),
+    limitMB: getCacheLimit(profileIsDesktop),
+  };
 }
 
 /**
@@ -169,7 +192,6 @@ export class SimpleCorpusCache {
       modelId,
       noteIds,  // All notes that have embeddings for this model (from candidateIds)
       maxRows: undefined,  // No limit - load everything
-      allowedCentroidIds: null,  // No IVF filtering - loads ALL blocks from ALL notes in noteIds (line 139 in userDataReader.ts skips only when allowedCentroidIds is truthy)
       currentModel: null,
       currentSettings: null,
       validationTracker: null,
@@ -332,7 +354,6 @@ export class SimpleCorpusCache {
       modelId,
       noteIds: [noteId],
       maxRows: undefined,
-      allowedCentroidIds: null,
       currentModel: null,
       currentSettings: null,
       validationTracker: null,

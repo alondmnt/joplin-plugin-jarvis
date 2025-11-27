@@ -12,20 +12,13 @@ import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../model
 import { search_keywords, ModelError, htmlToText, clearObjectReferences, clearApiResponse } from '../utils';
 import { quantize_vector_to_q8, cosine_similarity_q8, QuantizedRowView } from './q8';
 import { TopKHeap } from './topK';
-import { load_model_centroids, load_parent_map } from './centroidLoader';
-import { choose_nprobe, select_top_centroid_ids, MIN_TOTAL_ROWS_FOR_IVF } from './centroids';
-import { CentroidNoteIndex } from './centroidNoteIndex';
-import { assign_single_note_centroids } from './centroidAssignment';
 import { read_anchor_meta_data, write_anchor_metadata } from './anchorStore';
 import { resolve_anchor_note_id, get_catalog_note_id } from './catalog';
-import { SimpleCorpusCache, canUseInMemoryCache } from './embeddingCache';
+import { SimpleCorpusCache } from './embeddingCache';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
 const userDataStore = new UserDataEmbStore();
 const log = getLogger();
-
-// Global centroid-to-note index instance (initialized lazily)
-let globalCentroidIndex: CentroidNoteIndex | null = null;
 
 // Per-model in-memory cache instances
 const corpusCaches = new Map<string, SimpleCorpusCache>();
@@ -34,47 +27,86 @@ const corpusCaches = new Map<string, SimpleCorpusCache>();
 const corpusSizeCache = new Map<string, number>();
 
 /**
+ * Get tags for a note. Returns empty array on error.
+ */
+async function get_note_tags(noteId: string): Promise<string[]> {
+  let tagsResponse: any = null;
+  try {
+    tagsResponse = await joplin.data.get(['notes', noteId, 'tags'], { fields: ['title'] });
+    const tags = tagsResponse.items.map((t: any) => t.title);
+    clearApiResponse(tagsResponse);
+    return tags;
+  } catch (error) {
+    clearApiResponse(tagsResponse);
+    return [];
+  }
+}
+
+/**
  * Get all note IDs that have embeddings in userData.
  * Queries Joplin API for all notes, then filters to those with userData embeddings.
  * Used for candidate selection when experimental userData index is enabled.
- * 
+ *
  * @param modelId - Optional model ID to count blocks for a specific model
+ * @param excludedFolders - Optional set of folder IDs to exclude from results
  * @returns Object with noteIds set and optional totalBlocks count
  */
-export async function get_all_note_ids_with_embeddings(modelId?: string): Promise<{ 
-  noteIds: Set<string>; 
+export async function get_all_note_ids_with_embeddings(
+  modelId?: string,
+  excludedFolders?: Set<string>
+): Promise<{
+  noteIds: Set<string>;
   totalBlocks?: number;
 }> {
   const startTime = Date.now();
   const noteIds = new Set<string>();
   let totalBlocks = 0;
+  let excludedCount = 0;
   let page = 1;
   let hasMore = true;
-  
+
+  // Determine if we need to filter by folders/tags
+  const shouldFilter = excludedFolders && excludedFolders.size > 0;
+
   while (hasMore) {
     let response: any = null;
     try {
       response = await joplin.data.get(['notes'], {
-        fields: ['id'],
+        fields: shouldFilter ? ['id', 'parent_id'] : ['id'],
         page,
         limit: 100,
         order_by: 'user_updated_time',
         order_dir: 'DESC',
       });
-      
+
       for (const note of response.items) {
+        // Filter by excluded folders if provided
+        if (shouldFilter && excludedFolders.has(note.parent_id)) {
+          excludedCount++;
+          continue;
+        }
+
+        // Filter by exclusion tags if filtering is enabled
+        if (shouldFilter) {
+          const tags = await get_note_tags(note.id);
+          if (tags.includes('jarvis-exclude') || tags.includes('exclude.from.jarvis')) {
+            excludedCount++;
+            continue;
+          }
+        }
+
         // Check if this note has userData embeddings
         const meta = await userDataStore.getMeta(note.id);
         if (meta && meta.models && Object.keys(meta.models).length > 0) {
           noteIds.add(note.id);
-          
+
           // Count blocks for specific model if requested
           if (modelId && meta.models[modelId]) {
             totalBlocks += meta.models[modelId].current.rows ?? 0;
           }
         }
       }
-      
+
       hasMore = response.has_more;
       page++;
     } catch (error) {
@@ -85,58 +117,10 @@ export async function get_all_note_ids_with_embeddings(modelId?: string): Promis
       clearApiResponse(response);
     }
   }
-  
-  const duration = Date.now() - startTime;
-  log.debug(`Candidate selection: found ${noteIds.size} notes with embeddings${modelId ? `, ${totalBlocks} blocks for model ${modelId}` : ''} (took ${duration}ms)`);
-  return { noteIds, totalBlocks: modelId ? totalBlocks : undefined };
-}
 
-/**
- * Bootstrap missing centroids on startup if corpus is large enough.
- * This is a simple, single-purpose check that runs once at startup.
- * 
- * @param model - Embedding model
- * @param settings - Jarvis settings
- */
-export async function bootstrap_missing_centroids_on_startup(model: TextEmbeddingModel, settings: JarvisSettings): Promise<void> {
-  if (!settings.notes_db_in_user_data || !model.id) {
-    return;
-  }
-  
-  try {
-    const catalogId = await get_catalog_note_id();
-    if (!catalogId) return;
-    
-    const anchorId = await resolve_anchor_note_id(catalogId, model.id);
-    if (!anchorId) return;
-    
-    const anchorMeta = await read_anchor_meta_data(anchorId);
-    if (!anchorMeta || !anchorMeta.rowCount) {
-      log.debug('Bootstrap: no anchor metadata found');
-      return;
-    }
-    
-    // Check if corpus is large enough for IVF
-    if (anchorMeta.rowCount < MIN_TOTAL_ROWS_FOR_IVF) {
-      log.debug(`Bootstrap: corpus too small (${anchorMeta.rowCount} < ${MIN_TOTAL_ROWS_FOR_IVF})`);
-      return;
-    }
-    
-    // Check if centroids exist
-    const { read_centroids } = await import('./anchorStore');
-    const centroidPayload = await read_centroids(anchorId);
-    if (centroidPayload?.b64) {
-      log.debug('Bootstrap: centroids already exist');
-      return;
-    }
-    
-    // Centroids missing - set flag to force training on next note process
-    console.warn(`Jarvis: Centroids missing but corpus has ${anchorMeta.rowCount} rows (≥${MIN_TOTAL_ROWS_FOR_IVF}) - will train during next sweep`);
-    model.needsCentroidBootstrap = true;
-    
-  } catch (error) {
-    log.warn('Bootstrap: failed to check centroids', error);
-  }
+  const duration = Date.now() - startTime;
+  log.debug(`Candidate selection: found ${noteIds.size} notes with embeddings${modelId ? `, ${totalBlocks} blocks for model ${modelId}` : ''}${excludedCount > 0 ? `, excluded ${excludedCount}` : ''} (took ${duration}ms)`);
+  return { noteIds, totalBlocks: modelId ? totalBlocks : undefined };
 }
 
 /**
@@ -213,8 +197,6 @@ export async function validate_anchor_metadata_on_startup(modelId: string, setti
 interface SearchTuning {
   profile: 'desktop' | 'mobile';
   candidateLimit: number;
-  minNprobe: number;
-  smallSetNprobe: number;
   maxRows: number;
   timeBudgetMs: number;
   parentTargetSize: number;
@@ -231,7 +213,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * Derive conservative search knobs from settings so IVF probing stays within platform budgets.
+ * Derive search parameters from settings for in-memory cache search.
  */
 function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
   const baseHits = Math.max(settings.notes_max_hits, 1);
@@ -240,8 +222,8 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
   const profile: 'desktop' | 'mobile' = requestedProfile === 'mobile' ? 'mobile' : 'desktop';
 
   const candidateOverride = Number(settings.notes_search_candidate_limit ?? 0);
-  const candidateFloor = profile === 'mobile' ? 320 : 1536;  // Desktop: 1024 → 1536 (better CPU utilization)
-  const candidateCeil = profile === 'mobile' ? 800 : 8192;   // Mobile: 960 → 800 (reduce memory pressure)
+  const candidateFloor = profile === 'mobile' ? 320 : 1536;
+  const candidateCeil = profile === 'mobile' ? 800 : 8192;
   const candidateMultiplier = profile === 'mobile' ? 24 : 64;
   const computedCandidate = baseHits * candidateMultiplier;
   const defaultCandidate = clamp(computedCandidate, candidateFloor, candidateCeil);
@@ -249,30 +231,16 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
     ? clamp(candidateOverride, 1, 10000)
     : defaultCandidate;
 
-  const minNprobeOverride = Number(settings.notes_search_min_nprobe ?? 0);
-  const defaultMinNprobe = profile === 'mobile'
-    ? (baseHits >= 20 ? 14 : 12)  // Mobile unchanged (already optimal for memory safety)
-    : (baseHits >= 20 ? 24 : 20);  // Desktop: 20→24, 16→20 (better recall on medium corpora)
-  let minNprobe = minNprobeOverride > 0
-    ? Math.max(1, minNprobeOverride)
-    : defaultMinNprobe;
-
-  const smallSetOverride = Number(settings.notes_search_small_set_nprobe ?? 0);
-  const defaultSmallSet = Math.max(4, Math.round(minNprobe / 2));
-  let smallSetNprobe = smallSetOverride > 0
-    ? clamp(smallSetOverride, 1, minNprobe)
-    : defaultSmallSet;
-
   const maxRowsOverride = Number(settings.notes_search_max_rows ?? 0);
   const defaultMaxRows = profile === 'mobile'
-    ? clamp(candidateLimit * 3, 1200, 4000)     // Mobile unchanged
-    : clamp(candidateLimit * 4, 6000, 24000);   // Desktop: 20000 → 24000 (better recall for large result sets)
+    ? clamp(candidateLimit * 3, 1200, 4000)
+    : clamp(candidateLimit * 4, 6000, 24000);
   let maxRows = maxRowsOverride > 0
     ? Math.max(candidateLimit, maxRowsOverride)
     : defaultMaxRows;
 
   const timeBudgetOverride = Number(settings.notes_search_time_budget_ms ?? 0);
-  const defaultTimeBudget = profile === 'mobile' ? 120 : 500;  // Mobile: 150→120ms (snappier), Desktop: 350→500ms (thorough)
+  const defaultTimeBudget = profile === 'mobile' ? 120 : 500;
   let timeBudgetMs = timeBudgetOverride > 0
     ? timeBudgetOverride
     : defaultTimeBudget;
@@ -280,16 +248,12 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
   const parentTargetSize = profile === 'mobile' ? 256 : 0;
 
   candidateLimit = Math.max(1, Math.round(candidateLimit));
-  minNprobe = Math.max(1, Math.round(minNprobe));
-  smallSetNprobe = Math.max(1, Math.round(smallSetNprobe));
   maxRows = Math.max(1, Math.round(maxRows));
   timeBudgetMs = Math.max(0, Math.round(timeBudgetMs));
 
   return {
     profile,
     candidateLimit,
-    minNprobe,
-    smallSetNprobe,
     maxRows,
     timeBudgetMs,
     parentTargetSize,
@@ -372,7 +336,6 @@ export interface BlockEmbedding {
   embedding: Float32Array;  // block embedding
   similarity?: number;  // similarity to the query (computed during search)
   q8?: QuantizedRowView;  // optional q8 view used for cosine scoring
-  centroidId?: number;  // optional IVF list id (when shards store assignments)
 }
 
 export interface NoteEmbedding {
@@ -628,17 +591,14 @@ async function update_note(note: any,
     log.debug(`Late exclusion (safety check): note ${note.id} - reason: ${excludeReason}`);
     delete_note_and_embeddings(model.db, note.id);
     
-    // Delete all userData embeddings (for all models) and update centroid index
+    // Delete all userData embeddings (for all models)
     if (settings.notes_db_in_user_data) {
       try {
         await userDataStore.gcOld(note.id, '', '');
       } catch (error) {
         log.warn(`Failed to delete userData for excluded note ${note.id}`, error);
       }
-      
-      // Remove from centroid index (in-memory, synchronous)
-      remove_note_from_centroid_index(note.id, model.id);
-      
+
       // Incrementally update cache (remove blocks for deleted note)
       const cache = corpusCaches.get(model.id);
       if (cache?.isBuilt()) {
@@ -722,7 +682,6 @@ async function update_note(note: any,
               // Clear base64 strings from shard after inspection
               delete (first as any).vectorsB64;
               delete (first as any).scalesB64;
-              delete (first as any).centroidIdsB64;
             }
           } catch (e) {
             // Shard read failed - treat as missing/corrupt
@@ -822,21 +781,9 @@ async function update_note(note: any,
 
     // Write embeddings to appropriate storage
     if (settings.notes_db_in_user_data) {
-      // userData mode: Write to userData first, then assign centroids, then update reverse index
-      // Must be sequential: centroid assignment and index update both read from userData
+      // userData mode: Write to userData
       await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId, anchorId, corpusRowCountAccumulator);
-      
-      // Assign centroid IDs immediately if centroids exist (ensures new notes are IVF-searchable)
-      // This is an optimization - if it fails, centroids will be assigned during next DB sweep
-      await assign_single_note_centroids(note.id, model.id, userDataStore).catch(error => {
-        log.debug(`Failed to assign centroids for note ${note.id} (will be assigned in next sweep)`, error);
-      });
-      
-      // Update reverse index (centroid -> notes mapping) for IVF search
-      await update_centroid_index_for_note(note.id, model.id).catch(error => {
-        log.warn(`Failed to update centroid index for note ${note.id}`, error);
-      });
-      
+
       // Incrementally update cache (replace blocks for updated note)
       const cache = corpusCaches.get(model.id);
       if (cache?.isBuilt()) {
@@ -1238,122 +1185,6 @@ export async function add_note_title(embeddings: BlockEmbedding[]): Promise<Bloc
 
 
 /**
- * Build centroid-to-note index during startup or full database update.
- * Piggybacks on note scanning to populate index without additional overhead.
- * Called from update_note_db before processing notes.
- * 
- * If index already built, just refreshes it (fast timestamp query).
- */
-export async function build_centroid_index_on_startup(
-  modelId: string,
-  settings: JarvisSettings
-): Promise<void> {
-  if (!settings.notes_db_in_user_data) {
-    return; // Feature disabled
-  }
-
-  try {
-    // Check if index already exists and is built
-    if (globalCentroidIndex && globalCentroidIndex.get_model_id() === modelId && globalCentroidIndex.is_built()) {
-      log.debug('CentroidIndex: Already built, refreshing...');
-      await globalCentroidIndex.refresh();
-      log.debug('CentroidIndex: Refresh completed');
-      return;
-  }
-
-  // Build centroid index during startup for better search performance
-  await get_or_init_centroid_index(modelId, settings);
-} catch (error) {
-  log.warn('CentroidIndex: Failed to build during startup', error);
-}
-}
-
-/**
- * Get or initialize the global centroid-to-note index for the current model.
- * Handles index creation, full build (if not yet built), and refresh.
- */
-async function get_or_init_centroid_index(
-  modelId: string,
-  settings: JarvisSettings
-): Promise<CentroidNoteIndex> {
-  // Initialize index if needed
-  if (!globalCentroidIndex || globalCentroidIndex.get_model_id() !== modelId) {
-    if (settings.notes_debug_mode) {
-      log.info(`CentroidIndex: Initializing for model ${modelId}`);
-    }
-    globalCentroidIndex = new CentroidNoteIndex(userDataStore, modelId, settings.notes_debug_mode);
-  }
-
-  // Build if not yet built (lazy fallback)
-  if (!globalCentroidIndex.is_built()) {
-    log.info('CentroidIndex: Building index...');
-    await globalCentroidIndex.build_full((processed, total) => {
-      // Log progress milestones
-      if (!total && processed % 500 === 0) {
-        log.info(`CentroidIndex: Build progress - ${processed} notes processed...`);
-      }
-    });
-  } else {
-    // Refresh to catch recent updates (timestamp query, ~50-100ms)
-    const startTime = Date.now();
-    await globalCentroidIndex.refresh();
-    const refreshTime = Date.now() - startTime;
-    
-    // Log performance metrics (as specified in task list)
-    if (refreshTime > 100) {
-      log.warn(`CentroidIndex: Refresh took ${refreshTime}ms (>100ms threshold)`);
-    }
-  }
-
-  return globalCentroidIndex;
-}
-
-/**
- * Reset the global centroid-to-note index (called when model changes or on explicit rebuild).
- */
-export function reset_centroid_index(): void {
-  globalCentroidIndex = null;
-  log.info('CentroidIndex: Reset global index');
-}
-
-/**
- * Get diagnostics from the global centroid index (for monitoring/debugging).
- * Returns null if index is not built yet.
- */
-export async function get_centroid_index_diagnostics(
-  modelId: string,
-  settings: JarvisSettings
-): Promise<ReturnType<CentroidNoteIndex['get_diagnostics']> | null> {
-  if (!settings.notes_db_in_user_data) {
-    return null;
-  }
-  
-  if (!globalCentroidIndex || globalCentroidIndex.get_model_id() !== modelId || !globalCentroidIndex.is_built()) {
-    return null;
-  }
-  
-  return globalCentroidIndex.get_diagnostics();
-}
-
-/**
- * Update a single note in the centroid-to-note index (called after embedding a note).
- */
-export async function update_centroid_index_for_note(noteId: string, modelId: string): Promise<void> {
-  if (globalCentroidIndex && globalCentroidIndex.get_model_id() === modelId) {
-    await globalCentroidIndex.update_note(noteId);
-  }
-}
-
-/**
- * Remove a note from the centroid-to-note index (called when note is excluded or deleted).
- */
-function remove_note_from_centroid_index(noteId: string, modelId: string): void {
-  if (globalCentroidIndex && globalCentroidIndex.get_model_id() === modelId) {
-    globalCentroidIndex.remove_note(noteId);
-  }
-}
-
-/**
  * Clear in-memory cache for a model (called on model switch).
  * Frees memory from old model.
  */
@@ -1411,7 +1242,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true, panel?: string):
     Promise<NoteEmbedding[]> {
 
-  let searchStartTime = 0;  // Will be set right before IVF/userData search starts
+  let searchStartTime = 0;  // Will be set right before cache search starts
   let combinedEmbeddings = embeddings;
 
   // Clear stale similarities from previous searches on legacy embeddings
@@ -1491,283 +1322,16 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   let queryQ8 = quantize_vector_to_q8(rep_embedding);
 
-  const computeAllowedCentroids = async (queryVector: Float32Array, candidateCount: number): Promise<Set<number> | null> => {
-    if (!settings.notes_db_in_user_data) {
-      log.debug(`IVF disabled: userData mode not enabled (candidateCount=${candidateCount})`);
-      return null;
-    }
-    if (candidateCount < MIN_TOTAL_ROWS_FOR_IVF) {
-      log.debug(`IVF disabled: candidateCount=${candidateCount} < threshold=${MIN_TOTAL_ROWS_FOR_IVF}`);
-      return null;
-    }
-    const centroids = await load_model_centroids(model.id);
-    if (!centroids || centroids.dim !== queryVector.length || centroids.nlist <= 0) {
-      const centroidInfo = centroids 
-        ? `dim=${centroids.dim}/${queryVector.length}, nlist=${centroids.nlist}` 
-        : `not loaded (expected dim=${queryVector.length})`;
-      log.warn(`IVF unavailable: centroids=${!!centroids}, ${centroidInfo}`, { modelId: model.id });
-      return null;
-    }
-    const nprobe = choose_nprobe(centroids.nlist, candidateCount, {
-      min: tuning.minNprobe,
-      smallSet: tuning.smallSetNprobe,
-      debug: settings.notes_debug_mode,
-    });
-    
-    if (settings.notes_debug_mode) {
-      log.info(`IVF enabled: nlist=${centroids.nlist}, nprobe=${nprobe}, corpus=${candidateCount} blocks`);
-    }
-    
-    if (nprobe <= 0) {
-      return null;
-    }
-    
-    // Get populated centroid IDs for diagnostic purposes (measures empty centroid probing)
-    let populatedCentroidIds: Set<number> | undefined;
-    if (settings.notes_debug_mode) {
-      try {
-        const centroidIndex = await get_or_init_centroid_index(model.id, settings);
-        populatedCentroidIds = centroidIndex.get_populated_centroid_ids();
-      } catch (error) {
-        log.warn('Failed to get populated centroid IDs for diagnostics', error);
-      }
-    }
-    
-    const topIds = select_top_centroid_ids(queryVector, centroids, nprobe, populatedCentroidIds, settings.notes_debug_mode);
-    if (topIds.length === 0) {
-      return null;
-    }
-    
-    // DIAGNOSTIC: Log centroid hash and populated coverage (debug mode only)
-    if (settings.notes_debug_mode && populatedCentroidIds) {
-      const populatedCount = populatedCentroidIds.size;
-      const populatedInProbe = topIds.filter(id => populatedCentroidIds.has(id)).length;
-      const emptyInProbe = topIds.length - populatedInProbe;
-      const coverage = centroids.nlist > 0 ? (populatedCount / centroids.nlist * 100).toFixed(1) : '0';
-      const probeWaste = topIds.length > 0 ? (emptyInProbe / topIds.length * 100).toFixed(1) : '0';
-      
-      log.info(`[Jarvis] Centroid stats: ${populatedCount}/${centroids.nlist} populated (${coverage}% coverage), probing ${topIds.length} (${emptyInProbe} empty = ${probeWaste}% waste)`);
-      
-      if (centroids.hash) {
-        log.info(`[Jarvis] Centroid hash: ${centroids.hash.substring(0, 16)}...`);
-      }
-      
-      // CRITICAL: If >50% of probed centroids are empty, this explains low recall!
-      if (emptyInProbe / topIds.length > 0.5) {
-        log.warn(`🔴 CRITICAL: ${probeWaste}% of probed centroids are EMPTY! This severely impacts recall.`);
-        log.warn(`   Populated centroids: ${populatedCount}/${centroids.nlist} (${coverage}% coverage)`);
-        log.warn(`   This suggests: (1) Centroid training used different data than assignments, OR`);
-        log.warn(`                  (2) Centroid index is stale/not rebuilt after reassignment`);
-      }
-    }
-    if (tuning.profile === 'mobile' && tuning.parentTargetSize > 0) {
-      // On mobile devices try routing through the canonical parent map so we only probe
-      // a handful of coarse lists before expanding back to children.
-      const parentMap = await load_parent_map(model.id, tuning.parentTargetSize);
-      if (parentMap && parentMap.length === centroids.nlist) {
-        const selectedParents = new Set<number>();
-        for (const id of topIds) {
-          const parent = parentMap[id] ?? -1;
-          if (parent >= 0) {
-            selectedParents.add(parent);
-          }
-        }
-        if (selectedParents.size > 0) {
-          const expanded = new Set<number>();
-          for (let child = 0; child < parentMap.length; child += 1) {
-            if (selectedParents.has(parentMap[child])) {
-              expanded.add(child);
-            }
-          }
-          log.info(`Mobile parent mapping: nprobe=${nprobe} → expanded to ${expanded.size} child centroids via ${selectedParents.size} parents`);
-          if (expanded.size > 0 && expanded.size <= tuning.candidateLimit * 4) {
-            return expanded;
-          }
-        }
-      } else {
-        log.warn(`Mobile parent map unavailable: map=${!!parentMap}, length=${parentMap?.length}/${centroids.nlist}`);
-      }
-    }
-    return new Set(topIds);
-  };
-
-  let preloadAllowedCentroidIds: Set<number> | null = null;
-  let ivfCandidateNoteIds: Set<string> | null = null;
-
-  if (rep_embedding && settings.notes_db_in_user_data) {
-    // On userData path, use corpus size from anchor metadata (not loaded embeddings count)
-    // This determines whether to use cache (memory-based) or IVF (size-based)
-    let corpusSize = 0;
-    
-    if (corpusSizeCache.has(model.id)) {
-      corpusSize = corpusSizeCache.get(model.id)!;
-    } else {
-    try {
-      const catalogId = await get_catalog_note_id();
-      if (!catalogId) {
-        log.debug('IVF: Catalog note not found, corpus size unknown');
-          // Cache 0 to avoid repeated catalog lookups
-          corpusSizeCache.set(model.id, 0);
-      } else {
-        const anchorId = await resolve_anchor_note_id(catalogId, model.id);
-        if (!anchorId) {
-          log.debug('IVF: Anchor note not found for model, corpus size unknown', { modelId: model.id });
-            // Cache 0 to avoid repeated anchor lookups
-            corpusSizeCache.set(model.id, 0);
-        } else {
-          const anchorMeta = await read_anchor_meta_data(anchorId);
-          if (!anchorMeta) {
-            log.debug('IVF: Anchor metadata not found, corpus size unknown', { anchorId });
-              // Cache 0 to avoid repeated metadata reads
-              corpusSizeCache.set(model.id, 0);
-          } else if (!anchorMeta.rowCount || anchorMeta.rowCount === 0) {
-            if (settings.notes_debug_mode) {
-                log.info('IVF: Anchor rowCount is 0 or missing, corpus likely empty or not yet built');
-            }
-              // Cache 0 to avoid repeated anchor reads (corpus may be empty or not initialized)
-              corpusSizeCache.set(model.id, 0);
-          } else {
-            corpusSize = anchorMeta.rowCount;
-              corpusSizeCache.set(model.id, corpusSize);
-            if (settings.notes_debug_mode) {
-              log.info(`IVF: Read corpus size from anchor: ${corpusSize} rows`, { anchorId, modelId: model.id });
-            }
-          }
-        }
-      }
-    } catch (error) {
-      log.warn('Failed to read corpus size from anchor, IVF will be disabled', error);
-        // Cache 0 on error to avoid repeated failed attempts
-        corpusSizeCache.set(model.id, 0);
-      }
-    }
-    
-    // Check memory-based cache threshold FIRST (primary optimization)
-    // Only compute IVF centroids if corpus is too large for cache
-    // Use device profile (not platform) to allow mobile with desktop profile to use higher cache limit
-    const deviceProfile = settings.notes_device_profile_effective
-      ?? (settings.notes_device_profile === 'mobile' ? 'mobile' : 'desktop');
-    const profileIsDesktop = deviceProfile !== 'mobile';
-    const queryDim = rep_embedding?.length ?? 0;
-    
-    // If corpusSize is 0 or unknown, we can't make cache decision - fall back to IVF or brute-force
-    // corpusSize = 0 means either empty corpus or metadata not available yet
-    let canUseCache = false;
-    if (corpusSize > 0 && queryDim > 0) {
-      canUseCache = canUseInMemoryCache(corpusSize, queryDim, profileIsDesktop);
-    } else if (corpusSize === 0 && queryDim > 0) {
-      // Corpus size unknown (0) - can't use cache safely, fall back to IVF or brute-force
-      if (settings.notes_debug_mode) {
-        log.info(`[Cache] Corpus size unknown (0), skipping cache decision - will use IVF or brute-force`);
-      }
-      canUseCache = false;
-    }
-    
-    if (canUseCache) {
-      if (settings.notes_debug_mode) {
-        const memMB = (corpusSize * queryDim * 1.15 * 1.076) / (1024 * 1024);
-        log.info(`[Cache] Corpus fits in memory: ${corpusSize} blocks @ ${queryDim}-dim ≈ ${memMB.toFixed(1)}MB, using cache (skipping IVF)`);
-      }
-      // Skip IVF computation - we'll use cache instead
-      preloadAllowedCentroidIds = null;
-    } else {
-      // Corpus too large for cache OR corpus size unknown - use IVF (if available) or brute-force
-      if (corpusSize > 0) {
-    preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, corpusSize);
-      } else {
-        // Corpus size unknown - can't use IVF (needs size), will fall back to brute-force
-        if (settings.notes_debug_mode) {
-          log.info(`[Cache] Corpus size unknown, skipping IVF - will use brute-force search`);
-        }
-        preloadAllowedCentroidIds = null;
-      }
-    }
-  } else if (rep_embedding) {
-    // Legacy path: use loaded embeddings count
-    // Note: computeAllowedCentroids returns null immediately in legacy mode (userData not enabled)
-    // This is correct - IVF is not used in legacy SQLite mode
-    const candidateCount = combinedEmbeddings.length;
-    if (candidateCount > 0) {
-      preloadAllowedCentroidIds = await computeAllowedCentroids(rep_embedding, candidateCount);
-    } else {
-      // No embeddings loaded yet - IVF not applicable
-      preloadAllowedCentroidIds = null;
-    }
-  }
-  
-  // If IVF is enabled and we have centroid IDs, use centroid-to-note index to filter candidates
-  if (preloadAllowedCentroidIds && preloadAllowedCentroidIds.size > 0 && settings.notes_db_in_user_data) {
-    try {
-      const centroidIndex = await get_or_init_centroid_index(model.id, settings);
-      const topCentroidIds = Array.from(preloadAllowedCentroidIds);
-      // Pass excluded folders to filter out notes in excluded folders from search results
-      ivfCandidateNoteIds = centroidIndex.lookup(topCentroidIds, settings.notes_exclude_folders);
-      
-      // Calculate and log IVF efficiency metrics
-      const totalNotes = centroidIndex.get_all_note_ids().size;
-      const selectedNotes = ivfCandidateNoteIds.size;
-      const efficiencyPct = totalNotes > 0 ? (1 - selectedNotes / totalNotes) * 100 : 0;
-      const efficiency = efficiencyPct.toFixed(1);
-      const centroidsInfo = await load_model_centroids(model.id);
-      const totalCentroids = centroidsInfo?.nlist ?? 0;
-      
-      // Log IVF efficiency (debug mode only)
-      if (settings.notes_debug_mode) {
-        console.info(`[Jarvis] IVF selected ${selectedNotes}/${totalNotes} notes (${efficiency}% filtered) from ${topCentroidIds.length}/${totalCentroids} centroids`);
-      }
-      
-      if (settings.notes_debug_mode) {
-        log.info(`CentroidIndex: IVF selected ${ivfCandidateNoteIds.size} notes from ${topCentroidIds.length} centroids`);
-      }
-      
-      // DIAGNOSTIC: Validate IVF consistency (debug mode only)
-      // Warn only if efficiency is very low (<20%) which suggests a problem
-      if (settings.notes_debug_mode && efficiencyPct < 20) {
-        console.warn(`⚠️  Very low IVF efficiency (${efficiency}% < 20%) - possible mega-cluster issue`);
-        console.warn(`   Selected centroids: ${topCentroidIds.length}/${totalCentroids} (${(topCentroidIds.length/totalCentroids*100).toFixed(1)}% probe rate)`);
-        console.warn(`   Average notes per centroid: ${(selectedNotes / topCentroidIds.length).toFixed(1)}`);
-        console.warn(`   This suggests highly imbalanced cluster distribution`);
-      }
-      
-      // Fallback to loading all notes if index returned no candidates (shouldn't happen but be safe)
-      if (ivfCandidateNoteIds.size === 0) {
-        log.warn('CentroidIndex: Lookup returned 0 candidates, falling back to full scan');
-        ivfCandidateNoteIds = null;
-      }
-    } catch (error) {
-      log.error('CentroidIndex: Failed to use index for candidate selection, falling back to full scan', error);
-      ivfCandidateNoteIds = null;
-    }
-  }
-
   if (settings.notes_db_in_user_data) {
-    // Start IVF search timer here (includes candidate selection, same as brute-force which includes get_all_note_ids)
-    searchStartTime = Date.now();
-    
-    // Build candidate set: if IVF index lookup succeeded, use filtered candidates; otherwise build index first
-    let candidateIds: Set<string>;
-    
-    if (ivfCandidateNoteIds) {
-      candidateIds = ivfCandidateNoteIds;
-    } else {
-      // IVF disabled or unavailable - build/refresh centroid index which already has noteIds cached
-      // This is much faster than scanning all notes (index build is ~50-100ms vs full scan ~240ms)
-      const centroidIndex = await get_or_init_centroid_index(model.id, settings);
-      // Pass excluded folders to filter out notes in excluded folders from search/cache
-      candidateIds = centroidIndex.get_all_note_ids(settings.notes_exclude_folders);
-    }
-    
+    // Get all note IDs with embeddings for this model (filtering excluded folders/tags)
+    const result = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders);
+    const candidateIds = result.noteIds;
     candidateIds.add(current_id);
-    
-    // === In-Memory Cache Path ===
-    // For small corpuses, cache all embeddings in RAM and search without I/O
-    // Cache decision already made above based on memory threshold
+
+    // Always use in-memory cache for userData mode
     const queryDim = rep_embedding?.length ?? 0;
 
-    // Use cache if preloadAllowedCentroidIds is null (meaning memory check passed)
-    const useCache = queryDim > 0 && preloadAllowedCentroidIds === null;
-    
-    if (useCache) {
+    if (queryDim > 0) {
       const estimatedBlocks = candidateIds.size * 10;  // For logging only
       // Small corpus: use in-memory cache
       log.info(`[Cache] Using in-memory cache (${candidateIds.size} notes, ~${estimatedBlocks} blocks @ ${queryDim}-dim)`);
@@ -1846,81 +1410,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       // Clear cache results after conversion (prevent memory leak)
       clearObjectReferences(cacheResults);
       
-      // Skip to final processing (bypass userData loading path)
-    } else {
-      // Large corpus or IVF enabled: use existing userData loading path
-    const replaceIds = new Set<string>();
-    const userBlocksHeap = new TopKHeap<BlockEmbedding>(tuning.candidateLimit, {
-      minScore: settings.notes_min_similarity,
-    });
-    const deadline = tuning.timeBudgetMs > 0 ? Date.now() + tuning.timeBudgetMs : Number.POSITIVE_INFINITY;
-    
-    // Extract current settings for validation
-    const currentSettings = extract_embedding_settings_for_validation(settings);
-    
-    try {
-      await read_user_data_embeddings({
-        store: userDataStore,
-        modelId: model.id,
-        noteIds: Array.from(candidateIds),
-        maxRows: tuning.maxRows,
-        allowedCentroidIds: preloadAllowedCentroidIds,
-        // Enable validation: track mismatches but include mismatched notes in results
-        currentModel: model,
-        currentSettings,
-        validationTracker: globalValidationTracker,
-        onBlock: (block) => {
-          if (deadline !== Number.POSITIVE_INFINITY && Date.now() > deadline) {
-            return true;
-          }
-          if (block.length < settings.notes_min_length || block.id === current_id) {
-            return false;
-          }
-          const similarity = block.q8 && block.q8.values.length === queryQ8.values.length
-            ? cosine_similarity_q8(block.q8, queryQ8)
-            : calc_similarity(rep_embedding, ensure_float_embedding(block));
-          if (similarity < settings.notes_min_similarity) {
-            return false;
-          }
-          block.similarity = similarity;
-          replaceIds.add(block.id);
-          userBlocksHeap.push(similarity, block);
-          return false;
-        },
-      });
-    } catch (error) {
-      log.warn('Failed to load userData embeddings', error);
+      // Skip to final processing
     }
-
-    const userBlocks = userBlocksHeap.valuesDescending().map(entry => {
-      const block = entry.value;
-      ensure_float_embedding(block);
-      return block;
-    });
-
-    if (userBlocks.length > 0) {
-      if (settings.notes_debug_mode) {
-        log.info(`userData search: ${userBlocks.length} blocks from ${replaceIds.size} notes (${candidateIds.size} candidates)`);
-      }
-      // Don't pollute model.embeddings cache when experimental mode is on
-      // userData has its own proper LRU cache in userDataStore
-      const replaceIdsArray = Array.from(replaceIds);
-      const legacyBlocks = combinedEmbeddings.filter(embed => !replaceIds.has(embed.id));
-      combinedEmbeddings = legacyBlocks.concat(userBlocks);
-    }
-    
-    // After search completes, check if validation dialog should be shown
-    // Dialog shown once per session if mismatches detected
-    if (globalValidationTracker.should_show_dialog()) {
-      const mismatchSummary = globalValidationTracker.format_mismatches_for_dialog();
-      const mismatchedNoteIds = Array.from(
-        new Set(globalValidationTracker.get_mismatches().map(m => m.noteId))
-      );
-      
-      // Show dialog with human-readable diffs
-      await show_validation_dialog(mismatchSummary, mismatchedNoteIds, model, settings);
-    }
-    }  // End of userData loading path (cache bypass)
   }
 
   // include links in the representation of the query using the updated candidate pool
@@ -1934,12 +1425,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }
   }
 
-  // Use precomputed IVF decision (based on full corpus size, not filtered results)
-  // No need to recalculate - the corpus size doesn't change just because we filtered results
-  const allowedCentroidIds = preloadAllowedCentroidIds;
-
   if (settings.notes_debug_mode) {
-    log.info(`Final filtering: ${combinedEmbeddings.length} blocks, IVF=${allowedCentroidIds ? `${allowedCentroidIds.size} centroids` : 'off'}`);
+    log.info(`Final filtering: ${combinedEmbeddings.length} blocks`);
   }
 
   const heapCapacity = tuning.candidateLimit; // Keep buffer aligned with streaming candidate cap.
@@ -1979,11 +1466,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     if (embed.id === current_id) {
       continue;
     }
-    if (allowedCentroidIds && embed.centroidId !== undefined && !allowedCentroidIds.has(embed.centroidId)) {
-      // The row belongs to a list we decided not to probe for this query.
-      continue;
-    }
-    
+
     if (heap) {
       heap.push(similarity, embed);
     } else {
@@ -2050,9 +1533,9 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   });
   notesWithScores.sort((a, b) => b.agg_sim - a.agg_sim);
   
-  // End IVF timer HERE (before title fetching) for fair comparison with brute-force
-  const ivfSearchEndTime = Date.now();
-  const ivfSearchTimeMs = searchStartTime > 0 ? ivfSearchEndTime - searchStartTime : 0;
+  // End search timer HERE (before title fetching)
+  const searchEndTime = Date.now();
+  const searchTimeMs = searchStartTime > 0 ? searchEndTime - searchStartTime : 0;
 
   // Now fetch titles (not included in timing)
   // Also fetch parent_id to filter out notes in excluded folders (safeguard for edge cases)
@@ -2092,158 +1575,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   if (settings.notes_debug_mode) {
     log.info(`Returning ${result.length} notes (max: ${settings.notes_max_hits}), top similarity: ${result[0]?.similarity?.toFixed(3) || 'N/A'}`);
   }
-  
-  // Validate IVF recall by comparing with brute-force search (only when debug mode enabled)
-  if (settings.notes_debug_mode && settings.notes_db_in_user_data && preloadAllowedCentroidIds) {
-    validate_ivf_recall(query, rep_embedding, result, model, settings, current_id, ivfSearchTimeMs).catch(err => {
-      log.error('IVF validation failed', err);
-    });
-  }
-  
-  return result;
-}
 
-/**
- * Validate IVF recall by running the same search without IVF filtering and comparing top-K results.
- * This runs asynchronously after the main search completes to avoid blocking the user.
- * Only runs when debug mode is enabled.
- */
-async function validate_ivf_recall(
-  query: string,
-  queryEmbedding: Float32Array,
-  ivfResults: NoteEmbedding[],
-  model: TextEmbeddingModel,
-  settings: JarvisSettings,
-  currentNoteId: string,
-  ivfSearchTimeMs: number
-): Promise<void> {
-  const log = getLogger();
-  
-  try {
-    console.info('[Jarvis] 🔍 IVF Validation: Running brute-force search for comparison...');
-    const startTime = Date.now();
-    
-    // Get all notes without IVF filtering
-    const { get_all_note_ids_with_embeddings } = await import('./embeddings');
-    const allNotesResult = await get_all_note_ids_with_embeddings(model.id);
-    const allNoteIds = Array.from(allNotesResult.noteIds).filter(id => id !== currentNoteId);
-    
-    // Read embeddings for ALL notes (brute-force)
-    const userDataStore = new UserDataEmbStore();
-    const bruteForceEmbeddings = await read_user_data_embeddings({
-      store: userDataStore,
-      noteIds: allNoteIds,
-      modelId: model.id,
-      maxRows: undefined,  // No limit - read everything
-      allowedCentroidIds: null,  // DISABLE IVF filtering
-      currentModel: model,
-      currentSettings: extract_embedding_settings_for_validation(settings),
-      validationTracker: null
-    });
-    
-    // Flatten to blocks and compute similarities
-    const allBlocks: BlockEmbedding[] = [];
-    for (const noteResult of bruteForceEmbeddings) {
-      allBlocks.push(...noteResult.blocks);
-    }
-    
-    // Compute similarities using Q8 (same as IVF path for fair comparison)
-    const queryQ8 = quantize_vector_to_q8(queryEmbedding);
-    for (const block of allBlocks) {
-      if (block.q8 && block.q8.values.length > 0) {
-        block.similarity = cosine_similarity_q8(block.q8, queryQ8);
-      } else {
-        // Fallback to Float32 if Q8 not available (shouldn't happen in userData mode)
-        block.similarity = calc_similarity(queryEmbedding, block.embedding);
-      }
-    }
-    
-    // Sort by similarity
-    const sortedBlocks = allBlocks.sort((a, b) => b.similarity - a.similarity);
-    
-    // Group by note and aggregate (same logic as main search)
-    const grouped = sortedBlocks.reduce((acc: {[note_id: string]: BlockEmbedding[]}, embed) => {
-      if (!acc[embed.id]) {
-        acc[embed.id] = [];
-      }
-      acc[embed.id].push(embed);
-      return acc;
-    }, {});
-    
-    const bruteForceResults: NoteEmbedding[] = [];
-    for (const [note_id, note_embed] of Object.entries(grouped)) {
-      const sorted_embed = note_embed.sort((a, b) => b.similarity - a.similarity);
-      let agg_sim: number;
-      if (settings.notes_agg_similarity === 'max') {
-        agg_sim = sorted_embed[0].similarity;
-      } else if (settings.notes_agg_similarity === 'avg') {
-        agg_sim = sorted_embed.reduce((acc, embd) => acc + embd.similarity, 0) / sorted_embed.length;
-      }
-      
-      bruteForceResults.push({
-        id: note_id,
-        title: '', // Don't need titles for validation
-        embeddings: sorted_embed,
-        similarity: agg_sim,
-      });
-    }
-    
-    bruteForceResults.sort((a, b) => b.similarity - a.similarity);
-    const bruteForceTopK = bruteForceResults.slice(0, settings.notes_max_hits);
-    
-    const elapsedMs = Date.now() - startTime;
-    
-    // Compare results
-    const k = Math.min(settings.notes_max_hits, ivfResults.length, bruteForceTopK.length);
-    const ivfTopKIds = new Set(ivfResults.slice(0, k).map(r => r.id));
-    const bruteForceTopKIds = new Set(bruteForceTopK.slice(0, k).map(r => r.id));
-    
-    let matches = 0;
-    for (const id of ivfTopKIds) {
-      if (bruteForceTopKIds.has(id)) {
-        matches++;
-      }
-    }
-    
-    const recall = k > 0 ? (matches / k) * 100 : 0;
-    const precision = k > 0 ? (matches / ivfTopKIds.size) * 100 : 0;
-    
-    // Log results
-    const speedup = (elapsedMs / ivfSearchTimeMs).toFixed(1);
-    console.info(`[Jarvis] 🔍 IVF Validation Results (top-${k}):`);
-    console.info(`   Recall: ${recall.toFixed(1)}% (${matches}/${k} ground truth results found)`);
-    console.info(`   Precision: ${precision.toFixed(1)}% (${matches}/${ivfTopKIds.size} IVF results correct)`);
-    console.info(`   Brute-force time: ${elapsedMs}ms vs IVF time: ${ivfSearchTimeMs}ms (${speedup}x speedup)`);
-    console.info(`   Total notes: ${allNoteIds.length}, Total blocks: ${allBlocks.length}`);
-    
-    if (recall < 90) {
-      log.warn(`⚠️  Low recall detected! IVF may be filtering out relevant results.`);
-      log.warn(`   Missing from IVF results:`, Array.from(bruteForceTopKIds).filter(id => !ivfTopKIds.has(id)).slice(0, 3));
-      log.warn(`   Possible causes:`);
-      log.warn(`   1. Centroid IDs are stale (not reassigned after retraining)`);
-      log.warn(`   2. Centroid-to-note index is stale (not rebuilt after reassignment)`);
-      log.warn(`   3. Too many empty centroids (check "populated" stats above)`);
-      log.warn(`   4. nprobe too low (try increasing notes_search_min_nprobe in settings)`);
-      log.warn(`   SELF-HEALING: Delete catalog note + run "Update DB" to rebuild everything`);
-    } else {
-      log.info(`✅ IVF recall is excellent!`);
-    }
-    
-    // Log top-5 similarity comparison
-    console.info(`[Jarvis] Top-5 similarity comparison:`);
-    for (let i = 0; i < Math.min(5, k); i++) {
-      const ivfSim = ivfResults[i]?.similarity?.toFixed(4) || 'N/A';
-      const bruteSim = bruteForceTopK[i]?.similarity?.toFixed(4) || 'N/A';
-      const ivfId = ivfResults[i]?.id?.substring(0, 8) || 'N/A';
-      const bruteId = bruteForceTopK[i]?.id?.substring(0, 8) || 'N/A';
-      const match = ivfId === bruteId ? '✅' : '❌';
-      console.info(`   ${i + 1}. IVF: ${ivfSim} (${ivfId}) vs Brute: ${bruteSim} (${bruteId}) ${match}`);
-    }
-    
-  } catch (error) {
-    log.error('IVF validation error', error);
-    console.error('[Jarvis] IVF validation failed:', error);
-  }
+  return result;
 }
 
 // calculate the cosine similarity between two embeddings

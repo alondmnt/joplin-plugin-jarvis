@@ -2,6 +2,11 @@ import joplin from 'api';
 import { NoteEmbedding } from '../notes/embeddings';
 import { JarvisSettings } from './settings';
 
+export interface CapacityWarning {
+  percentage: number;
+  limitMB: number;
+}
+
 export async function register_panel(panel: string, settings: JarvisSettings, model: any) {
   let model_str = '';
   if (model.model === null) {
@@ -15,10 +20,20 @@ export async function register_panel(panel: string, settings: JarvisSettings, mo
   await joplin.views.panels.setHtml(panel, `<div class="container"><p class="jarvis-semantic-title">${settings.notes_panel_title}</p><p>${model_str}</p></div>`);
 }
 
-export async function update_panel(panel: string, nearest: NoteEmbedding[], settings: JarvisSettings) {
+export async function update_panel(
+  panel: string,
+  nearest: NoteEmbedding[],
+  settings: JarvisSettings,
+  capacityWarning?: CapacityWarning | null
+) {
   // TODO: collapse according to settings
   let search_box = '<p align="center"><input class="jarvis-semantic-query" type="search" id="jarvis-search" placeholder="Semantic search..."></p>';
   if (!settings.notes_search_box) { search_box = ''; }
+
+  // Capacity warning message (shown when library exceeds 80% of limit)
+  const warningHtml = capacityWarning
+    ? `<p class="jarvis-capacity-warning">Library at ${capacityWarning.percentage}%. Exclude folders in settings.</p>`
+    : '';
 
   await joplin.views.panels.setHtml(panel, `
   <html>
@@ -41,6 +56,7 @@ export async function update_panel(panel: string, nearest: NoteEmbedding[], sett
       </div>
     </details>
   `).join('')}
+    ${warningHtml}
   </div>
 `);
 }
@@ -54,13 +70,9 @@ export async function update_progress_bar(
 ) {
   const mainMessage = 'Updating note database...';
   const stageMessage = stage ? `<p class="jarvis-semantic-note" style="font-style: italic; opacity: 0.8;">${stage}</p>` : '';
-  
-  // Show context-appropriate progress label based on the stage
-  let progressLabel = `Total notes processed: ${processed} / ${total}`;
-  if (stage && (stage.includes('Training search index') || stage.includes('Assigning centroid'))) {
-    // During centroid training/assignment, show generic progress label
-    progressLabel = `Progress: ${processed} / ${total}`;
-  }
+
+  // Show progress label
+  const progressLabel = `Total notes processed: ${processed} / ${total}`;
   
   await joplin.views.panels.setHtml(panel, `
   <html>

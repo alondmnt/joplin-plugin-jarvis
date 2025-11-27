@@ -65,14 +65,12 @@ export interface EmbShard {
   rows: number;
   vectorsB64: string;
   scalesB64: string;
-  centroidIdsB64?: string;
   meta: BlockRowMeta[];
 }
 
 export interface Q8Vectors {
   vectors: Int8Array;
   scales: Float32Array;
-  centroidIds?: Uint16Array;
 }
 
 export interface EmbStore {
@@ -100,36 +98,23 @@ export function shardKey(modelId: string, index: number): StoreKey {
  * Encode quantized vectors and scales back to base64 strings suitable for storage
  * in userData. Accepts typed arrays and preserves tight slices to avoid copying.
  */
-export function encode_q8_vectors(data: Q8Vectors): Pick<EmbShard, 'vectorsB64' | 'scalesB64' | 'centroidIdsB64'> {
-  const result: Pick<EmbShard, 'vectorsB64' | 'scalesB64' | 'centroidIdsB64'> = {
+export function encode_q8_vectors(data: Q8Vectors): Pick<EmbShard, 'vectorsB64' | 'scalesB64'> {
+  return {
     vectorsB64: typedArrayToBase64(data.vectors as any),
     scalesB64: typedArrayToBase64(data.scales as any),
   };
-  if (data.centroidIds) {
-    result.centroidIdsB64 = typedArrayToBase64(data.centroidIds as any);
-  }
-  return result;
 }
 
 /**
- * Decode a shard payload from base64 back into its typed array components for
- * ranking. Returns Int8 vectors, Float32 scales, and optional Uint16 centroid ids.
+ * Decode a shard payload from base64 back into its typed array components for ranking.
  */
 export function decode_q8_vectors(shard: EmbShard): Q8Vectors {
   const vectors = base64ToUint8Array(shard.vectorsB64);
   const scales = base64ToUint8Array(shard.scalesB64);
-  const centroidIds = shard.centroidIdsB64 ? base64ToUint8Array(shard.centroidIdsB64) : null;
 
   return {
     vectors: new Int8Array(vectors.buffer, vectors.byteOffset, vectors.byteLength / Int8Array.BYTES_PER_ELEMENT),
     scales: new Float32Array(scales.buffer, scales.byteOffset, scales.byteLength / Float32Array.BYTES_PER_ELEMENT),
-    centroidIds: centroidIds
-      ? new Uint16Array(
-          centroidIds.buffer,
-          centroidIds.byteOffset,
-          centroidIds.byteLength / Uint16Array.BYTES_PER_ELEMENT,
-        )
-      : undefined,
   };
 }
 

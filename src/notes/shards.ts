@@ -8,7 +8,6 @@ export interface BuildShardsOptions {
   epoch: number;
   quantized: QuantizeResult;
   meta: BlockRowMeta[];
-  centroidIds?: Uint16Array;
   maxShardBytes?: number;
 }
 
@@ -38,14 +37,14 @@ export function build_shards(options: BuildShardsOptions): EmbShard[] {
     : DEFAULT_MAX_SHARD_BYTES;
 
   // Estimate how many rows fit within the max
-  const maxRowsEstimate = Math.max(1, Math.floor(maxShardBytes / approximate_bytes_per_row(dim, Boolean(options.centroidIds))));
+  const maxRowsEstimate = Math.max(1, Math.floor(maxShardBytes / approximate_bytes_per_row(dim)));
 
   // Single-shard constraint: take at most maxRowsEstimate rows
   let shardRows = Math.min(rows, maxRowsEstimate);
 
   // Shrink if necessary to stay under cap
   while (shardRows > 1) {
-    const estimatedSize = estimate_shard_size(dim, shardRows, Boolean(options.centroidIds));
+    const estimatedSize = estimate_shard_size(dim, shardRows);
     if (estimatedSize <= maxShardBytes) {
       break;
     }
@@ -53,7 +52,7 @@ export function build_shards(options: BuildShardsOptions): EmbShard[] {
   }
 
   // Log metrics for monitoring
-  const estimatedSize = estimate_shard_size(dim, shardRows, Boolean(options.centroidIds));
+  const estimatedSize = estimate_shard_size(dim, shardRows);
   const estimatedKB = Math.round(estimatedSize / 1024);
   const capKB = Math.round(maxShardBytes / 1024);
   
@@ -72,12 +71,10 @@ export function build_shards(options: BuildShardsOptions): EmbShard[] {
 
   const vectorSlice = quantized.vectors.subarray(0, shardRows * dim);
   const scaleSlice = quantized.scales.subarray(0, shardRows);
-  const centroidSlice = options.centroidIds ? options.centroidIds.subarray(0, shardRows) : undefined;
 
   const payload = encode_q8_vectors({
     vectors: new Int8Array(vectorSlice),
     scales: new Float32Array(scaleSlice),
-    centroidIds: centroidSlice ? new Uint16Array(centroidSlice) : undefined,
   });
 
   // Always return exactly one shard (single-shard constraint)
@@ -88,24 +85,21 @@ export function build_shards(options: BuildShardsOptions): EmbShard[] {
     rows: shardRows,
     vectorsB64: payload.vectorsB64,
     scalesB64: payload.scalesB64,
-    centroidIdsB64: payload.centroidIdsB64,
     meta: meta.slice(0, shardRows),
   }];
 }
 
-function estimate_shard_size(dim: number, rows: number, hasCentroids: boolean): number {
+function estimate_shard_size(dim: number, rows: number): number {
   const vectorBytes = rows * dim;
   const vectorB64 = base64_length(vectorBytes);
   const scalesBytes = rows * Float32Array.BYTES_PER_ELEMENT;
   const scalesB64 = base64_length(scalesBytes);
-  const centroidBytes = hasCentroids ? rows * Uint16Array.BYTES_PER_ELEMENT : 0;
-  const centroidB64 = hasCentroids ? base64_length(centroidBytes) : 0;
   const metaBudget = rows * 220; // heuristic for JSON metadata footprint
-  return vectorB64 + scalesB64 + centroidB64 + metaBudget;
+  return vectorB64 + scalesB64 + metaBudget;
 }
 
-function approximate_bytes_per_row(dim: number, hasCentroids: boolean): number {
-  return estimate_shard_size(dim, 1, hasCentroids);
+function approximate_bytes_per_row(dim: number): number {
+  return estimate_shard_size(dim, 1);
 }
 
 function base64_length(byteCount: number): number {

@@ -1,37 +1,15 @@
-import { createHash } from '../utils/crypto';
 import { BlockEmbedding } from './embeddings';
 import { JarvisSettings } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
-import { EmbStore, NoteEmbMeta, EmbeddingSettings, EmbShard, ModelMetadata, decode_q8_vectors, UserDataEmbStore } from './userDataStore';
+import { EmbStore, NoteEmbMeta, EmbeddingSettings, ModelMetadata } from './userDataStore';
 import { build_block_row_meta } from './blockMeta';
 import { quantize_per_row } from './q8';
 import { build_shards } from './shards';
 import {
   AnchorMetadata,
-  AnchorRefreshState,
-  CentroidPayload,
-  CentroidRefreshReason,
   read_anchor_meta_data,
-  read_centroids,
-  write_anchor_metadata,
-  write_centroids,
 } from './anchorStore';
-import { ensure_catalog_note, ensure_model_anchor } from './catalog';
-import {
-  assign_centroid_ids,
-  decode_centroids,
-  derive_sample_limit,
-  encode_centroids,
-  estimate_nlist,
-  reservoir_sample_vectors,
-  train_centroids,
-  train_centroids_async,
-  validate_kmeans_results,
-  MIN_TOTAL_ROWS_FOR_IVF,
-} from './centroids';
-import { clear_centroid_cache } from './centroidLoader';
 import { getLogger } from '../utils/logger';
-import { update_progress_bar } from '../ux/panel';
 
 export interface PrepareUserDataParams {
   noteId: string;
@@ -40,15 +18,17 @@ export interface PrepareUserDataParams {
   model: TextEmbeddingModel;
   settings: JarvisSettings;
   store: EmbStore;
-  catalogId?: string;  // Pre-resolved catalog ID to avoid per-note lookups
-  anchorId?: string;   // Pre-resolved anchor ID to avoid per-note lookups
-  corpusRowCountAccumulator?: { current: number };  // Running total during sweep (mutable)
+  catalogId?: string;
+  anchorId?: string;
+  corpusRowCountAccumulator?: { current: number };
 }
 
 export interface PreparedUserData {
   meta: NoteEmbMeta;
   shards: EmbShard[];
 }
+
+import { EmbShard } from './userDataStore';
 
 /**
  * Extract the relevant embedding settings from JarvisSettings
@@ -68,7 +48,7 @@ function extract_embedding_settings(settings: JarvisSettings): EmbeddingSettings
 /**
  * Compare two EmbeddingSettings objects for equality
  */
-function settings_equal(a: EmbeddingSettings, b: EmbeddingSettings): boolean {
+export function settings_equal(a: EmbeddingSettings, b: EmbeddingSettings): boolean {
   return (
     a.embedTitle === b.embedTitle &&
     a.embedPath === b.embedPath &&
@@ -90,7 +70,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
   const { noteId, contentHash, blocks, model, settings, store } = params;
 
   if (settings.notes_debug_mode) {
-    log.debug(`prepare_user_data_embeddings called for note ${noteId}, blocks=${blocks.length}, userData=${settings.notes_db_in_user_data}, needsBootstrap=${model.needsCentroidBootstrap}`);
+    log.debug(`prepare_user_data_embeddings called for note ${noteId}, blocks=${blocks.length}, userData=${settings.notes_db_in_user_data}`);
   }
 
   if (blocks.length === 0) {
@@ -111,13 +91,11 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
   const blockVectors = blocks.map(block => block.embedding);
   const previousMeta = await store.getMeta(noteId);
   const embeddingSettings = extract_embedding_settings(settings);
-  
+
   // Determine epoch for this model
   const previousModelMeta = previousMeta?.models?.[model.id];
   const epoch = (previousModelMeta?.current.epoch ?? 0) + 1;
   const updatedAt = new Date().toISOString();
-
-  let centroidIds: Uint16Array | undefined;
 
   const quantized = quantize_per_row(blockVectors);
 
@@ -127,269 +105,27 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
 
   const metaRows = build_block_row_meta(blocks);
 
-  // Handle IVF centroids if enabled
-  if (settings.notes_db_in_user_data) {
-    try {
-      // Use pre-resolved IDs if provided, otherwise resolve them (for backward compatibility)
-      const catalogId = params.catalogId ?? await ensure_catalog_note();
-      const anchorId = params.anchorId ?? await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
-      const anchorMeta = await read_anchor_meta_data(anchorId);
-      const totalRows = count_corpus_rows(model, noteId, blocks.length, previousMeta, model.id, params.corpusRowCountAccumulator);
-      const desiredNlist = estimate_nlist(totalRows, { debug: settings.notes_debug_mode });
-      let centroidPayload = await read_centroids(anchorId);
-      let loaded = decode_centroids(centroidPayload);
-      let centroids = loaded?.data ?? null;
-
-      const settingsMatch = anchorMeta?.settings
-        ? settings_equal(anchorMeta.settings, embeddingSettings)
-        : false;
-
-      let refreshState: AnchorRefreshState | undefined = anchorMeta?.refresh;
-      const refreshDecision = evaluate_centroid_refresh({
-        totalRows,
-        desiredNlist,
-        dim,
-        embeddingSettings,
-        settingsMatch,
-        embeddingVersion: model.embedding_version ?? 0,
-        anchorMeta,
-        payload: centroidPayload,
-      });
-      
-      // Centroid refresh decision is logged inside evaluate_centroid_refresh at debug level
-
-      if (refreshDecision) {
-        const reason = refreshDecision.reason;
-        log.info(`Centroid refresh needed for note ${noteId} - reason: ${reason}, totalRows: ${totalRows}, desiredNlist: ${desiredNlist}, previousRows: ${anchorMeta?.rowCount ?? 0}`);
-        const nowIso = new Date().toISOString();
-        const deviceLabel = `${settings.notes_device_platform ?? 'unknown'}:${settings.notes_device_profile_effective}`;
-        // Always train centroids locally - both desktop and mobile
-        const canTrainLocally = true;
-
-        if (canTrainLocally) {
-          // Use same parameters on both mobile and desktop for consistency
-          // Mobile training may take a bit longer, but ensures quality parity
-          const trainingStartTime = Date.now();
-          console.info(`Jarvis: Training search index (${desiredNlist} centroids from ${totalRows} blocks)...`);
-          
-          const sampleLimit = Math.min(totalRows, derive_sample_limit(desiredNlist));
-          // In userData mode, sample from existing userData storage instead of model.embeddings (which is empty)
-          // This ensures we get proper samples even during settings-change rebuilds
-          const samples = await sample_from_user_data(model.id, dim, sampleLimit, settings.notes_debug_mode);
-          
-          let trained: Float32Array | null = null;
-          if (samples.length < desiredNlist) {
-            log.warn('Not enough samples for centroid training, skipping for now', { samples: samples.length, desiredNlist, totalRows });
-            // Skip training - refresh flag will remain, can retry later
-          } else {
-            trained = train_centroids(samples, dim, { nlist: desiredNlist });
-          }
-          if (trained) {
-            // Calculate actual nlist from trained array
-            const actualNlist = Math.floor(trained.length / dim);
-            
-            // Validate k-means results
-            if (settings.notes_debug_mode) {
-              log.info('About to validate k-means results', {
-                trainedLength: trained.length,
-                expectedLength: actualNlist * dim,
-                dim,
-                desiredNlist,
-                actualNlist,
-                samplesLength: samples.length,
-              });
-            }
-            
-            const validation = validate_kmeans_results(trained, dim, actualNlist, samples);
-            
-            // Always log imbalance ratio to console for performance diagnostics
-            console.info(`[Jarvis] Centroid distribution: imbalance ratio ${validation.diagnostics.imbalanceRatio.toFixed(0)}:1 (${validation.diagnostics.emptyCentroids} empty)`);
-            
-            if (validation.passed) {
-              log.info('✅ K-means validation PASSED', {
-                checks: validation.checks,
-                diagnostics: {
-                  avgNorm: validation.diagnostics.avgNorm.toFixed(4),
-                  avgNeighborSimilarity: validation.diagnostics.avgNeighborSimilarity.toFixed(4),
-                  emptyCentroids: validation.diagnostics.emptyCentroids,
-                  imbalanceRatio: validation.diagnostics.imbalanceRatio.toFixed(2),
-                }
-              });
-            } else {
-              // Log as warning, not error - validation helps catch issues but doesn't block training
-              log.warn('⚠️  K-means validation warnings detected', {
-                checks: validation.checks,
-                diagnostics: {
-                  avgNorm: validation.diagnostics.avgNorm.toFixed(4),
-                  avgNeighborSimilarity: validation.diagnostics.avgNeighborSimilarity.toFixed(4),
-                  emptyCentroids: validation.diagnostics.emptyCentroids,
-                  imbalanceRatio: validation.diagnostics.imbalanceRatio.toFixed(2),
-                }
-              });
-              log.info('Continuing with training - validation is advisory only');
-              // Continue - validation failure is informational, not a blocker
-            }
-            
-            let centroidStats: {
-              emptyLists: number;
-              minRows: number;
-              maxRows: number;
-              avgRows: number;
-              stdevRows: number;
-              p50Rows: number;
-              p90Rows: number;
-            } | null = null;
-            if (samples.length > 0 && actualNlist > 0) {
-              const assignments = assign_centroid_ids(trained, dim, samples);
-              const counts = new Array(actualNlist).fill(0);
-              for (const id of assignments) {
-                if (id < counts.length) {
-                  counts[id] += 1;
-                }
-              }
-              const totalAssigned = counts.reduce((sum, value) => sum + value, 0);
-              const nonEmptyCounts = counts.filter((value) => value > 0);
-              const emptyLists = counts.length - nonEmptyCounts.length;
-              const minRows = nonEmptyCounts.length > 0 ? Math.min(...nonEmptyCounts) : 0;
-              const maxRows = nonEmptyCounts.length > 0 ? Math.max(...nonEmptyCounts) : 0;
-              const avgRows = counts.length > 0 ? totalAssigned / counts.length : 0;
-              const variance = counts.length > 0
-                ? counts.reduce((acc, value) => acc + Math.pow(value - avgRows, 2), 0) / counts.length
-                : 0;
-              const stdevRows = Math.sqrt(variance);
-              const sortedCounts = [...counts].sort((a, b) => a - b);
-              const percentile = (arr: number[], pct: number): number => {
-                if (arr.length === 0) {
-                  return 0;
-                }
-                const index = Math.min(arr.length - 1, Math.max(0, Math.round(pct * (arr.length - 1))));
-                return arr[index];
-              };
-              centroidStats = {
-                emptyLists,
-                minRows,
-                maxRows,
-                avgRows: Number(avgRows.toFixed(2)),
-                stdevRows: Number(stdevRows.toFixed(2)),
-                p50Rows: percentile(sortedCounts, 0.5),
-                p90Rows: percentile(sortedCounts, 0.9),
-              };
-            }
-            centroids = trained;
-            // Let encode_centroids calculate nlist from actual trained array size
-            // Don't pass explicit nlist - it may differ from desiredNlist if samples were limited
-            centroidPayload = encode_centroids({
-              centroids: trained,
-              dim,
-              format: 'f32',
-              version: model.embedding_version ?? 0,
-              updatedAt,
-              trainedOn: {
-                totalRows,
-                sampleCount: samples.length,
-              },
-            });
-            await write_centroids(anchorId, centroidPayload);
-            const statusMsg = actualNlist !== desiredNlist 
-              ? `${actualNlist} centroids created (adjusted from ${desiredNlist} due to limited samples)`
-              : `${actualNlist} centroids created`;
-            console.info(`Jarvis: Training complete - ${statusMsg} in ${Date.now() - trainingStartTime}ms`);
-            
-            // Clear centroid cache so next search will load the newly trained centroids
-            clear_centroid_cache(model.id);
-            log.info(`Cleared centroid cache for model ${model.id} after training`);
-            
-            // Clear bootstrap flag after successful training
-            if (model.needsCentroidBootstrap) {
-              log.info(`Clearing needsCentroidBootstrap flag after successful training`);
-              model.needsCentroidBootstrap = false;
-            }
-            
-            log.info('Rebuilt IVF centroids', {
-              modelId: model.id,
-              desiredNlist,
-              actualNlist,
-              totalRows,
-              samples: samples.length,
-              reason,
-              platform: settings.notes_device_profile_effective,
-              ...(centroidStats ?? {}),
-            });
-            loaded = decode_centroids(centroidPayload);
-            refreshState = undefined;
-            
-            // Update anchor metadata immediately to prevent subsequent notes in this sweep
-            // from detecting stale settings and triggering unnecessary retraining
-            await write_anchor_metadata(anchorId, {
-              modelId: model.id,
-              dim,
-              version: model.version ?? 'unknown',
-              settings: embeddingSettings,
-              updatedAt: new Date().toISOString(),
-              rowCount: totalRows,
-              nlist: actualNlist,
-              centroidUpdatedAt: centroidPayload.updatedAt,
-              centroidHash: centroidPayload.hash,
-            });
-            log.info(`Updated anchor metadata after training to prevent repeated rebuilds`, {
-              modelId: model.id,
-              rowCount: totalRows,
-              nlist: actualNlist,
-            });
-            
-            // Flag that centroid reassignment is needed after this sweep completes
-            // This flag will be checked in update_note_db() to trigger immediate reassignment
-            log.info(`Setting needsCentroidReassignment=true for model ${model.id} - centroids were retrained`);
-            model.needsCentroidReassignment = true;
-          } else {
-            log.debug('Skipped centroid training due to insufficient samples', {
-              modelId: model.id,
-              desiredNlist,
-              samples: samples.length,
-              reason,
-            });
-            refreshState = upsert_pending_refresh_state(refreshState, {
-              reason,
-              requestedAt: refreshState?.requestedAt ?? nowIso,
-              requestedBy: refreshState?.requestedBy ?? deviceLabel,
-              lastAttemptAt: nowIso,
-            });
-          }
-        }
-        // Note: Mobile now trains centroids locally with same parameters as desktop
-        // This ensures consistent quality across all devices
-      } else if (refreshState && refreshState.status !== 'pending') {
-        refreshState = undefined;
-      }
-
-      if (centroids && blockVectors.length > 0) {
-        centroidIds = assign_centroid_ids(centroids, dim, blockVectors);
-      }
-
-      // Note: Anchor metadata update moved to end of sweep in update_note_db()
-      // This avoids updating anchor metadata for every single note, which was causing
-      // excessive log spam and unnecessary writes. We now update once at sweep end.
-    } catch (error) {
-      log.warn('Failed to update model anchor metadata', { modelId: model.id, error });
-    }
+  // Update corpus row count accumulator if provided
+  if (params.corpusRowCountAccumulator) {
+    const previousNoteRows = previousMeta?.models?.[model.id]?.current?.rows ?? 0;
+    params.corpusRowCountAccumulator.current = Math.max(0, params.corpusRowCountAccumulator.current - previousNoteRows + blocks.length);
   }
 
   const shards = build_shards({
     epoch,
     quantized,
     meta: metaRows,
-    centroidIds,
     maxShardBytes: settings.notes_max_shard_bytes,
   });
 
   // Build the new multi-model metadata structure
   const models: { [modelId: string]: ModelMetadata } = {};
-  
+
   // Preserve existing models' metadata from previous version
   if (previousMeta?.models) {
     Object.assign(models, previousMeta.models);
   }
-  
+
   // Update or add the current model's metadata
   models[model.id] = {
     dim,
@@ -418,163 +154,14 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
   return { meta, shards };
 }
 
-interface CentroidRefreshDecision {
-  reason: CentroidRefreshReason;
-}
-
-interface RefreshStateUpdate {
-  reason: CentroidRefreshReason;
-  requestedAt: string;
-  requestedBy?: string;
-  lastAttemptAt?: string;
-}
-
-/**
- * Decide whether IVF centroids need rebuilding based on corpus size, metadata,
- * and payload characteristics.
- */
-function evaluate_centroid_refresh(args: {
-  totalRows: number;
-  desiredNlist: number;
-  dim: number;
-  embeddingSettings: EmbeddingSettings;
-  settingsMatch: boolean;
-  embeddingVersion: number | string;
-  anchorMeta: AnchorMetadata | null;
-  payload: CentroidPayload | null;
-}): CentroidRefreshDecision | null {
-  const {
-    totalRows,
-    desiredNlist,
-    dim,
-    settingsMatch,
-    embeddingVersion,
-    anchorMeta,
-    payload,
-  } = args;
-
-  // Early exit - no logging needed for frequent case
-  if (desiredNlist < 2 || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
-    return null;
-  }
-  
-  // Check refresh conditions without logging (redundant - caller logs at info level when refresh happens)
-  if (!payload?.b64) {
-    return { reason: 'missingPayload' };
-  }
-  if (!payload.dim || payload.dim !== dim) {
-    return { reason: 'dimMismatch' };
-  }
-  const payloadNlist = payload.nlist ?? 0;
-  if (payloadNlist !== desiredNlist) {
-    return { reason: 'nlistMismatch' };
-  }
-  const payloadVersion = payload.version ?? '';
-  if (String(payloadVersion) !== String(embeddingVersion ?? '')) {
-    return { reason: 'versionMismatch' };
-  }
-  if (!settingsMatch) {
-    return { reason: 'settingsChanged' };
-  }
-  const previousRows = anchorMeta?.rowCount ?? 0;
-  if (!previousRows) {
-    return { reason: 'bootstrap' };
-  }
-  if (totalRows > previousRows * 1.3) {
-    return { reason: 'rowGrowth' };
-  }
-  if (totalRows < previousRows * 0.7) {
-    return { reason: 'rowShrink' };
-  }
-  
-  return null;
-}
-
-function upsert_pending_refresh_state(
-  existing: AnchorRefreshState | undefined,
-  update: RefreshStateUpdate,
-): AnchorRefreshState {
-  return {
-    status: 'pending',
-    reason: update.reason,
-    requestedAt: existing?.requestedAt ?? update.requestedAt,
-    requestedBy: existing?.requestedBy ?? update.requestedBy,
-    lastAttemptAt: update.lastAttemptAt ?? existing?.lastAttemptAt,
-  };
-}
-
-/**
- * Count total rows participating in the corpus after substituting the current
- * note's new blocks. Old embeddings for the same note id are excluded.
- * 
- * In userData mode, uses accumulator (initialized from anchor metadata at sweep start)
- * and updates it as notes are processed.
- */
-function count_corpus_rows(
-  model: TextEmbeddingModel, 
-  excludeNoteId: string, 
-  newRows: number,
-  previousNoteMeta: NoteEmbMeta | null,
-  modelId: string,
-  corpusRowCountAccumulator?: { current: number },
-): number {
-  // In userData mode, use running accumulator updated during sweep
-  if (corpusRowCountAccumulator) {
-    const previousNoteRows = previousNoteMeta?.models?.[modelId]?.current?.rows ?? 0;
-    
-    // Update accumulator: subtract old rows, add new rows
-    corpusRowCountAccumulator.current = Math.max(0, corpusRowCountAccumulator.current - previousNoteRows + newRows);
-    
-    return corpusRowCountAccumulator.current;
-  }
-  
-  // Legacy mode: count from model.embeddings (when userData index disabled)
-  let total = Math.max(newRows, 0);
-  for (const embedding of model.embeddings) {
-    if (embedding.id === excludeNoteId) {
-      continue;
-    }
-    total += 1;
-  }
-  return total;
-}
-
-/**
- * Reservoir-sample embeddings for centroid training without allocating the full
- * corpus. Existing rows for the note are ignored so we train against fresh data.
- */
-function collect_centroid_samples(
-  model: TextEmbeddingModel,
-  excludeNoteId: string,
-  blocks: BlockEmbedding[],
-  limit: number,
-): Float32Array[] {
-  if (limit <= 0) {
-    return [];
-  }
-  function* iterate(): Generator<Float32Array> {
-    for (const existing of model.embeddings) {
-      if (existing.id === excludeNoteId) {
-        continue;
-      }
-      // Favor historical rows first so centroid refreshes capture long-lived structure.
-      yield existing.embedding;
-    }
-    for (const block of blocks) {
-      yield block.embedding;
-    }
-  }
-  return reservoir_sample_vectors(iterate(), { limit });
-}
-
 /**
  * Compute final anchor metadata after a sweep completes.
- * 
+ *
  * @param model - The embedding model
  * @param settings - Jarvis settings for extracting embedding configuration
  * @param anchorId - Anchor note ID to read existing metadata from
- * @param totalRows - Total embedding rows (blocks) counted during sweep (for memory efficiency)
- * @param dim - Embedding dimension captured from sweep (avoids accessing model.embeddings)
+ * @param totalRows - Total embedding rows (blocks) counted during sweep
+ * @param dim - Embedding dimension captured from sweep
  * @returns AnchorMetadata object ready to be persisted
  */
 export async function compute_final_anchor_metadata(
@@ -586,25 +173,17 @@ export async function compute_final_anchor_metadata(
 ): Promise<AnchorMetadata | null> {
   try {
     const embeddingSettings = extract_embedding_settings(settings);
-    
-    // Use provided totalRows from sweep accumulation instead of counting model.embeddings
-    // This avoids loading all embeddings into memory
+
     if (totalRows === 0) {
       return null; // No embeddings yet
     }
-    
-    // Use provided dim from sweep (avoids accessing model.embeddings which is empty in userData mode)
-    // Fallback to anchor metadata if dim not provided
+
     const anchorMeta = await read_anchor_meta_data(anchorId);
     const finalDim = dim > 0 ? dim : (anchorMeta?.dim ?? 0);
     if (finalDim === 0) {
       return null; // No dimension information available
     }
-    
-    const desiredNlist = estimate_nlist(totalRows, { debug: settings.notes_debug_mode });
-    const centroidPayload = await read_centroids(anchorId);
-    const loaded = decode_centroids(centroidPayload);
-    
+
     const metadata: AnchorMetadata = {
       modelId: model.id,
       dim: finalDim,
@@ -612,16 +191,8 @@ export async function compute_final_anchor_metadata(
       settings: embeddingSettings,
       updatedAt: new Date().toISOString(),
       rowCount: totalRows,
-      nlist: (loaded?.nlist ?? desiredNlist) > 0 ? (loaded?.nlist ?? desiredNlist) : undefined,
-      centroidUpdatedAt: centroidPayload?.updatedAt ?? loaded?.updatedAt,
-      centroidHash: centroidPayload?.hash ?? loaded?.hash,
     };
-    
-    // Preserve existing refresh state if present
-    if (anchorMeta?.refresh) {
-      metadata.refresh = anchorMeta.refresh;
-    }
-    
+
     return metadata;
   } catch (error) {
     log.warn('Failed to compute anchor metadata', { modelId: model.id, error });
@@ -632,8 +203,8 @@ export async function compute_final_anchor_metadata(
 /**
  * Compare two anchor metadata objects to see if they meaningfully differ.
  * Ignores updatedAt timestamp since that always changes.
- * For count stats (rowCount, nlist), requires at least 15% change to be considered different.
- * 
+ * For count stats (rowCount), requires at least 15% change to be considered different.
+ *
  * @param a - First metadata object
  * @param b - Second metadata object
  * @param countChangeThreshold - Minimum percentage change (0-1) required for count stats (default 0.15 = 15%)
@@ -647,633 +218,34 @@ export function anchor_metadata_changed(
   if (!a || !b) {
     return true; // If either is missing, consider it changed
   }
-  
+
   /**
    * Check if two count values differ by at least the threshold percentage.
-   * Handles undefined values and prevents division by zero.
    */
   const countDiffersSignificantly = (oldVal?: number, newVal?: number): boolean => {
     if (oldVal === undefined && newVal === undefined) return false;
     if (oldVal === undefined || newVal === undefined) return true;
     if (oldVal === 0 && newVal === 0) return false;
     if (oldVal === 0) return true; // Any change from 0 is significant
-    
+
     const percentChange = Math.abs(newVal - oldVal) / oldVal;
     return percentChange >= countChangeThreshold;
   };
-  
+
   // Compare critical fields that always trigger updates
   if (a.modelId !== b.modelId) return true;
   if (a.dim !== b.dim) return true;
   if (a.version !== b.version) return true;
-  if (a.centroidUpdatedAt !== b.centroidUpdatedAt) return true;
-  if (a.centroidHash !== b.centroidHash) return true;
-  if (a.format !== b.format) return true;
-  
+
   // Compare count stats with threshold (only update if changed significantly)
   if (countDiffersSignificantly(a.rowCount, b.rowCount)) return true;
-  if (countDiffersSignificantly(a.nlist, b.nlist)) return true;
-  
+
   // Compare settings
   if (!a.settings || !b.settings) {
     if (a.settings !== b.settings) return true;
   } else if (!settings_equal(a.settings, b.settings)) {
     return true;
   }
-  
-  // Compare refresh state
-  if (!a.refresh || !b.refresh) {
-    if (a.refresh !== b.refresh) return true;
-  } else {
-    if (a.refresh.status !== b.refresh.status) return true;
-    if (a.refresh.reason !== b.refresh.reason) return true;
-    if (a.refresh.requestedAt !== b.refresh.requestedAt) return true;
-    if (a.refresh.requestedBy !== b.refresh.requestedBy) return true;
-    if (a.refresh.lastAttemptAt !== b.refresh.lastAttemptAt) return true;
-  }
-  
+
   return false; // No meaningful changes
-}
-
-/**
- * Train centroids directly from existing embeddings without reprocessing notes.
- * Samples embeddings from userData since model.embeddings is empty in userData mode.
- * This is used during startup when centroids are missing but corpus >= MIN_TOTAL_ROWS_FOR_IVF.
- * 
- * @param panel - Panel handle for progress updates
- * @returns true if centroids were successfully trained and written, false otherwise
- */
-export async function train_centroids_from_existing_embeddings(
-  model: TextEmbeddingModel,
-  settings: JarvisSettings,
-  totalRows: number,
-  dim: number,
-  panel?: string
-): Promise<boolean> {
-  const log = getLogger();
-  
-  try {
-    const catalogId = await ensure_catalog_note();
-    const anchorId = await ensure_model_anchor(catalogId, model.id, model.version ?? 'unknown');
-    const desiredNlist = estimate_nlist(totalRows, { debug: settings.notes_debug_mode });
-    
-    if (desiredNlist < 2 || totalRows < MIN_TOTAL_ROWS_FOR_IVF) {
-      log.info('Skipping centroid training: corpus too small', { totalRows, desiredNlist, threshold: MIN_TOTAL_ROWS_FOR_IVF });
-      return false;
-    }
-    
-    console.info(`Jarvis: Training search index (${desiredNlist} centroids from ${totalRows} blocks)...`);
-    const trainingStartTime = Date.now();
-    
-    // Sample directly from userData (model.embeddings is empty in userData mode)
-    // Balance efficiency vs quality: use smaller sample size for faster training
-    const baseSampleLimit = derive_sample_limit(desiredNlist);
-    const minSamplesForQuality = desiredNlist * 50;   // Target: 50 per centroid (reduced from 100)
-    const minSamplesRequired = desiredNlist * 10;     // Minimum: 10 per centroid (sufficient for k-means)
-    const maxCorpusSamples = Math.floor(totalRows * 0.80);  // Read at most 80% of corpus (increased from 30%)
-    
-    // Priority: balance quality with speed - use fewer samples for faster training
-    const minSamplesNeeded = Math.min(
-      minSamplesForQuality,
-      Math.max(minSamplesRequired, maxCorpusSamples)  // Changed to Math.max to prefer more samples
-    );
-    const adjustedLimit = Math.ceil(minSamplesNeeded * 1.15); // 15% buffer for invalid samples
-    const sampleLimit = Math.min(totalRows, adjustedLimit);
-    
-    if (settings.notes_debug_mode) {
-      log.info('Sampling embeddings for centroid training', {
-        totalRows,
-        desiredNlist,
-        minSamplesForQuality,
-        minSamplesRequired,
-        maxCorpusSamples,
-        minSamplesNeeded,
-        adjustedLimit,
-        finalSampleLimit: sampleLimit,
-        samplingRate: `${(sampleLimit / totalRows * 100).toFixed(1)}%`,
-        expectedSamplesPerCentroid: (sampleLimit / desiredNlist).toFixed(1)
-      });
-    }
-    
-    const samples = await sample_from_user_data(model.id, dim, sampleLimit, settings.notes_debug_mode);
-    
-    if (samples.length < desiredNlist) {
-      log.warn('Not enough samples for centroid training', { samples: samples.length, desiredNlist, totalRows });
-      return false;
-    }
-    
-    // Validate samples for NaN/Infinity before training
-    let invalidSamples = 0;
-    let nanSamples = 0;
-    let zeroNormSamples = 0;
-    for (const sample of samples) {
-      let hasNaN = false;
-      let norm = 0;
-      for (let i = 0; i < dim; i++) {
-        const val = sample[i];
-        if (!isFinite(val)) {
-          hasNaN = true;
-          if (isNaN(val)) nanSamples++;
-          break;
-        }
-        norm += val * val;
-      }
-      if (hasNaN) {
-        invalidSamples++;
-      } else if (norm === 0) {
-        zeroNormSamples++;
-        invalidSamples++;
-      }
-    }
-    
-    // Sample collection diagnostics (debug mode only)
-    if (settings.notes_debug_mode) {
-      log.info('Sample collection result', {
-        requested: sampleLimit,
-        collected: samples.length,
-        collectionRate: ((samples.length / sampleLimit) * 100).toFixed(1) + '%',
-        invalid: invalidSamples
-      });
-      
-      // Warn if collection rate is low (< 50%)
-      if (samples.length < sampleLimit * 0.5) {
-        log.warn('Low sample collection rate detected', {
-          collected: samples.length,
-          requested: sampleLimit,
-          rate: ((samples.length / sampleLimit) * 100).toFixed(1) + '%',
-          possibleCauses: [
-            'Small corpus (few notes)',
-            'Notes have few embedding blocks',
-            'Many embeddings have invalid scales (zero vectors)',
-            'sample_from_user_data hit early termination'
-          ]
-        });
-      }
-    }
-    
-    // In a healthy system, invalid samples should be 0
-    if (invalidSamples > 0) {
-      log.warn('Invalid samples detected before training', {
-        total: samples.length,
-        invalid: invalidSamples,
-        nanSamples,
-        zeroNormSamples,
-        percentage: ((invalidSamples / samples.length) * 100).toFixed(1) + '%'
-      });
-      
-      if (invalidSamples === samples.length) {
-        log.error('All samples are invalid, cannot train centroids');
-        return false;
-      }
-      
-      // Filter out invalid samples
-      const validSamples: Float32Array[] = [];
-      for (const sample of samples) {
-        let isValid = true;
-        let norm = 0;
-        for (let i = 0; i < dim; i++) {
-          const val = sample[i];
-          if (!isFinite(val)) {
-            isValid = false;
-            break;
-          }
-          norm += val * val;
-        }
-        if (isValid && norm > 0) {
-          validSamples.push(sample);
-        }
-      }
-      
-      log.info('Filtered samples', {
-        original: samples.length,
-        valid: validSamples.length,
-        removed: samples.length - validSamples.length
-      });
-      
-      // Check if we have enough samples for reliable k-means
-      // Rule of thumb: need at least 10 samples per centroid (sufficient for k-means++)
-      const minSamplesNeeded = desiredNlist * 10;
-      if (validSamples.length < minSamplesNeeded) {
-        log.warn('Low sample count for k-means training', {
-          valid: validSamples.length,
-          desiredNlist,
-          minRecommended: minSamplesNeeded,
-          samplesPerCentroid: (validSamples.length / desiredNlist).toFixed(1)
-        });
-      }
-      
-      if (validSamples.length < desiredNlist) {
-        log.error('Not enough valid samples for training after filtering', {
-          valid: validSamples.length,
-          required: desiredNlist
-        });
-        return false;
-      }
-      
-      // Replace samples array with filtered version
-      samples.length = 0;
-      samples.push(...validSamples);
-    } else {
-      log.info('Sample validation passed', { totalSamples: samples.length });
-    }
-    
-    // Adjust nlist if we don't have enough samples (need at least 10 samples per centroid)
-    let actualNlist = desiredNlist;
-    const maxNlistForSamples = Math.floor(samples.length / 10);
-    if (maxNlistForSamples < desiredNlist) {
-      actualNlist = Math.max(32, maxNlistForSamples); // Minimum 32 centroids
-      log.warn('Reducing nlist due to insufficient samples', {
-        originalNlist: desiredNlist,
-        adjustedNlist: actualNlist,
-        samples: samples.length,
-        samplesPerCentroid: (samples.length / actualNlist).toFixed(1),
-        reason: 'Need at least 20 samples per centroid for reliable k-means'
-      });
-    }
-    
-    // Normalize all samples before training (k-means expects L2-normalized vectors for cosine similarity)
-    log.info('Normalizing samples before k-means training');
-    for (const sample of samples) {
-      let norm = 0;
-      for (let i = 0; i < dim; i++) {
-        norm += sample[i] * sample[i];
-      }
-      norm = Math.sqrt(norm);
-      
-      if (norm > 0) {
-        for (let i = 0; i < dim; i++) {
-          sample[i] /= norm;
-        }
-      }
-    }
-    
-    // Train centroids with adjusted nlist
-    log.info('Starting k-means training', {
-      samples: samples.length,
-      nlist: actualNlist,
-      dim
-    });
-    
-    // Use async training with progress reporting for large nlist
-    const trained = await train_centroids_async(samples, dim, { nlist: actualNlist }, async (progress) => {
-      // Log progress every iteration for large nlist (helps show it's not stuck)
-      const shouldLog = actualNlist >= 512 ? true : (progress.iteration % 5 === 0 || progress.iteration === progress.maxIterations);
-      if (shouldLog) {
-        const overallProgress = Math.round((progress.run - 1) / progress.totalRuns * 100 + progress.iteration / progress.maxIterations / progress.totalRuns * 100);
-        console.info(`[Jarvis] ${progress.message} (${overallProgress}% complete)`);
-        
-        // Update panel progress bar if available (every iteration for large nlist)
-        if (panel) {
-          await update_progress_bar(
-            panel,
-            overallProgress,
-            100,
-            settings,
-            `Training search index: ${progress.message}`
-          );
-        }
-      }
-    });
-    if (!trained) {
-      log.error('Centroid training failed - train_centroids_async returned null');
-      return false;
-    }
-    
-    // CRITICAL: Validate trained centroids have correct size before proceeding
-    const expectedLength = actualNlist * dim;
-    if (trained.length !== expectedLength) {
-      log.error('Centroid training produced incorrect buffer size', {
-        expectedLength,
-        actualLength: trained.length,
-        expectedNlist: actualNlist,
-        dim,
-        difference: trained.length - expectedLength
-      });
-      return false;
-    }
-    
-    // CRITICAL: Verify we have the minimum acceptable number of centroids
-    const MIN_VALID_CLUSTERS = 2;
-    if (actualNlist < MIN_VALID_CLUSTERS) {
-      log.error('Centroid training produced insufficient clusters', {
-        actualNlist,
-        minRequired: MIN_VALID_CLUSTERS
-      });
-      return false;
-    }
-    
-    if (settings.notes_debug_mode) {
-      log.info('Centroid training completed successfully', {
-        nlist: actualNlist,
-        dim,
-        bufferSize: trained.length,
-        expectedSize: expectedLength
-      });
-    }
-    
-    // Validate k-means results
-    if (settings.notes_debug_mode) {
-      log.info('About to validate k-means results', {
-        trainedLength: trained.length,
-        expectedLength: actualNlist * dim,
-        dim,
-        actualNlist,
-        samplesLength: samples.length,
-      });
-    }
-    
-    const validation = validate_kmeans_results(trained, dim, actualNlist, samples);
-    
-    // Always log imbalance ratio to console for performance diagnostics
-    console.info(`[Jarvis] Centroid distribution: imbalance ratio ${validation.diagnostics.imbalanceRatio.toFixed(0)}:1 (${validation.diagnostics.emptyCentroids} empty)`);
-    
-    if (validation.passed) {
-      if (settings.notes_debug_mode) {
-        log.info('✅ K-means validation PASSED', {
-          checks: validation.checks,
-          diagnostics: {
-            avgNorm: validation.diagnostics.avgNorm.toFixed(4),
-            avgNeighborSimilarity: validation.diagnostics.avgNeighborSimilarity.toFixed(4),
-            emptyCentroids: validation.diagnostics.emptyCentroids,
-            imbalanceRatio: validation.diagnostics.imbalanceRatio.toFixed(2),
-          }
-        });
-      }
-    } else {
-      // Log as warning, not error - validation helps catch issues but doesn't block training
-      log.warn('⚠️  K-means validation warnings detected', {
-        checks: validation.checks,
-        diagnostics: {
-          avgNorm: validation.diagnostics.avgNorm.toFixed(4),
-          avgNeighborSimilarity: validation.diagnostics.avgNeighborSimilarity.toFixed(4),
-          emptyCentroids: validation.diagnostics.emptyCentroids,
-          imbalanceRatio: validation.diagnostics.imbalanceRatio.toFixed(2),
-        }
-      });
-      if (settings.notes_debug_mode) {
-        log.info('Continuing with training - validation is advisory only');
-      }
-      // Continue - validation failure is informational, not a blocker
-    }
-    
-    // Encode and write centroids
-    const embeddingSettings = extract_embedding_settings(settings);
-    const centroidPayload = encode_centroids({
-      centroids: trained,
-      dim,
-      version: model.embedding_version ?? 0,
-      trainedOn: {
-        totalRows,
-        sampleCount: samples.length,
-      }
-    });
-    
-    // DIAGNOSTIC: Validate payload encoding (debug mode only)
-    if (settings.notes_debug_mode) {
-      if (centroidPayload.nlist !== actualNlist || centroidPayload.dim !== dim) {
-        console.error(`🔴 ENCODING BUG: Payload mismatch after encode!`);
-        console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
-        console.error(`   Got: nlist=${centroidPayload.nlist}, dim=${centroidPayload.dim}`);
-        return false;
-      }
-    }
-    
-    await write_centroids(anchorId, centroidPayload);
-    
-    // DIAGNOSTIC: Validate round-trip (write → read → decode) (debug mode only)
-    if (settings.notes_debug_mode) {
-      const readBack = await read_centroids(anchorId);
-      if (!readBack || !readBack.b64) {
-        console.error(`🔴 STORAGE BUG: Failed to read back centroids after write!`);
-        return false;
-      }
-      if (readBack.nlist !== actualNlist || readBack.dim !== dim) {
-        console.error(`🔴 STORAGE BUG: Metadata corrupted after write!`);
-        console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
-        console.error(`   Got: nlist=${readBack.nlist}, dim=${readBack.dim}`);
-        return false;
-      }
-      const decoded = decode_centroids(readBack);
-      if (!decoded || decoded.nlist !== actualNlist || decoded.dim !== dim) {
-        console.error(`🔴 DECODE BUG: Centroids corrupted after decode!`);
-        console.error(`   Expected: nlist=${actualNlist}, dim=${dim}`);
-        console.error(`   Got: nlist=${decoded?.nlist}, dim=${decoded?.dim}`);
-        return false;
-      }
-      console.info(`✅ Round-trip validation passed: ${actualNlist} centroids × ${dim}d stored successfully`);
-    }
-    
-    const statusMsg = actualNlist !== desiredNlist 
-      ? `${actualNlist} centroids created (adjusted from ${desiredNlist} due to limited samples)`
-      : `${actualNlist} centroids created`;
-    console.info(`Jarvis: Training complete - ${statusMsg} in ${Date.now() - trainingStartTime}ms`);
-    
-    // Clear centroid cache so next search will load the newly trained centroids
-    clear_centroid_cache(model.id);
-    log.info(`Cleared centroid cache for model ${model.id} after training`);
-    
-    return true;
-  } catch (error) {
-    log.error('Failed to train centroids from existing embeddings', { modelId: model.id, error });
-    return false;
-  }
-}
-
-/**
- * Sample embedding vectors directly from userData.
- * Uses reservoir sampling to efficiently sample from a large corpus.
- */
-async function sample_from_user_data(
-  modelId: string,
-  dim: number,
-  sampleLimit: number,
-  debugMode: boolean = false
-): Promise<Float32Array[]> {
-  const log = getLogger();
-  const { get_all_note_ids_with_embeddings } = await import('./embeddings');
-  const store = new UserDataEmbStore();
-  
-  try {
-    // Get all notes with embeddings for this model
-    const result = await get_all_note_ids_with_embeddings(modelId);
-    const noteIds = Array.from(result.noteIds);
-    
-    if (noteIds.length === 0) {
-      log.warn('No notes found with embeddings for model', { modelId, expectedDim: dim });
-      return [];
-    }
-    
-    log.info('Starting sample collection', {
-      modelId,
-      expectedDim: dim,
-      totalNotesForModel: noteIds.length,
-      sampleLimit
-    });
-    
-    // Shuffle noteIds for random sampling (Fisher-Yates shuffle)
-    // This is more efficient than reservoir sampling for large note counts
-    for (let i = noteIds.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [noteIds[i], noteIds[j]] = [noteIds[j], noteIds[i]];
-    }
-    
-    // Use reservoir sampling to efficiently sample from corpus
-    // This ensures we don't read too many notes/blocks
-    const samples: Float32Array[] = [];
-    let notesProcessed = 0;
-    let blocksScanned = 0;  // Total blocks seen (for reservoir sampling)
-    
-    // Calculate notes needed based on actual corpus statistics
-    // Use ACTUAL totalBlocks from the query result for accurate estimation
-    const totalBlocks = result.totalBlocks ?? 0;
-    const estimatedAvgBlocksPerNote = totalBlocks > 0 ? totalBlocks / noteIds.length : 15;
-    
-    // Target: read only as many notes as needed to get sampleLimit samples
-    // Dynamic cap: prefer 30-40% of notes, but allow up to 60% if needed for sample quality
-    const notesNeededForSamples = Math.ceil(sampleLimit / estimatedAvgBlocksPerNote);
-    const notesWithBuffer = Math.ceil(notesNeededForSamples * 1.15);  // 15% buffer
-    
-    // Adaptive cap based on corpus size
-    let percentageCap = 0.40;  // Default: 40% of notes
-    if (notesNeededForSamples / noteIds.length > 0.40) {
-      // If we need more than 40% to reach sample target, increase cap to 60%
-      percentageCap = 0.60;
-    }
-    
-    const maxNotesToCheck = Math.min(
-      notesWithBuffer,
-      Math.ceil(noteIds.length * percentageCap)
-    );
-    
-    if (debugMode) {
-      log.info('Sample collection plan', {
-        sampleLimit,
-        totalNotes: noteIds.length,
-        totalBlocks,
-        estimatedAvgBlocksPerNote: estimatedAvgBlocksPerNote.toFixed(1),
-        notesNeededForSamples,
-        maxNotesToCheck,
-        percentageOfNotes: `${(maxNotesToCheck / noteIds.length * 100).toFixed(1)}%`
-      });
-    }
-    
-    for (const noteId of noteIds) {
-      if (notesProcessed >= maxNotesToCheck) {
-        if (debugMode) {
-          log.info(`Early termination: collected ${samples.length} samples from ${notesProcessed} notes (scanned ${blocksScanned} blocks)`);
-        }
-        break;
-      }
-      notesProcessed++;
-      
-      try {
-        const meta = await store.getMeta(noteId);
-        if (!meta?.models?.[modelId]) continue;
-        
-        const modelMeta = meta.models[modelId];
-        const shardCount = modelMeta.current?.shards ?? 0;
-        
-        for (let shardIdx = 0; shardIdx < shardCount && samples.length < sampleLimit; shardIdx++) {
-          const shard = await store.getShard(noteId, modelId, shardIdx);
-          if (!shard) continue;
-          
-          // Decode Q8 vectors back to Float32Array
-          const q8 = decode_q8_vectors(shard);
-          
-          // CRITICAL: Check if shard dimension matches expected dimension
-          // If mismatch, this note has embeddings from a different model!
-          const shardDim = modelMeta.dim ?? dim;
-          if (shardDim !== dim) {
-            log.warn(`Dimension mismatch in sample collection`, {
-              noteId,
-              expectedDim: dim,
-              shardDim,
-              modelId,
-              vectorsLength: q8.vectors.length,
-              reason: 'Note has embeddings from different model'
-            });
-            break; // Skip this entire note
-          }
-          
-          const rowCount = q8.vectors.length / dim;
-          
-          for (let row = 0; row < rowCount && samples.length < sampleLimit; row++) {
-            const offset = row * dim;
-            const scale = q8.scales[row];
-            
-            // Skip invalid scales (undefined, NaN, Infinity, or 0)
-            if (scale == null || !isFinite(scale) || scale === 0) {
-              if (samples.length < 5) {
-                log.debug(`Skipping row ${row} in note ${noteId}: invalid scale ${scale}`);
-              }
-              continue;
-            }
-            
-            const dequantized = new Float32Array(dim);
-            for (let i = 0; i < dim; i++) {
-              dequantized[i] = q8.vectors[offset + i] * scale;
-            }
-            
-            // DIAGNOSTIC: Check if dequantization created invalid values
-            let hasInvalid = false;
-            for (let i = 0; i < dim; i++) {
-              if (!isFinite(dequantized[i])) {
-                hasInvalid = true;
-                if (debugMode) {
-                  console.error(`🔴 ROOT CAUSE: Dequantization created invalid value at note ${noteId}, row ${row}, dim ${i}`);
-                  console.error(`q8.vectors[${offset + i}] = ${q8.vectors[offset + i]}, scale = ${scale}`);
-                  console.error('This means stored scale or quantized value is corrupted');
-                }
-                break;
-              }
-            }
-            
-            if (!hasInvalid) {
-              samples.push(dequantized);
-            } else {
-              log.warn(`Skipping corrupted sample from note ${noteId}, row ${row}`);
-            }
-          }
-        }
-      } catch (error) {
-        log.debug(`Failed to sample from note ${noteId}`, error);
-        continue;
-      }
-    }
-    
-    log.info('Sampled vectors from userData', { 
-      totalNotes: noteIds.length, 
-      notesProcessed,
-      vectors: samples.length,
-      targetLimit: sampleLimit,
-      efficiency: `${(notesProcessed / noteIds.length * 100).toFixed(1)}% of notes read`
-    });
-    
-    return samples;
-  } catch (error) {
-    log.error('Failed to sample from userData', { modelId, error });
-    return [];
-  }
-}
-
-/**
- * Reservoir sample items from an array (simpler version for note IDs).
- */
-function reservoir_sample_items<T>(items: T[], limit: number): T[] {
-  if (items.length <= limit) {
-    return items;
-  }
-  
-  const result: T[] = [];
-  for (let i = 0; i < items.length; i++) {
-    if (i < limit) {
-      result.push(items[i]);
-    } else {
-      const j = Math.floor(Math.random() * (i + 1));
-      if (j < limit) {
-        result[j] = items[i];
-      }
-    }
-  }
-  return result;
 }

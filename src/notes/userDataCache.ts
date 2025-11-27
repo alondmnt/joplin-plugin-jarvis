@@ -5,7 +5,6 @@ export interface CachedShard {
   key: string;
   vectors: Int8Array;
   scales: Float32Array;
-  centroidIds?: Uint16Array;
 }
 
 /**

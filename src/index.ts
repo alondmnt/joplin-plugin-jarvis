@@ -8,7 +8,7 @@ import { find_notes, update_note_db, skip_db_init_dialog } from './commands/note
 import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
-import { find_nearest_notes, validate_anchor_metadata_on_startup, bootstrap_missing_centroids_on_startup, clear_corpus_cache } from './notes/embeddings';
+import { find_nearest_notes, validate_anchor_metadata_on_startup, clear_corpus_cache } from './notes/embeddings';
 import { ensure_catalog_note, get_catalog_note_id, resolve_anchor_note_id } from './notes/catalog';
 import { register_panel, update_panel } from './ux/panel';
 import { get_settings, register_settings, set_folders, get_model_last_sweep_time, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
@@ -22,7 +22,7 @@ import {
   resolve_embedding_model_id,
   prompt_model_switch_decision,
 } from './notes/modelSwitch';
-import { read_anchor_meta_data, write_anchor_metadata, AnchorRefreshState } from './notes/anchorStore';
+import { read_anchor_meta_data, write_anchor_metadata } from './notes/anchorStore';
 import { open_model_management_dialog } from './ux/modelManagement';
 
 const STARTUP_DELAY_SECONDS = 5;
@@ -104,9 +104,6 @@ joplin.plugins.register({
       // This runs before the initial sweep to ensure accurate baseline
       if (runtime.model_embed.id && runtime.settings.notes_db_in_user_data) {
         await validate_anchor_metadata_on_startup(runtime.model_embed.id, runtime.settings);
-        
-        // Bootstrap centroids if missing (must happen after anchor validation to have accurate rowCount)
-        await bootstrap_missing_centroids_on_startup(runtime.model_embed, runtime.settings);
       }
 
       await run_initial_sweep(runtime, updates);
@@ -250,69 +247,6 @@ function create_update_manager(runtime: PluginRuntime): UpdateManager {
   };
 }
 
-async function claim_centroid_refresh(runtime: PluginRuntime): Promise<boolean> {
-  if (!runtime.settings.notes_db_in_user_data) {
-    return false;
-  }
-  if (runtime.settings.notes_device_platform === 'mobile') {
-    return false;
-  }
-
-  const modelId = resolve_embedding_model_id(runtime.settings);
-  if (!modelId) {
-    return false;
-  }
-
-  try {
-    const catalogId = await get_catalog_note_id();
-    if (!catalogId) {
-      return false;
-    }
-
-    const anchorId = await resolve_anchor_note_id(catalogId, modelId);
-    if (!anchorId) {
-      return false;
-    }
-
-    const metadata = await read_anchor_meta_data(anchorId);
-    const refresh = metadata?.refresh;
-    if (!metadata || !refresh) {
-      return false;
-    }
-
-    const now = Date.now();
-    const lastAttemptMs = Date.parse(refresh.lastAttemptAt ?? refresh.requestedAt ?? '') || 0;
-    const attemptStale = refresh.status === 'in_progress'
-      && (now - lastAttemptMs) > REFRESH_ATTEMPT_TIMEOUT_MS;
-
-    if (refresh.status !== 'pending' && !attemptStale) {
-      return false;
-    }
-
-    const updatedRefresh: AnchorRefreshState = {
-      ...refresh,
-      status: 'in_progress',
-      lastAttemptAt: new Date().toISOString(),
-    };
-
-    await write_anchor_metadata(anchorId, {
-      ...metadata,
-      refresh: updatedRefresh,
-    });
-
-    runtime.log.info('Jarvis: claimed centroid refresh request', {
-      modelId,
-      reason: refresh.reason,
-      requestedAt: refresh.requestedAt,
-    });
-
-    return true;
-  } catch (error) {
-    runtime.log.warn('Jarvis: failed to claim centroid refresh request', error);
-    return false;
-  }
-}
-
 /**
  * Stop the periodic sweep timer if one is active.
  */
@@ -341,13 +275,10 @@ function schedule_full_sweep_timer(runtime: PluginRuntime, updates: UpdateManage
         return;
       }
       try {
-        const refreshClaimed = await claim_centroid_refresh(runtime);
         // Only use incremental sweep if database has been built before (check settings)
         const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
         const useIncremental = lastSweepTime > 0;
-        const updateOptions: UpdateOptions = refreshClaimed
-          ? { force: true }  // Centroid refresh needs full scan
-          : { force: false, silent: true, incrementalSweep: useIncremental };
+        const updateOptions: UpdateOptions = { force: false, silent: true, incrementalSweep: useIncremental };
         await updates.start_update(updateOptions);
         runtime.pending_note_ids.clear();
         runtime.initial_sweep_completed = true;
@@ -366,20 +297,17 @@ async function run_initial_sweep(runtime: PluginRuntime, updates: UpdateManager)
     return;
   }
 
-  try {
-    const refreshClaimed = await claim_centroid_refresh(runtime);
-    if (!refreshClaimed && runtime.delay_db_update <= 0) {
-      return;
-    }
+  if (runtime.delay_db_update <= 0) {
+    return;
+  }
 
+  try {
     // Only use incremental sweep if database has been built before (check settings)
     // First build needs full scan to populate database
     const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
     const useIncremental = lastSweepTime > 0;
-    
-    const updateOptions: UpdateOptions = refreshClaimed
-      ? { force: true }  // Centroid refresh needs full scan
-      : { force: false, silent: true, incrementalSweep: useIncremental };
+
+    const updateOptions: UpdateOptions = { force: false, silent: true, incrementalSweep: useIncremental };
 
     await updates.start_update(updateOptions);
     runtime.pending_note_ids.clear();
@@ -833,6 +761,16 @@ async function register_settings_handler(
 
     const notesModelChanged = event.keys.includes('notes_model')
       && previousSettings?.notes_model !== runtime.settings.notes_model;
+
+    // Check if excluded folders changed - invalidate cache to reload with new filter
+    const excludedFoldersChanged = event.keys.includes('notes_exclude_folders');
+    if (excludedFoldersChanged && runtime.settings.notes_db_in_user_data) {
+      const modelId = resolve_embedding_model_id(runtime.settings);
+      if (modelId) {
+        clear_corpus_cache(modelId);
+        runtime.log.info('Jarvis: invalidated cache due to excluded folders change');
+      }
+    }
 
     let forceUpdateAfterReload = false;
     let skipUpdateAfterReload = false;

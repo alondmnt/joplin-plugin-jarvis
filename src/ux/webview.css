@@ -77,6 +77,12 @@ html {
   margin-left: 5px;
 }
 
+.jarvis-capacity-warning {
+  font-size: calc(var(--joplin-font-size) * 0.65);
+  color: var(--joplin-color-warn);
+  margin: 3px 5px;
+}
+
 .jarvis-semantic-section a:active, a:hover {
   font-weight: bold;
 }

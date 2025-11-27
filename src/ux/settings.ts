@@ -118,8 +118,6 @@ export interface JarvisSettings {
   notes_device_platform?: string;
   notes_anchor_cache?: Record<string, string>;
   notes_search_candidate_limit?: number;
-  notes_search_min_nprobe?: number;
-  notes_search_small_set_nprobe?: number;
   notes_search_max_rows?: number;
   notes_search_time_budget_ms?: number;
   notes_max_shard_bytes?: number;
@@ -370,8 +368,6 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_device_profile_effective: effectiveProfile,
     notes_device_platform: detectedPlatform,
     notes_search_candidate_limit: await joplin.settings.value('notes_search_candidate_limit'),
-    notes_search_min_nprobe: await joplin.settings.value('notes_search_min_nprobe'),
-    notes_search_small_set_nprobe: await joplin.settings.value('notes_search_small_set_nprobe'),
     notes_search_max_rows: await joplin.settings.value('notes_search_max_rows'),
     notes_search_time_budget_ms: await joplin.settings.value('notes_search_time_budget_ms'),
     notes_max_shard_bytes: await joplin.settings.value('notes_max_shard_bytes'),
@@ -727,7 +723,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Enable debug mode (verbose logging and index validation)',
-      description: 'Shows detailed diagnostics for centroid training, indexing, and validates search quality. Useful for troubleshooting note properties mode, but may slow down searches. Default: false',
+      description: 'Shows detailed diagnostics for indexing and validates search quality. Useful for troubleshooting note properties mode, but may slow down searches. Default: false',
     },
     'notes_embed_timeout': {
       value: 120,
@@ -1291,30 +1287,6 @@ export async function register_settings() {
       advanced: true,
       label: 'Search: Result pool size',
       description: 'Applies to experimental synced database only. Default: 0 (automatic: mobile 320-800, desktop 1536-8192, scales with requested results). How many candidate blocks to consider when searching. Higher = more accurate but slower and uses more memory. Try 500 for faster search, 2000 for better accuracy.',
-    },
-    'notes_search_min_nprobe': {
-      value: 0,
-      type: SettingItemType.Int,
-      minimum: 0,
-      maximum: 256,
-      step: 1,
-      section: 'jarvis.notes',
-      public: true,
-      advanced: true,
-      label: 'Search: Thoroughness',
-      description: 'Applies to experimental synced database only. Default: 0 (automatic: mobile 12-14, desktop 20-24). How many note clusters to search—the main speed/accuracy knob. Higher = better results but slower. Try 8 for faster search, 32 for maximum accuracy.',
-    },
-    'notes_search_small_set_nprobe': {
-      value: 0,
-      type: SettingItemType.Int,
-      minimum: 0,
-      maximum: 128,
-      step: 1,
-      section: 'jarvis.notes',
-      public: true,
-      advanced: true,
-      label: 'Search: Thoroughness for small libraries',
-      description: 'Applies to experimental synced database only. Default: 0 (automatic: mobile 6-7, desktop 10-12, half of main thoroughness setting). Search thoroughness when you have few notes. Prevents wasting CPU searching empty clusters. Usually leave at 0.',
     },
     'notes_search_max_rows': {
       value: 0,
