@@ -116,9 +116,6 @@ export interface JarvisSettings {
   notes_device_profile: 'auto' | 'desktop' | 'mobile';
   notes_device_profile_effective: 'desktop' | 'mobile';
   notes_device_platform?: string;
-  notes_search_candidate_limit?: number;
-  notes_search_max_rows?: number;
-  notes_search_time_budget_ms?: number;
   notes_max_shard_bytes?: number;
   notes_model_first_build_completed: Record<string, boolean>;
   notes_model_last_sweep_time: Record<string, number>;  // Unix timestamp (ms) per model
@@ -366,9 +363,6 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_device_profile: rawProfileSetting,
     notes_device_profile_effective: effectiveProfile,
     notes_device_platform: detectedPlatform,
-    notes_search_candidate_limit: await joplin.settings.value('notes_search_candidate_limit'),
-    notes_search_max_rows: await joplin.settings.value('notes_search_max_rows'),
-    notes_search_time_budget_ms: await joplin.settings.value('notes_search_time_budget_ms'),
     notes_max_shard_bytes: await joplin.settings.value('notes_max_shard_bytes'),
     notes_model_first_build_completed: firstBuildCompleted,
     notes_model_last_sweep_time: lastSweepTimes,
@@ -1273,42 +1267,6 @@ export async function register_settings() {
         'desktop': 'Desktop',
         'mobile': 'Mobile',
       },
-    },
-    'notes_search_candidate_limit': {
-      value: 0,
-      type: SettingItemType.Int,
-      minimum: 0,
-      maximum: 10000,
-      step: 32,
-      section: 'jarvis.notes',
-      public: true,
-      advanced: true,
-      label: 'Search: Result pool size',
-      description: 'Applies to experimental synced database only. Default: 0 (automatic: mobile 320-800, desktop 1536-8192, scales with requested results). How many candidate blocks to consider when searching. Higher = more accurate but slower and uses more memory. Try 500 for faster search, 2000 for better accuracy.',
-    },
-    'notes_search_max_rows': {
-      value: 0,
-      type: SettingItemType.Int,
-      minimum: 0,
-      maximum: 30000,
-      step: 100,
-      section: 'jarvis.notes',
-      public: true,
-      advanced: true,
-      label: 'Search: Maximum embeddings to decode',
-      description: 'Applies to experimental synced database only. Default: 0 (automatic: mobile 1200-4000, desktop 6000-24000, scales with result pool). Caps how many embeddings are decoded from storage. Decoding is CPU-intensive. Try 800 for faster search, 5000 for better accuracy.',
-    },
-    'notes_search_time_budget_ms': {
-      value: 0,
-      type: SettingItemType.Int,
-      minimum: 0,
-      maximum: 2000,
-      step: 10,
-      section: 'jarvis.notes',
-      public: true,
-      advanced: true,
-      label: 'Search: Timeout (ms)',
-      description: 'Applies to experimental synced database only. Default: 0 (automatic: mobile 120ms, desktop 500ms). Emergency brake that stops search to prevent UI freezes. Returns partial results if time exceeded. Try 80 for snappier UI, 800 for thorough search.',
     },
     'notes_max_shard_bytes': {
       value: 0,

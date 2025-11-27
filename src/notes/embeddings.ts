@@ -207,8 +207,6 @@ export async function validate_model_metadata_on_startup(modelId: string, settin
 interface SearchTuning {
   profile: 'desktop' | 'mobile';
   candidateLimit: number;
-  maxRows: number;
-  timeBudgetMs: number;
   parentTargetSize: number;
 }
 
@@ -224,6 +222,7 @@ function clamp(value: number, min: number, max: number): number {
 
 /**
  * Derive search parameters from settings for in-memory cache search.
+ * candidateLimit scales with notes_max_hits to ensure enough blocks for grouping.
  */
 function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
   const baseHits = Math.max(settings.notes_max_hits, 1);
@@ -231,41 +230,18 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
     ?? (settings.notes_device_profile === 'mobile' ? 'mobile' : 'desktop');
   const profile: 'desktop' | 'mobile' = requestedProfile === 'mobile' ? 'mobile' : 'desktop';
 
-  const candidateOverride = Number(settings.notes_search_candidate_limit ?? 0);
+  // Scale candidate limit with requested results (for mean aggregation, need multiple blocks per note)
   const candidateFloor = profile === 'mobile' ? 320 : 1536;
   const candidateCeil = profile === 'mobile' ? 800 : 8192;
   const candidateMultiplier = profile === 'mobile' ? 24 : 64;
   const computedCandidate = baseHits * candidateMultiplier;
-  const defaultCandidate = clamp(computedCandidate, candidateFloor, candidateCeil);
-  let candidateLimit = candidateOverride > 0
-    ? clamp(candidateOverride, 1, 10000)
-    : defaultCandidate;
-
-  const maxRowsOverride = Number(settings.notes_search_max_rows ?? 0);
-  const defaultMaxRows = profile === 'mobile'
-    ? clamp(candidateLimit * 3, 1200, 4000)
-    : clamp(candidateLimit * 4, 6000, 24000);
-  let maxRows = maxRowsOverride > 0
-    ? Math.max(candidateLimit, maxRowsOverride)
-    : defaultMaxRows;
-
-  const timeBudgetOverride = Number(settings.notes_search_time_budget_ms ?? 0);
-  const defaultTimeBudget = profile === 'mobile' ? 120 : 500;
-  let timeBudgetMs = timeBudgetOverride > 0
-    ? timeBudgetOverride
-    : defaultTimeBudget;
+  const candidateLimit = Math.max(1, Math.round(clamp(computedCandidate, candidateFloor, candidateCeil)));
 
   const parentTargetSize = profile === 'mobile' ? 256 : 0;
-
-  candidateLimit = Math.max(1, Math.round(candidateLimit));
-  maxRows = Math.max(1, Math.round(maxRows));
-  timeBudgetMs = Math.max(0, Math.round(timeBudgetMs));
 
   return {
     profile,
     candidateLimit,
-    maxRows,
-    timeBudgetMs,
     parentTargetSize,
   };
 }
