@@ -15,6 +15,7 @@ import { TopKHeap } from './topK';
 import { read_model_metadata, write_model_metadata } from './catalogMetadataStore';
 import { get_catalog_note_id } from './catalog';
 import { SimpleCorpusCache } from './embeddingCache';
+import { setModelStats } from './modelStats';
 
 const ocrMergedFlag = Symbol('ocrTextMerged');
 const userDataStore = new UserDataEmbStore();
@@ -152,35 +153,49 @@ export async function validate_model_metadata_on_startup(modelId: string, settin
     const scanStart = Date.now();
     const result = await get_all_note_ids_with_embeddings(modelId);
     const actualRowCount = result.totalBlocks ?? 0;
-    const storedRowCount = modelMeta.rowCount;
+    const actualNoteCount = result.noteIds.size;
+    const storedRowCount = modelMeta.rowCount ?? 0;
+    const storedNoteCount = modelMeta.noteCount ?? 0;
+    const dim = modelMeta.dim ?? 0;
+
+    // Always update in-memory stats with accurate values (for memory warnings etc.)
+    setModelStats(modelId, { rowCount: actualRowCount, noteCount: actualNoteCount, dim });
 
     if (actualRowCount === 0) {
       log.debug('Startup validation: no embeddings found for model', { modelId });
       return;
     }
 
-    // Check if drift exceeds 15% threshold
-    const percentDiff = Math.abs(actualRowCount - storedRowCount) / storedRowCount;
+    // Check if drift exceeds 15% threshold for either rowCount or noteCount
+    // Only write to catalog note if drift is significant (to reduce sync conflicts)
+    const rowDrift = storedRowCount > 0 ? Math.abs(actualRowCount - storedRowCount) / storedRowCount : 1;
+    const noteDrift = storedNoteCount > 0 ? Math.abs(actualNoteCount - storedNoteCount) / storedNoteCount : 1;
+    const needsUpdate = rowDrift >= 0.15 || noteDrift >= 0.15;
 
-    if (percentDiff >= 0.15) {
-      log.warn('Startup validation: model metadata drift detected, correcting...', {
+    if (needsUpdate) {
+      log.warn('Startup validation: model metadata drift detected, correcting catalog...', {
         modelId,
         storedRowCount,
         actualRowCount,
-        drift: `${(percentDiff * 100).toFixed(1)}%`,
+        storedNoteCount,
+        actualNoteCount,
+        rowDrift: `${(rowDrift * 100).toFixed(1)}%`,
+        noteDrift: `${(noteDrift * 100).toFixed(1)}%`,
         scanTimeMs: Date.now() - scanStart,
       });
 
       await write_model_metadata(catalogId, modelId, {
         ...modelMeta,
         rowCount: actualRowCount,
+        noteCount: actualNoteCount,
         updatedAt: new Date().toISOString(),
       });
     } else {
       log.info('Startup validation: model metadata accurate', {
         modelId,
         rowCount: storedRowCount,
-        drift: `${(percentDiff * 100).toFixed(1)}%`,
+        noteCount: storedNoteCount,
+        rowDrift: `${(rowDrift * 100).toFixed(1)}%`,
         scanTimeMs: Date.now() - scanStart,
       });
     }
@@ -553,7 +568,7 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
  */
 async function update_note(note: any,
     model: TextEmbeddingModel, settings: JarvisSettings,
-    abortSignal: AbortSignal, force: boolean = false, catalogId?: string, corpusRowCountAccumulator?: { current: number }): Promise<UpdateNoteResult> {
+    abortSignal: AbortSignal, force: boolean = false, catalogId?: string): Promise<UpdateNoteResult> {
   if (abortSignal.aborted) {
     throw new ModelError("Operation cancelled");
   }
@@ -686,7 +701,7 @@ async function update_note(note: any,
         }
         if (needsBackfill || needsCompaction || shardMissing) {
           log.debug(`Note ${note.id} needs backfill/compaction - needsBackfill=${needsBackfill}, needsCompaction=${needsCompaction}, shardMissing=${shardMissing}`);
-          await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId, corpusRowCountAccumulator);
+          await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
         }
         
         // Validate settings even when content unchanged (catches synced mismatches)
@@ -777,7 +792,7 @@ async function update_note(note: any,
     // Write embeddings to appropriate storage
     if (settings.notes_db_in_user_data) {
       // userData mode: Write to userData
-      await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId, corpusRowCountAccumulator);
+      await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId);
 
       // Incrementally update cache (replace blocks for updated note)
       const cache = corpusCaches.get(model.id);
@@ -900,7 +915,6 @@ export async function update_embeddings(
   abortController: AbortController,
   force: boolean = false,
   catalogId?: string,
-  corpusRowCountAccumulator?: { current: number },
 ): Promise<{
   settingsMismatches: Array<{ noteId: string; currentSettings: EmbeddingSettings; storedSettings: EmbeddingSettings }>;
   totalRows: number;
@@ -922,7 +936,7 @@ export async function update_embeddings(
     let attempt = 0;
     while (!abortController.signal.aborted) {
       try {
-        const result = await update_note(note, model, settings, abortController.signal, force, catalogId, corpusRowCountAccumulator);
+        const result = await update_note(note, model, settings, abortController.signal, force, catalogId);
         successfulNotes.push({ note, embeddings: result.embeddings });
         
         // Track notes that were skipped due to matching hash and settings
@@ -1688,7 +1702,6 @@ async function write_user_data_embeddings(
   settings: JarvisSettings,
   contentHash: string,
   catalogId?: string,
-  corpusRowCountAccumulator?: { current: number },
 ): Promise<void> {
   const noteId = note?.id;
   if (!noteId) {
@@ -1703,7 +1716,6 @@ async function write_user_data_embeddings(
       settings,
       store: userDataStore,
       catalogId,
-      corpusRowCountAccumulator,
     });
     if (!prepared) {
       return;

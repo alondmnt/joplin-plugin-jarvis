@@ -23,6 +23,8 @@ import {
   prompt_model_switch_decision,
 } from './notes/modelSwitch';
 import { open_model_management_dialog } from './ux/modelManagement';
+import { getModelStats } from './notes/modelStats';
+import { checkCapacityWarning } from './notes/embeddingCache';
 
 const STARTUP_DELAY_SECONDS = 5;
 const PANEL_DEBOUNCE_SECONDS = 1;
@@ -728,7 +730,13 @@ async function register_workspace_listeners(
         true,
         runtime.panel
       );
-      await update_panel(runtime.panel, nearest, runtime.settings);
+      // Compute capacity warning from in-memory stats (if available)
+      const stats = getModelStats(runtime.model_embed.id);
+      const profileIsDesktop = runtime.settings.notes_device_profile_effective === 'desktop';
+      const capacityWarning = stats
+        ? checkCapacityWarning(stats.rowCount, stats.dim, profileIsDesktop)
+        : null;
+      await update_panel(runtime.panel, nearest, runtime.settings, capacityWarning);
     }
     if (message.name === 'abortUpdate') {
       runtime.update_abort_controller?.abort();

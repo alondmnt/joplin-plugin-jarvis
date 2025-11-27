@@ -16,6 +16,7 @@ export interface CatalogModelMetadata {
   settings?: EmbeddingSettings;
   updatedAt?: string;
   rowCount?: number;
+  noteCount?: number;
 }
 
 /**

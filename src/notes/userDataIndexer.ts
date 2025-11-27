@@ -19,7 +19,6 @@ export interface PrepareUserDataParams {
   settings: JarvisSettings;
   store: EmbStore;
   catalogId?: string;
-  corpusRowCountAccumulator?: { current: number };
 }
 
 export interface PreparedUserData {
@@ -104,12 +103,6 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
 
   const metaRows = build_block_row_meta(blocks);
 
-  // Update corpus row count accumulator if provided
-  if (params.corpusRowCountAccumulator) {
-    const previousNoteRows = previousMeta?.models?.[model.id]?.current?.rows ?? 0;
-    params.corpusRowCountAccumulator.current = Math.max(0, params.corpusRowCountAccumulator.current - previousNoteRows + blocks.length);
-  }
-
   const shards = build_shards({
     epoch,
     quantized,
@@ -161,6 +154,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
  * @param catalogId - Catalog note ID where model metadata is stored
  * @param totalRows - Total embedding rows (blocks) counted during sweep
  * @param dim - Embedding dimension captured from sweep
+ * @param noteCount - Number of notes with embeddings for this model
  * @returns CatalogModelMetadata object ready to be persisted
  */
 export async function compute_final_model_metadata(
@@ -169,6 +163,7 @@ export async function compute_final_model_metadata(
   catalogId: string,
   totalRows: number,
   dim: number,
+  noteCount?: number,
 ): Promise<CatalogModelMetadata | null> {
   try {
     const embeddingSettings = extract_embedding_settings(settings);
@@ -190,6 +185,7 @@ export async function compute_final_model_metadata(
       settings: embeddingSettings,
       updatedAt: new Date().toISOString(),
       rowCount: totalRows,
+      noteCount,
     };
 
     return metadata;
@@ -238,6 +234,7 @@ export function model_metadata_changed(
 
   // Compare count stats with threshold (only update if changed significantly)
   if (countDiffersSignificantly(a.rowCount, b.rowCount)) return true;
+  if (countDiffersSignificantly(a.noteCount, b.noteCount)) return true;
 
   // Compare settings
   if (!a.settings || !b.settings) {

@@ -1,10 +1,13 @@
 import joplin from 'api';
 import { ModelType } from 'api/types';
 import { getLogger } from '../utils/logger';
-import { delete_model_metadata } from './catalogMetadataStore';
+import { delete_model_metadata, write_model_metadata, CatalogModelMetadata } from './catalogMetadataStore';
 import { clearApiResponse, clearObjectReferences } from '../utils';
 
 const log = getLogger();
+
+// Key used to store per-note embedding metadata
+const NOTE_META_KEY = 'jarvis/v1/meta';
 
 const CATALOG_NOTE_TITLE = 'Jarvis Database Catalog';
 const CATALOG_TAG = 'jarvis-database';
@@ -143,6 +146,123 @@ export async function register_model(catalogNoteId: string, modelId: string): Pr
   await save_model_registry(catalogNoteId, registry);
   await update_catalog_body(catalogNoteId, registry);
   log.info('Registered model in catalog', { modelId, catalogNoteId });
+}
+
+/**
+ * Discover all models with embeddings in userData by scanning notes.
+ * Returns model IDs and basic metadata (dim, block count, note count) for each.
+ */
+interface DiscoveredModel {
+  modelId: string;
+  dim: number;
+  blockCount: number;
+  noteCount: number;
+  version?: string;
+}
+
+async function discover_models_from_userData(): Promise<DiscoveredModel[]> {
+  const modelStats = new Map<string, { dim: number; blockCount: number; noteCount: number; version?: string }>();
+
+  let page = 1;
+  let scannedNotes = 0;
+  const startTime = Date.now();
+
+  while (true) {
+    let notes: any = null;
+    try {
+      notes = await joplin.data.get(['notes'], {
+        fields: ['id'],
+        page,
+        limit: 100,
+      });
+
+      for (const note of notes.items) {
+        scannedNotes++;
+        try {
+          const meta = await joplin.data.userDataGet<any>(ModelType.Note, note.id, NOTE_META_KEY);
+          if (meta?.models && typeof meta.models === 'object') {
+            for (const [modelId, modelMeta] of Object.entries(meta.models)) {
+              const m = modelMeta as any;
+              const existing = modelStats.get(modelId);
+              const rows = m?.current?.rows ?? 0;
+              if (existing) {
+                existing.blockCount += rows;
+                existing.noteCount += 1;
+                // Keep first dim/version found
+              } else {
+                modelStats.set(modelId, {
+                  dim: m?.dim ?? 0,
+                  blockCount: rows,
+                  noteCount: 1,
+                  version: m?.modelVersion,
+                });
+              }
+            }
+          }
+        } catch (_) {
+          // No userData or error, skip
+        }
+      }
+
+      const hasMore = notes.has_more;
+      clearApiResponse(notes);
+      if (!hasMore) break;
+      page++;
+    } catch (err) {
+      clearApiResponse(notes);
+      throw err;
+    }
+  }
+
+  const elapsed = Date.now() - startTime;
+  const discovered = Array.from(modelStats.entries()).map(([modelId, stats]) => ({
+    modelId,
+    ...stats,
+  }));
+
+  log.info(`Discovered ${discovered.length} models from ${scannedNotes} notes in ${elapsed}ms`, {
+    models: discovered.map(m => m.modelId),
+  });
+
+  return discovered;
+}
+
+/**
+ * Rebuild catalog from userData after catalog deletion.
+ * Discovers all models and registers them with basic metadata.
+ */
+async function rebuild_catalog_from_userData(catalogNoteId: string): Promise<void> {
+  log.info('Rebuilding catalog from userData...');
+
+  const discovered = await discover_models_from_userData();
+  if (discovered.length === 0) {
+    log.info('No models found in userData, catalog will start empty');
+    return;
+  }
+
+  // Register each discovered model and write basic metadata
+  const registry: ModelRegistry = {};
+  for (const model of discovered) {
+    registry[model.modelId] = true;
+
+    // Write basic metadata (will be updated on next sweep)
+    const metadata: CatalogModelMetadata = {
+      modelId: model.modelId,
+      dim: model.dim,
+      version: model.version,
+      rowCount: model.blockCount,
+      noteCount: model.noteCount,
+      updatedAt: new Date().toISOString(),
+    };
+    await write_model_metadata(catalogNoteId, model.modelId, metadata);
+  }
+
+  await save_model_registry(catalogNoteId, registry);
+  await update_catalog_body(catalogNoteId, registry);
+
+  log.info(`Rebuilt catalog with ${discovered.length} models`, {
+    models: discovered.map(m => ({ id: m.modelId, blocks: m.blockCount })),
+  });
 }
 
 /**
@@ -337,19 +457,28 @@ async function createCatalogInternal(): Promise<string> {
       log.info('Found existing catalog by title, adopting it', { noteId: existingByTitle });
       cachedCatalogId = existingByTitle;
 
+      let needsRebuild = false;
       try {
         const reg = await joplin.data.userDataGet<any>(ModelType.Note, existingByTitle, REGISTRY_KEY);
         if (!reg) {
           await joplin.data.userDataSet(ModelType.Note, existingByTitle, REGISTRY_KEY, {} as ModelRegistry);
+          needsRebuild = true;
         }
       } catch (_) {
         try {
           await joplin.data.userDataSet(ModelType.Note, existingByTitle, REGISTRY_KEY, {} as ModelRegistry);
+          needsRebuild = true;
         } catch (e) {
           log.warn('Failed to seed registry on existing catalog', { noteId: existingByTitle, error: e });
         }
       }
       await ensure_note_tag(existingByTitle);
+
+      // Self-healing: rebuild catalog from existing userData if registry was missing
+      if (needsRebuild) {
+        await rebuild_catalog_from_userData(existingByTitle);
+      }
+
       return existingByTitle;
     }
 
@@ -365,26 +494,39 @@ async function createCatalogInternal(): Promise<string> {
       await joplin.data.userDataSet(ModelType.Note, note.id, REGISTRY_KEY, {} as ModelRegistry);
       await ensure_note_tag(note.id);
       log.info('Created catalog note', { noteId: note.id });
+
+      // Self-healing: rebuild catalog from existing userData if any
+      await rebuild_catalog_from_userData(note.id);
+
       return note.id;
     } catch (creationError) {
       const adoptId = await find_catalog_by_title();
       if (adoptId) {
         cachedCatalogId = adoptId;
 
+        let needsRebuild = false;
         try {
           const reg = await joplin.data.userDataGet<any>(ModelType.Note, adoptId, REGISTRY_KEY);
           if (!reg) {
             await joplin.data.userDataSet(ModelType.Note, adoptId, REGISTRY_KEY, {} as ModelRegistry);
+            needsRebuild = true;
           }
         } catch (_) {
           try {
             await joplin.data.userDataSet(ModelType.Note, adoptId, REGISTRY_KEY, {} as ModelRegistry);
+            needsRebuild = true;
           } catch (e) {
             log.warn('Failed to seed registry on adopted catalog', { noteId: adoptId, error: e });
           }
         }
         await ensure_note_tag(adoptId);
         log.info('Adopted existing catalog note by title', { noteId: adoptId });
+
+        // Self-healing: rebuild catalog from existing userData if registry was missing
+        if (needsRebuild) {
+          await rebuild_catalog_from_userData(adoptId);
+        }
+
         return adoptId;
       }
       throw creationError;

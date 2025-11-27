@@ -1,8 +1,9 @@
 import joplin from 'api';
 import { ModelType } from 'api/types';
 import { getLogger } from '../utils/logger';
-import { UserDataEmbStore, EMB_META_KEY, NoteEmbMeta } from '../notes/userDataStore';
-import { remove_model_from_catalog } from '../notes/catalog';
+import { EMB_META_KEY, NoteEmbMeta } from '../notes/userDataStore';
+import { ensure_catalog_note, load_model_registry, remove_model_from_catalog } from '../notes/catalog';
+import { read_model_metadata } from '../notes/catalogMetadataStore';
 import { clearApiResponse } from '../utils';
 
 const log = getLogger();
@@ -15,14 +16,8 @@ interface ModelInventoryItem {
   noteCount: number;
   approxBytes: number;
   lastUpdated?: string;
-  modelVersions: string[];
-  embeddingVersions: string[];
+  version?: string;
   isActiveModel: boolean;
-}
-
-interface InventoryResult {
-  items: ModelInventoryItem[];
-  noteIdsByModel: Map<string, Set<string>>;
 }
 
 interface DeletionSummary {
@@ -74,113 +69,92 @@ function formatTimestamp(value?: string): string {
 }
 
 /**
- * Scan all notes to aggregate per-model inventory statistics and a lookup of note IDs by model.
+ * Load model inventory from the catalog (fast).
+ * This uses the catalog metadata instead of scanning all notes.
  */
-async function collect_model_inventory(activeModelId: string): Promise<InventoryResult> {
-  const store = new UserDataEmbStore(undefined, { cacheSize: 0 });
-  const noteIdsByModel = new Map<string, Set<string>>();
-  const aggregates = new Map<string, {
-    noteCount: number;
-    approxBytes: number;
-    lastUpdated?: string;
-    lastUpdatedEpochMs: number;
-    modelVersions: Set<string>;
-    embeddingVersions: Set<string>;
-    isActiveModel: boolean;
-  }>();
+async function load_inventory_from_catalog(activeModelId: string): Promise<ModelInventoryItem[]> {
+  const catalogId = await ensure_catalog_note();
+  const registry = await load_model_registry(catalogId);
+  const modelIds = Object.keys(registry).filter(id => registry[id]);
 
+  const items: ModelInventoryItem[] = [];
+
+  for (const modelId of modelIds) {
+    const metadata = await read_model_metadata(catalogId, modelId);
+    if (!metadata) {
+      // Model in registry but no metadata - include with minimal info
+      items.push({
+        modelId,
+        noteCount: 0,
+        approxBytes: 0,
+        isActiveModel: modelId === activeModelId,
+      });
+      continue;
+    }
+
+    items.push({
+      modelId,
+      noteCount: metadata.noteCount ?? 0,
+      approxBytes: (metadata.noteCount ?? 0) * BYTES_PER_NOTE_ESTIMATE,
+      lastUpdated: metadata.updatedAt,
+      version: metadata.version,
+      isActiveModel: modelId === activeModelId,
+    });
+  }
+
+  items.sort((a, b) => a.modelId.localeCompare(b.modelId));
+  return items;
+}
+
+/**
+ * Scan notes to get note IDs for a specific model (needed for deletion).
+ * This is only called when actually deleting a model.
+ */
+async function scan_note_ids_for_model(modelId: string): Promise<string[]> {
+  const noteIds: string[] = [];
   let page = 1;
   let hasMore = true;
   let scanned = 0;
 
   while (hasMore) {
-    const response = await joplin.data.get(['notes'], {
-      fields: ['id'],
-      page,
-      limit: PAGE_SIZE,
-      order_by: 'user_updated_time',
-      order_dir: 'DESC',
-    });
-    const items = response?.items ?? [];
-    for (const item of items) {
-      const noteId = item?.id as string | undefined;
-      if (!noteId) {
-        continue;
-      }
-      scanned += 1;
-      if (scanned % 200 === 0) {
-        log.debug('Model manager inventory scan progress', { scanned });
-      }
+    let response: any = null;
+    try {
+      response = await joplin.data.get(['notes'], {
+        fields: ['id'],
+        page,
+        limit: PAGE_SIZE,
+      });
+      const items = response?.items ?? [];
+      for (const item of items) {
+        const noteId = item?.id as string | undefined;
+        if (!noteId) continue;
 
-      let meta: NoteEmbMeta | null = null;
-      try {
-        meta = await store.getMeta(noteId);
-      } catch (error) {
-        log.warn('Model manager failed to read metadata', { noteId, error });
-      }
-      if (!meta || !meta.models) {
-        continue;
-      }
-
-      for (const [modelId, modelMeta] of Object.entries(meta.models)) {
-        if (!modelMeta?.current) {
-          continue;
+        scanned += 1;
+        if (scanned % 200 === 0) {
+          log.debug('Model manager deletion scan progress', { scanned, modelId });
         }
 
-        let notes = noteIdsByModel.get(modelId);
-        if (!notes) {
-          notes = new Set<string>();
-          noteIdsByModel.set(modelId, notes);
-        }
-        notes.add(noteId);
-
-        let agg = aggregates.get(modelId);
-        if (!agg) {
-          agg = {
-            noteCount: 0,
-            approxBytes: 0,
-            lastUpdatedEpochMs: 0,
-            modelVersions: new Set<string>(),
-            embeddingVersions: new Set<string>(),
-            isActiveModel: modelId === activeModelId,
-          };
-          aggregates.set(modelId, agg);
-        }
-        agg.noteCount += 1;
-        agg.approxBytes += BYTES_PER_NOTE_ESTIMATE;
-        agg.modelVersions.add(modelMeta.modelVersion ?? 'unknown');
-        agg.embeddingVersions.add(String(modelMeta.embeddingVersion ?? 'unknown'));
-
-        const updatedAt = modelMeta.current?.updatedAt;
-        if (updatedAt) {
-          const epoch = Date.parse(updatedAt);
-          if (!Number.isNaN(epoch) && epoch > (agg.lastUpdatedEpochMs ?? 0)) {
-            agg.lastUpdatedEpochMs = epoch;
-            agg.lastUpdated = updatedAt;
+        try {
+          const meta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
+          if (meta?.models?.[modelId]?.current) {
+            noteIds.push(noteId);
           }
+        } catch (_) {
+          // No userData or error, skip
         }
       }
-    }
 
-    hasMore = !!response?.has_more;
-    page += 1;
-    // Clear API response to help GC
-    clearApiResponse(response);
+      hasMore = !!response?.has_more;
+      page += 1;
+      clearApiResponse(response);
+    } catch (err) {
+      clearApiResponse(response);
+      throw err;
+    }
   }
 
-  const items: ModelInventoryItem[] = Array.from(aggregates.entries()).map(([modelId, agg]) => ({
-    modelId,
-    noteCount: agg.noteCount,
-    approxBytes: agg.approxBytes,
-    lastUpdated: agg.lastUpdated,
-    modelVersions: Array.from(agg.modelVersions).sort(),
-    embeddingVersions: Array.from(agg.embeddingVersions).sort(),
-    isActiveModel: agg.isActiveModel,
-  }));
-
-  items.sort((a, b) => a.modelId.localeCompare(b.modelId));
-
-  return { items, noteIdsByModel };
+  log.debug('Model manager deletion scan complete', { modelId, noteIds: noteIds.length, scanned });
+  return noteIds;
 }
 
 /**
@@ -222,7 +196,6 @@ async function delete_model_data(modelId: string, noteIds: string[]): Promise<De
         continue;
       }
 
-      // No need to update activeModelId since it was removed - just save the updated metadata
       await joplin.data.userDataSet(ModelType.Note, noteId, EMB_META_KEY, meta);
       summary.updatedNotes += 1;
     } catch (error) {
@@ -244,7 +217,7 @@ function build_dialog_html(items: ModelInventoryItem[], activeModelId: string, m
     return `
       <div id="jarvis-model-manager">
         <h3>Manage Embedding Models</h3>
-        <p>No stored embedding models were found in userData.</p>
+        <p>No stored embedding models were found.</p>
         <p>Start by indexing your notes via <em>Update Jarvis note DB</em>, then reopen this dialog.</p>
       </div>
     `;
@@ -255,8 +228,6 @@ function build_dialog_html(items: ModelInventoryItem[], activeModelId: string, m
     : '';
 
   const rows = items.map((item, index) => {
-    const versions = item.modelVersions.join(', ');
-    const embeddings = item.embeddingVersions.join(', ');
     const activeBadge = item.isActiveModel ? '<span class="jarvis-model-manager__badge">Active</span>' : '';
     const noteSummary = `${item.noteCount}`;
     const checked = index === 0 ? 'checked' : '';
@@ -274,8 +245,7 @@ function build_dialog_html(items: ModelInventoryItem[], activeModelId: string, m
         </td>
         <td>${escapeHtml(noteSummary)}</td>
         <td>${escapeHtml(formatBytes(item.approxBytes))}</td>
-        <td>${escapeHtml(versions)}</td>
-        <td>${escapeHtml(embeddings)}</td>
+        <td>${escapeHtml(item.version ?? 'unknown')}</td>
       </tr>
     `;
   }).join('');
@@ -295,8 +265,7 @@ function build_dialog_html(items: ModelInventoryItem[], activeModelId: string, m
                 <th>Model</th>
                 <th>Notes</th>
                 <th>Storage</th>
-                <th>Model Version</th>
-                <th>Embedding Version</th>
+                <th>Version</th>
               </tr>
             </thead>
             <tbody>
@@ -323,7 +292,7 @@ export async function open_model_management_dialog(dialogHandle: string): Promis
 
   while (true) {
     const activeModelId = String(await joplin.settings.value('notes_model') ?? '');
-    const { items, noteIdsByModel } = await collect_model_inventory(activeModelId);
+    const items = await load_inventory_from_catalog(activeModelId);
 
     await joplin.views.dialogs.setFitToContent(dialogHandle, false);
     await joplin.views.dialogs.setHtml(dialogHandle, build_dialog_html(items, activeModelId, message));
@@ -372,7 +341,8 @@ export async function open_model_management_dialog(dialogHandle: string): Promis
         continue;
       }
 
-      const noteIds = Array.from(noteIdsByModel.get(selectedModelId) ?? []);
+      // Scan for note IDs only when actually deleting
+      const noteIds = await scan_note_ids_for_model(selectedModelId);
       const confirm = await joplin.views.dialogs.showMessageBox(
         `Delete model "${selectedModelId}"?\n\nThis removes embeddings from ${noteIds.length} notes. This action cannot be undone.`,
       );
@@ -402,4 +372,3 @@ export async function open_model_management_dialog(dialogHandle: string): Promis
     message = '';
   }
 }
-

@@ -10,6 +10,8 @@ import { UserDataEmbStore, EmbeddingSettings } from '../notes/userDataStore';
 import type { JarvisSettings } from '../ux/settings';
 import { compute_final_model_metadata, model_metadata_changed } from '../notes/userDataIndexer';
 import { read_model_metadata, write_model_metadata } from '../notes/catalogMetadataStore';
+import { setModelStats, getModelStats } from '../notes/modelStats';
+import { checkCapacityWarning } from '../notes/embeddingCache';
 
 /**
  * Refresh embeddings for either the entire notebook set or a specific list of notes.
@@ -86,37 +88,6 @@ export async function update_note_db(
   // This avoids loading all embeddings into memory to count them
   let totalEmbeddingRows = 0;
   let embeddingDim = 0;  // Track dimension from first batch (needed when model.embeddings is empty)
-  
-  // Initialize corpus row count accumulator from model metadata (for userData mode)
-  // Used for ALL sweeps (full and incremental) to track running corpus size
-  // Updated at end of sweep to keep model metadata accurate
-  let corpusRowCountAccumulator: { current: number } | undefined;
-  if (settings.notes_db_in_user_data && catalogId && model?.id) {
-    try {
-      const modelMeta = await read_model_metadata(catalogId, model.id);
-      let initialCount = modelMeta?.rowCount ?? 0;
-
-      // If model metadata is missing or has rowCount=0, count existing embeddings
-      // ONLY do this for FULL sweeps - incremental sweeps should trust existing metadata
-      // This prevents undercounting when notes are deleted between sweeps
-      if ((!initialCount || initialCount === 0) && isFullSweep) {
-        console.debug('Jarvis: model rowCount missing or zero, counting existing embeddings (full sweep)...');
-        const countResult = await get_all_note_ids_with_embeddings(model.id);
-        if (countResult.totalBlocks && countResult.totalBlocks > 0) {
-          initialCount = countResult.totalBlocks;
-        }
-      }
-
-      corpusRowCountAccumulator = { current: initialCount };
-      console.debug('Jarvis: initialized corpus row count accumulator', {
-        modelId: model.id,
-        initialCount: corpusRowCountAccumulator.current,
-        sweepType: isFullSweep ? (incrementalSweep ? 'incremental' : 'full') : 'specific',
-      });
-    } catch (error) {
-      console.warn('Failed to initialize corpus row count accumulator', error);
-    }
-  }
 
   if (noteIds && noteIds.length > 0) {
     // Mode 1: Specific note IDs (note saves, sync notifications)
@@ -145,13 +116,12 @@ export async function update_note_db(
           chunk, model, settings, abortController, force, catalogId, panel,
           () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
           (count) => { processed_notes += count; },
-          corpusRowCountAccumulator
         );
         allSettingsMismatches.push(...result.settingsMismatches);
         totalEmbeddingRows += result.totalRows;
         if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
         actually_processed_notes += result.actuallyProcessed;
-        
+
         // Clear note bodies after chunk processing
         clearObjectReferences(chunk);
       }
@@ -163,7 +133,6 @@ export async function update_note_db(
         batch, model, settings, abortController, force, catalogId, panel,
         () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
         (count) => { processed_notes += count; },
-        corpusRowCountAccumulator
       );
       allSettingsMismatches.push(...result.settingsMismatches);
       totalEmbeddingRows += result.totalRows;
@@ -208,7 +177,6 @@ export async function update_note_db(
         batch, model, settings, abortController, force, catalogId, panel,
         () => ({ processed: processed_notes, total: total_notes }),
         (count) => { processed_notes += count; total_notes += count; },  // Adjust estimate as we go
-        corpusRowCountAccumulator
       );
       allSettingsMismatches.push(...result.settingsMismatches);
       totalEmbeddingRows += result.totalRows;
@@ -271,7 +239,6 @@ export async function update_note_db(
           notes.items, model, settings, abortController, force, catalogId, panel,
           () => ({ processed: processed_notes, total: total_notes }),
           (count) => { processed_notes += count; },
-          corpusRowCountAccumulator
         );
         allSettingsMismatches.push(...result.settingsMismatches);
         totalEmbeddingRows += result.totalRows;
@@ -305,37 +272,23 @@ export async function update_note_db(
     console.debug(`Jarvis: updated last sweep time to ${new Date(timestamp).toISOString()}`);
   }
 
-  // Update model metadata with final stats after sweep completes
-  // Updates after ALL sweeps (full and incremental) to keep metadata accurate
-  // Uses 15% threshold to avoid excessive writes when counts change minimally
-  // This replaces the per-note updates that were causing excessive log spam
-  if (!abortController.signal.aborted && settings.notes_db_in_user_data && catalogId && model?.id && corpusRowCountAccumulator) {
+  // Update model metadata after FULL non-incremental sweeps only.
+  // Incremental sweeps and specific note updates rely on startup validation to correct drift.
+  // This simplifies the code and avoids accumulator complexity.
+  if (!abortController.signal.aborted && settings.notes_db_in_user_data && catalogId && model?.id && isFullSweep && !incrementalSweep) {
     try {
       const currentMetadata = await read_model_metadata(catalogId, model.id);
 
-      // For FULL non-incremental sweeps, do a final recount to catch deleted notes
-      // Incremental sweeps can't detect deletions, so they rely on startup validation
-      let finalRowCount = corpusRowCountAccumulator.current;
-      if (isFullSweep && !incrementalSweep) {
-        console.debug('Jarvis: performing final count after full sweep to detect deletions...');
-        const countResult = await get_all_note_ids_with_embeddings(model.id);
-        if (countResult.totalBlocks !== undefined) {
-          const drift = Math.abs(countResult.totalBlocks - finalRowCount);
-          if (drift > 0) {
-            console.info(`Jarvis: corrected rowCount drift: accumulator=${finalRowCount}, actual=${countResult.totalBlocks}, diff=${drift}`);
-            finalRowCount = countResult.totalBlocks;
-          } else {
-            console.debug(`Jarvis: final recount verified no drift (accumulator and actual both ${finalRowCount})`);
-          }
-        }
-      }
+      console.debug('Jarvis: performing final count after full sweep...');
+      const countResult = await get_all_note_ids_with_embeddings(model.id);
+      const finalRowCount = countResult.totalBlocks ?? 0;
+      const finalNoteCount = countResult.noteIds.size;
 
       // If dimension wasn't captured during sweep (all notes skipped), read it from an existing note
       let finalDim = embeddingDim;
       if (finalDim === 0 && finalRowCount > 0) {
         console.debug('Jarvis: dimension not captured during sweep, reading from existing note...');
-        const noteIds = await get_all_note_ids_with_embeddings(model.id);
-        for (const noteId of Array.from(noteIds.noteIds).slice(0, 5)) {
+        for (const noteId of Array.from(countResult.noteIds).slice(0, 5)) {
           const noteMeta = await joplin.data.userDataGet<any>(ModelType.Note, noteId, 'jarvis/v1/meta');
           if (noteMeta?.models?.[model.id]?.dim) {
             finalDim = noteMeta.models[model.id].dim;
@@ -345,26 +298,23 @@ export async function update_note_db(
         }
       }
 
-      const newMetadata = await compute_final_model_metadata(model, settings, catalogId, finalRowCount, finalDim);
+      // Always update in-memory stats with accurate values (for memory warnings etc.)
+      setModelStats(model.id, { rowCount: finalRowCount, noteCount: finalNoteCount, dim: finalDim });
+
+      const newMetadata = await compute_final_model_metadata(model, settings, catalogId, finalRowCount, finalDim, finalNoteCount);
 
       if (newMetadata && model_metadata_changed(currentMetadata, newMetadata)) {
         await write_model_metadata(catalogId, model.id, newMetadata);
-        console.debug('Jarvis: model metadata updated after sweep', {
+        console.debug('Jarvis: model metadata updated after full sweep', {
           modelId: model.id,
           rowCount: newMetadata.rowCount,
-          sweepType: isFullSweep ? (incrementalSweep ? 'incremental' : 'full') : 'specific',
+          noteCount: newMetadata.noteCount,
         });
       } else if (newMetadata) {
         console.debug('Jarvis: model metadata unchanged (<15% change), skipping update', {
           modelId: model.id,
           rowCount: newMetadata.rowCount,
           oldRowCount: currentMetadata?.rowCount,
-        });
-      } else {
-        console.warn('Jarvis: failed to compute model metadata (dimension unavailable?)', {
-          modelId: model.id,
-          finalDim,
-          finalRowCount,
         });
       }
     } catch (error) {
@@ -525,7 +475,6 @@ async function process_batch_and_update_progress(
   panel: string,
   getProgress: () => { processed: number; total: number },
   onProcessed: (count: number) => void,
-  corpusRowCountAccumulator?: { current: number },
 ): Promise<{
   settingsMismatches: Array<{ noteId: string; currentSettings: any; storedSettings: any }>;
   totalRows: number;
@@ -540,7 +489,7 @@ async function process_batch_and_update_progress(
   const filteredBatch = await filter_excluded_notes(batch, settings, catalogId);
 
   // Process only the filtered batch
-  const result = await update_embeddings(filteredBatch, model, settings, abortController, force, catalogId, corpusRowCountAccumulator);
+  const result = await update_embeddings(filteredBatch, model, settings, abortController, force, catalogId);
   
   // Track actually processed notes (after filtering but before skipping)
   const actuallyProcessed = filteredBatch.length;
@@ -631,9 +580,16 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
     throw error;
   }
 
+  // Compute capacity warning from in-memory stats (if available)
+  const stats = getModelStats(model.id);
+  const profileIsDesktop = settings.notes_device_profile_effective === 'desktop';
+  const capacityWarning = stats
+    ? checkCapacityWarning(stats.rowCount, stats.dim, profileIsDesktop)
+    : null;
+
   // write results to panel
-  await update_panel(panel, nearest, settings);
-  
+  await update_panel(panel, nearest, settings, capacityWarning);
+
   // Clear note body after use
   clearObjectReferences(note);
 }

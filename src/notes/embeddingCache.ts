@@ -15,6 +15,7 @@ import { cosine_similarity_q8, QuantizedVector } from './q8';
 import { TopKHeap } from './topK';
 import { clearObjectReferences } from '../utils';
 import { BlockEmbedding } from './embeddings';
+import { setModelStats } from './modelStats';
 
 const log = getLogger();
 
@@ -159,16 +160,22 @@ export class SimpleCorpusCache {
     if (this.isBuilt()) {
       return;
     }
-    
+
     // Prevent concurrent builds (multiple rapid searches)
     if (this.buildPromise) {
       await this.buildPromise;
       return;
     }
-    
+
     this.buildPromise = this.build(store, modelId, noteIds, dim, onProgress);
     await this.buildPromise;
     this.buildPromise = null;
+
+    // Update in-memory stats with accurate values from cache build
+    if (this.isBuilt()) {
+      const stats = this.getStats();
+      setModelStats(modelId, { rowCount: stats.blocks, noteCount: noteIds.length, dim });
+    }
   }
 
   /**
