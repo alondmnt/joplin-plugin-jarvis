@@ -9,9 +9,10 @@ export interface CapacityWarning {
 
 export async function register_panel(panel: string, settings: JarvisSettings, model: any) {
   let model_str = '';
-  if (model.model === null) {
-    model_str = 'Model could not be loaded.'
-    if (!model.online) {
+  if (model.model === null && model.id) {
+    // Real model failed to load (not just a stub during startup)
+    model_str = 'Model could not be loaded.';
+    if (model.online === false) {
       model_str += ` Note that ${model.id} runs completely locally, but requires network access in order to load the model.`;
     }
   }
