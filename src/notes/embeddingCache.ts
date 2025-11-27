@@ -157,6 +157,12 @@ export class SimpleCorpusCache {
     dim: number,
     onProgress?: (processed: number, total: number, stage?: string) => Promise<void>
   ): Promise<void> {
+    // Check dimension mismatch (model changed)
+    if (this.isBuilt() && this.dim !== dim) {
+      log.warn(`[Cache] Dimension mismatch (cached=${this.dim}, requested=${dim}), invalidating`);
+      this.invalidate();
+    }
+
     if (this.isBuilt()) {
       return;
     }
