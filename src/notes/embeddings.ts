@@ -1151,23 +1151,6 @@ function get_slug(title: string): string {
       .replace(/^-|-$/g, '');               // remove hyphens at the beginning and end of the string
 }
 
-export async function add_note_title(embeddings: BlockEmbedding[]): Promise<BlockEmbedding[]> {
-  return Promise.all(embeddings.map(async (embd: BlockEmbedding) => {
-    let note: any;
-    try {
-      note = await joplin.data.get(['notes', embd.id], { fields: ['title']});
-    } catch (error) {
-      note = {title: 'Unknown'};
-    }
-    const new_embd = Object.assign({}, embd);  // copy to avoid in-place modification
-    if (new_embd.title !== note.title) {
-      new_embd.title = note.title + title_separator + embd.title;
-    }
-    return new_embd;
-  }));
-}
-
-
 /**
  * Clear in-memory cache for a model (called on model switch).
  * Frees memory from old model.

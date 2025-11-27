@@ -36,17 +36,3 @@ export function setModelStats(modelId: string, stats: ModelStats): void {
 export function getModelStats(modelId: string): ModelStats | undefined {
   return modelStatsCache.get(modelId);
 }
-
-/**
- * Clear stats for a model (e.g., when model is deleted).
- */
-export function clearModelStats(modelId: string): void {
-  modelStatsCache.delete(modelId);
-}
-
-/**
- * Clear all cached stats.
- */
-export function clearAllModelStats(): void {
-  modelStatsCache.clear();
-}

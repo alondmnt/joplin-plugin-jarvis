@@ -64,29 +64,3 @@ export function typedArrayToBase64(data: { buffer: ArrayBuffer; byteOffset: numb
   const uint8View = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
   return uint8ArrayToBase64(uint8View);
 }
-
-/**
- * Helper to create a TypedArray from base64.
- */
-export function base64ToTypedArray<T extends TypedArrayConstructor>(
-  base64: string,
-  ArrayType: T
-): InstanceType<T> {
-  const uint8Array = base64ToUint8Array(base64);
-  return new ArrayType(
-    uint8Array.buffer as any,
-    uint8Array.byteOffset,
-    uint8Array.byteLength / ArrayType.BYTES_PER_ELEMENT
-  ) as InstanceType<T>;
-}
-
-type TypedArrayConstructor =
-  | typeof Float32Array
-  | typeof Float64Array
-  | typeof Int8Array
-  | typeof Int16Array
-  | typeof Int32Array
-  | typeof Uint8Array
-  | typeof Uint16Array
-  | typeof Uint32Array;
-
