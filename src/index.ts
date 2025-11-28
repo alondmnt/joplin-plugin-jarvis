@@ -454,7 +454,7 @@ async function register_commands_and_menus(
 
   await joplin.commands.register({
     name: 'jarvis.notes.manage_models',
-    label: 'Manage Jarvis embedding models',
+    label: 'Manage Jarvis note DB',
     execute: async () => {
       await open_model_management_dialog(runtime.model_management_dialog, runtime.panel, runtime.settings);
     },
