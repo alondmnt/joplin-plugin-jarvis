@@ -138,7 +138,7 @@ export async function update_note_db(
       totalEmbeddingRows += result.totalRows;
       if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
       actually_processed_notes += result.actuallyProcessed;
-      
+
       // Clear remaining batch after processing
       clearObjectReferences(batch);
     }
@@ -182,11 +182,11 @@ export async function update_note_db(
       totalEmbeddingRows += result.totalRows;
       if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
       actually_processed_notes += result.actuallyProcessed;
-      
+
       // Clear note bodies after batch processing (can be very large)
       // clearObjectReferences on array will clear all elements
       clearObjectReferences(batch);
-      
+
       hasMore = notes.has_more && !reachedOldNotes;
       page++;
       
@@ -244,11 +244,11 @@ export async function update_note_db(
         totalEmbeddingRows += result.totalRows;
         if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
         actually_processed_notes += result.actuallyProcessed;
-        
+
         // Clear note bodies after batch processing
         clearObjectReferences(notes.items);
       }
-      
+
       const hasMoreNotes = notes.has_more;
       // Clear API response before next iteration
       clearApiResponse(notes);

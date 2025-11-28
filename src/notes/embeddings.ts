@@ -733,7 +733,7 @@ async function update_note(note: any,
         return { embeddings: old_embd, skippedUnchanged: true }; // Skip - content unchanged, settings match
       }
     }
-    
+
     // force=true: Check if userData matches current settings/model before skipping
     // This is for manual "Update DB", settings changes, or validation dialog rebuilds
     if (userDataMeta) {
@@ -952,12 +952,12 @@ export async function update_embeddings(
       try {
         const result = await update_note(note, model, settings, abortController.signal, force, catalogId);
         successfulNotes.push({ note, embeddings: result.embeddings });
-        
+
         // Track notes that were skipped due to matching hash and settings
         if (result.skippedUnchanged) {
           skippedUnchangedNotes.push(note.id);
         }
-        
+
         // Collect settings mismatches (only during force=false sweeps)
         if (result.settingsMismatch) {
           settingsMismatches.push(result.settingsMismatch);
@@ -1058,7 +1058,7 @@ export async function update_embeddings(
     }
   }
   clearObjectReferences(successfulNotes);
-  
+
   return { settingsMismatches, totalRows, dim };
 }
 
@@ -1350,17 +1350,26 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         corpusCaches.set(model.id, cache);
       }
 
-      // Check if cache needs rebuilding (not built, or dimension mismatch)
-      const needsBuild = !cache.isBuilt() || cache.getDim() !== queryDim;
+      // Get current note IDs (needed for count comparison and build)
+      const result = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
+      const candidateIds = result.noteIds;
+      candidateIds.add(current_id);
+
+      // Check if cache needs rebuilding
+      let needsBuild = !cache.isBuilt() || cache.getDim() !== queryDim;
+
+      // Also rebuild if note count changed (sync added/removed notes)
+      if (!needsBuild && cache.getNoteCount() !== candidateIds.size) {
+        log.info(`[Cache] Note count changed (cached=${cache.getNoteCount()}, current=${candidateIds.size}), invalidating`);
+        cache.invalidate();
+        needsBuild = true;
+      }
+
       if (needsBuild) {
-        if (cache.isBuilt() && cache.getDim() !== queryDim) {
+        if (cache.getDim() !== 0 && cache.getDim() !== queryDim) {
           log.warn(`[Cache] Dimension mismatch (cached=${cache.getDim()}, query=${queryDim}), invalidating`);
           cache.invalidate();
         }
-
-        const result = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
-        const candidateIds = result.noteIds;
-        candidateIds.add(current_id);
 
         if (settings.notes_debug_mode) {
           const estimatedBlocks = candidateIds.size * 10;

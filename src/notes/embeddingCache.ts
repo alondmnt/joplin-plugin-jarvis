@@ -229,7 +229,7 @@ export class SimpleCorpusCache {
     // Allocate shared buffers (only for valid blocks)
     this.q8Buffer = new Int8Array(validBlocks * dim);
     this.blocks = [];
-    
+
     // Fill buffers (progress already shown during loading)
     let blockIdx = 0;
     for (const result of results) {
@@ -239,7 +239,7 @@ export class SimpleCorpusCache {
           log.warn(`[Cache] Block ${block.id}:${block.line} missing Q8 data, skipping`);
           continue;
         }
-        
+
         // Copy Q8 vector to shared buffer
         const qOffset = blockIdx * dim;
         this.q8Buffer.set(block.q8.values, qOffset);
@@ -334,6 +334,15 @@ export class SimpleCorpusCache {
     this.buildPromise = null;
     this.buildDurationMs = 0;
     log.debug('[Cache] Invalidated');
+  }
+
+  /**
+   * Get the number of unique notes in the cache.
+   * Used to detect if sync added/removed notes.
+   */
+  getNoteCount(): number {
+    if (this.blocks.length === 0) return 0;
+    return new Set(this.blocks.map(b => b.noteId)).size;
   }
 
   /**
