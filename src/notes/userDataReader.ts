@@ -62,7 +62,7 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
 
     // Update progress periodically (every PROGRESS_INTERVAL notes, or on last note)
     if (onProgress && (i % PROGRESS_INTERVAL === 0 || i === noteIds.length - 1)) {
-      await onProgress(i + 1, totalNotes, `Loading embeddings... (${i + 1}/${totalNotes} notes)`);
+      await onProgress(i + 1, totalNotes, 'Loading embeddings...');
     }
     if (remaining <= 0) {
       break;
