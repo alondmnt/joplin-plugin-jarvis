@@ -59,7 +59,7 @@ graph TD
 graph TD
     A[Timer Fires] --> B{Update in Progress?}
     B -->|Yes| C[Skip]
-    B -->|No| D{Last Full Sweep > 24h?}
+    B -->|No| D{Last Full Sweep > 12h?}
     D -->|Yes| E[FULL SWEEP]
     D -->|No| F[INCREMENTAL SWEEP]
 
@@ -86,14 +86,14 @@ graph TD
 ```typescript
 const lastFullSweepTime = await get_model_last_full_sweep_time(modelId);
 const now = Date.now();
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const FULL_SWEEP_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12 hours
 
-const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > ONE_DAY_MS;
+const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > FULL_SWEEP_INTERVAL_MS;
 ```
 
 **What gets updated:**
 
-**Full Sweep (once per day):**
+**Full Sweep (every 12 hours):**
 - ✅ UserData embeddings (all changed notes)
 - ✅ Catalog metadata (rowCount, noteCount, dim)
 - ✅ lastFullSweepTime timestamp
@@ -111,7 +111,51 @@ const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > ONE_DA
 
 ---
 
-### 3. User Edits Note
+### 3. Sync Completion
+
+```mermaid
+graph TD
+    A[Sync Completes] --> B{Time Since Last<br/>Cache Invalidation > 30 min?}
+    B -->|No| C[Skip Cache Invalidation]
+    B -->|Yes| D[Invalidate RAM Cache]
+
+    D --> E[Cache Cleared]
+    E --> F[Next Search<br/>Rebuilds Cache]
+
+    C --> G[Cache Preserved]
+```
+
+**What happens:**
+- System detects sync completion
+- If **more than 30 minutes** since last cache invalidation → invalidate cache
+- If **less than 30 minutes** → skip (prevents excessive invalidations during rapid syncs)
+- Cache rebuilds lazily on next search
+
+**Decision Logic:**
+```typescript
+const now = Date.now();
+const CACHE_INVALIDATION_MARGIN_MS = 30 * 60 * 1000;  // 30 minutes
+const timeSinceLastInvalidation = now - runtime.lastCacheInvalidationTime;
+
+if (timeSinceLastInvalidation >= CACHE_INVALIDATION_MARGIN_MS) {
+  clear_corpus_cache(modelId);
+  runtime.lastCacheInvalidationTime = now;
+}
+```
+
+**What gets updated:**
+- ⚠️ RAM cache (invalidated if >30 min since last invalidation)
+- ❌ UserData embeddings (unchanged - sync already updated them)
+- ❌ Catalog metadata (unchanged - updated by periodic full sweeps)
+
+**Why 30 minutes?**
+- **During active use:** Syncs happen frequently, cache stays warm
+- **After sleep:** First sync after 30+ min invalidates cache, ensuring fresh data
+- **Device switching:** When switching from laptop to mobile after time away, cache automatically rebuilds with synced changes
+
+---
+
+### 4. User Edits Note
 
 ```mermaid
 graph TD
@@ -191,7 +235,7 @@ const results = cache.search(queryQ8, k, minScore);
 
 ---
 
-### 5. Manual "Update DB" Command
+### 6. Manual "Update DB" Command
 
 ```mermaid
 graph TD
@@ -248,8 +292,8 @@ graph TD
 
 | Scenario | Detection Window | Action |
 |----------|-----------------|---------|
-| **Recently synced notes** | Next incremental sweep (≤30 min) | User prompted immediately |
-| **Old synced notes** | Daily full sweep (≤24h) | User prompted |
+| **Recently synced notes** | Next incremental sweep (≤10 min) | User prompted immediately |
+| **Old synced notes** | Periodic full sweep (≤12h) | User prompted |
 | **Settings changed locally** | Immediate | Force rebuild triggered |
 
 **What gets checked:**
@@ -291,52 +335,56 @@ graph TD
     A{Cache Invalidation?} --> B[Full Sweep Starts]
     A --> C[Dimension Changed]
     A --> D[Note Deleted]
+    A --> E[Sync > 30 min]
 
-    B --> E[Cache.invalidate]
-    C --> E
-    D --> F{Cache Built?}
-    F -->|Yes| G[Incremental Update<br/>Remove note's blocks]
-    F -->|No| E
+    B --> F[Cache.invalidate]
+    C --> F
+    E --> F
+    D --> G{Cache Built?}
+    G -->|Yes| H[Incremental Update<br/>Remove note's blocks]
+    G -->|No| F
 ```
 
 **Invalidation triggers:**
 1. ❌ **Full sweep starts** → Complete rebuild on next search
 2. ❌ **Model changed** (dimension mismatch) → Complete rebuild
-3. ⚠️ **Note deleted** → Incremental update (remove blocks)
+3. ❌ **Sync completion** (if >30 min since last invalidation) → Complete rebuild on next search
+4. ⚠️ **Note deleted** → Incremental update (remove blocks)
 
 **NOT invalidated by:**
 - ✅ Incremental sweeps
 - ✅ Individual note updates
 - ✅ Note edits (incrementally updated instead)
+- ✅ Frequent syncs (<30 min apart)
 
 ---
 
 ## Data Flow Architecture
 
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│                          TRIGGER EVENTS                            │
-├────────────┬───────────────┬──────────────┬────────────────────────┤
-│  Startup   │  Timer (24h)  │  Note Edit   │  Search                │
-└────┬───────┴───────┬───────┴──────┬───────┴────────┬───────────-───┘
-     │               │              │                │
-     │               ▼              ▼                ▼
-     │         ┌──────────┐   ┌──────────┐    ┌──────────┐
-     │         │   FULL   │   │ SPECIFIC │    │  CACHE   │
-     └────────►│  SWEEP   │   │   NOTE   │    │  BUILD   │
-               │ (daily)  │   │  UPDATE  │    │ (first)  │
-               └────┬─────┘   └────┬─────┘    └────┬─────┘
-                    │              │               │
-     ┌──────────────┼──────────────┼───────────────┤
-     │              │              │               │
-     ▼              ▼              ▼               ▼
-┌─────────-┐   ┌─────────┐   ┌─────────┐   ┌──────────────┐
-│ UserData │   │ Catalog │   │Incr.    │   │ Model Stats  │
-│Embeddings◄──-┤Metadata │   │Cache    │   │  (in-mem)    │
-│(per note)│   │(global) │   │Update   │   │              │
-└─────────-┘   └─────────┘   └─────────┘   └──────────────┘
-     │              │              │               │
-     └──────────────┴──────────────┴───────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                          TRIGGER EVENTS                                │
+├────────────┬───────────────┬──────────────┬────────────┬───────────────┤
+│  Startup   │  Timer (12h)  │  Note Edit   │  Sync      │  Search       │
+└────┬───────┴───────┬───────┴──────┬───────┴─────┬──────┴────┬──────────┘
+     │               │              │             │           │
+     │               ▼              ▼             ▼           ▼
+     │         ┌──────────┐   ┌──────────┐  ┌─────────┐  ┌────────┐
+     │         │   FULL   │   │ SPECIFIC │  │  CACHE  │  │ CACHE  │
+     └────────►│  SWEEP   │   │   NOTE   │  │ INVAL.  │  │ BUILD  │
+               │ (12h)    │   │  UPDATE  │  │(30 min) │  │(first) │
+               └────┬─────┘   └────┬─────┘  └────┬────┘  └───┬────┘
+                    │              │             │           │
+     ┌──────────────┼──────────────┼─────────────┼───────────┤
+     │              │              │             │           │
+     ▼              ▼              ▼             ▼           ▼
+┌─────────-┐   ┌─────────┐   ┌─────────┐   ┌─────────┐  ┌──────────┐
+│ UserData │   │ Catalog │   │Incr.    │   │  Cache  │  │  Model   │
+│Embeddings◄──-┤Metadata │   │Cache    │   │ Control │  │  Stats   │
+│(per note)│   │(global) │   │Update   │   │         │  │ (in-mem) │
+└─────────-┘   └─────────┘   └─────────┘   └─────────┘  └──────────┘
+     │              │              │             │           │
+     └──────────────┴──────────────┴─────────────┴───────────┘
                           │
                           ▼
                   ┌──────────────┐
@@ -353,8 +401,9 @@ graph TD
 | Event | Frequency | Full Sweep? | Metadata? | Cache? | Settings Check? |
 |-------|-----------|-------------|-----------|--------|-----------------|
 | **Startup** | Once | Only if first time | Only if full | Not built | Only if full |
-| **Periodic (Timer)** | Every N min | Once per 24h | Once per 24h | Invalidated daily | Yes (all processed notes) |
+| **Periodic (Timer)** | Every N min | Once per 12h | Once per 12h | Invalidated every 12h | Yes (all processed notes) |
 | **Note Edit** | Per save | No | No | Incrementally updated | No |
+| **Sync** | Per sync | No | No | Invalidated if >30 min | No |
 | **Search** | On demand | No | No | Built if needed | No |
 | **Manual Update** | User action | Yes | Yes | Invalidated | Yes (all notes) |
 
@@ -375,7 +424,14 @@ graph TD
 
 ```typescript
 // When to do full sweep (index.ts:289)
-const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > ONE_DAY_MS;
+const FULL_SWEEP_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12 hours
+const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > FULL_SWEEP_INTERVAL_MS;
+
+// When to invalidate cache after sync (index.ts:720)
+const CACHE_INVALIDATION_MARGIN_MS = 30 * 60 * 1000;  // 30 minutes
+if (timeSinceLastInvalidation >= CACHE_INVALIDATION_MARGIN_MS) {
+  clear_corpus_cache(modelId);
+}
 
 // When to fetch note IDs (embeddings.ts:1360)
 if (!cache.isBuilt() || cache.getDim() !== queryDim) {
