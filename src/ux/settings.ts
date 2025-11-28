@@ -1366,6 +1366,23 @@ export async function mark_model_first_build_completed(modelId: string): Promise
 }
 
 /**
+ * Clear the "first build completed" flag for a model.
+ * Called when deleting model data or when needing to force SQLite reload for migration.
+ */
+export async function clear_model_first_build_completed(modelId: string): Promise<void> {
+  if (!modelId) {
+    return;
+  }
+  const raw = await joplin.settings.value('notes_model_first_build_completed');
+  const current = safe_parse_first_build_completed(raw);
+  if (modelId in current) {
+    delete current[modelId];
+    await joplin.settings.setValue('notes_model_first_build_completed', JSON.stringify(current));
+    console.debug('Jarvis: cleared model first build completed', { modelId });
+  }
+}
+
+/**
  * Get the timestamp (Unix ms) of the last successful incremental sweep for a model.
  * Returns 0 if the model has never been swept (triggers full scan on first run).
  * 
