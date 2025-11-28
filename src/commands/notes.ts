@@ -102,7 +102,11 @@ export async function update_note_db(
     // Mode 1: Specific note IDs (note saves, sync notifications)
     const uniqueIds = Array.from(new Set(noteIds));  // dedupe in case of repeated change events
     total_notes = uniqueIds.length;
-    update_progress_bar(panel, 0, total_notes, settings, 'Computing embeddings');
+    // Skip panel updates for small batch updates (< 5 notes) as they complete quickly
+    const shouldUpdatePanel = total_notes >= 5;
+    if (shouldUpdatePanel) {
+      update_progress_bar(panel, 0, total_notes, settings, 'Computing embeddings');
+    }
 
     const batch: any[] = [];
     for (const noteId of uniqueIds) {
@@ -125,6 +129,7 @@ export async function update_note_db(
           chunk, model, settings, abortController, force, catalogId, panel,
           () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
           (count) => { processed_notes += count; },
+          shouldUpdatePanel,
         );
         allSettingsMismatches.push(...result.settingsMismatches);
         totalEmbeddingRows += result.totalRows;
@@ -142,6 +147,7 @@ export async function update_note_db(
         batch, model, settings, abortController, force, catalogId, panel,
         () => ({ processed: Math.min(processed_notes, total_notes), total: total_notes }),
         (count) => { processed_notes += count; },
+        shouldUpdatePanel,
       );
       allSettingsMismatches.push(...result.settingsMismatches);
       totalEmbeddingRows += result.totalRows;
@@ -155,10 +161,12 @@ export async function update_note_db(
     // Mode 2: Timestamp-based incremental sweep (optimized for periodic background updates)
     // Uses user_updated_time (user content changes) instead of updated_time (system changes including userData writes)
     // This prevents reprocessing notes where only embeddings were written, while still catching synced content changes
+    // Skip panel updates for incremental sweeps as they are typically quick
+    const shouldUpdatePanel = false;
     let page = 1;
     let hasMore = true;
     let reachedOldNotes = false;
-    
+
     while (hasMore && !reachedOldNotes && !abortController.signal.aborted) {
       let notes: any = null;
       try {
@@ -169,7 +177,7 @@ export async function update_note_db(
           order_by: 'user_updated_time',
           order_dir: 'DESC',
         });
-        
+
         const batch: any[] = [];
         for (const note of notes.items) {
           // Stop when we reach notes older than last sweep (comparing user content timestamp)
@@ -178,14 +186,15 @@ export async function update_note_db(
             console.debug(`Reached old notes at page ${page}, stopping early`);
             break;
           }
-        
+
         batch.push(note);
       }
-      
+
       const result = await process_batch_and_update_progress(
         batch, model, settings, abortController, force, catalogId, panel,
         () => ({ processed: processed_notes, total: total_notes }),
         (count) => { processed_notes += count; total_notes += count; },  // Adjust estimate as we go
+        shouldUpdatePanel,
       );
       allSettingsMismatches.push(...result.settingsMismatches);
       totalEmbeddingRows += result.totalRows;
@@ -213,14 +222,16 @@ export async function update_note_db(
   } else {
     // Mode 3: Full sweep (thorough scan of all notes)
     // Used for: manual rebuild, force=true validation, first-time builds
+    // Always show panel updates for full sweeps as they take longer
+    const shouldUpdatePanel = true;
     let notes: any;
     let page = 0;
 
     // Count all notes for accurate progress bar
     do {
       page += 1;
-      notes = await joplin.data.get(['notes'], { 
-        fields: ['id'], 
+      notes = await joplin.data.get(['notes'], {
+        fields: ['id'],
         page: page,
         order_by: 'user_updated_time',
         order_dir: 'DESC',
@@ -236,9 +247,9 @@ export async function update_note_db(
     // Iterate over all notes
     do {
       page += 1;
-      notes = await joplin.data.get(['notes'], { 
-        fields: noteFields, 
-        page: page, 
+      notes = await joplin.data.get(['notes'], {
+        fields: noteFields,
+        page: page,
         limit: model.page_size,
         order_by: 'user_updated_time',
         order_dir: 'DESC',
@@ -248,6 +259,7 @@ export async function update_note_db(
           notes.items, model, settings, abortController, force, catalogId, panel,
           () => ({ processed: processed_notes, total: total_notes }),
           (count) => { processed_notes += count; },
+          shouldUpdatePanel,
         );
         allSettingsMismatches.push(...result.settingsMismatches);
         totalEmbeddingRows += result.totalRows;
@@ -450,12 +462,9 @@ async function filter_excluded_notes(
   const tagsByNoteId = new Map(tagResults.map(r => [r.noteId, r.tags]));
   
   for (const note of batch) {
-    // Skip deleted notes
-    if (note.deleted_time > 0) {
-      excludedCount++;
-      continue;
-    }
-    
+    // Don't skip deleted notes - they need to reach update_embeddings() for proper cache cleanup
+    // Deleted notes are handled in update_embeddings() at line 494 (userData cleanup, cache removal, SQLite cleanup)
+
     // Skip notes in excluded folders
     if (settings.notes_exclude_folders.has(note.parent_id)) {
       excludedCount++;
@@ -494,6 +503,7 @@ async function process_batch_and_update_progress(
   panel: string,
   getProgress: () => { processed: number; total: number },
   onProcessed: (count: number) => void,
+  shouldUpdatePanel: boolean,
 ): Promise<{
   settingsMismatches: Array<{ noteId: string; currentSettings: any; storedSettings: any }>;
   totalRows: number;
@@ -509,15 +519,17 @@ async function process_batch_and_update_progress(
 
   // Process only the filtered batch
   const result = await update_embeddings(filteredBatch, model, settings, abortController, force, catalogId);
-  
+
   // Track actually processed notes (after filtering but before skipping)
   const actuallyProcessed = filteredBatch.length;
-  
+
   // Report progress based on original batch size (includes excluded notes)
   // This ensures progress bar advances correctly even when notes are excluded
   onProcessed(batch.length);
-  const { processed, total } = getProgress();
-  update_progress_bar(panel, processed, total, settings, 'Computing embeddings');
+  if (shouldUpdatePanel) {
+    const { processed, total } = getProgress();
+    update_progress_bar(panel, processed, total, settings, 'Computing embeddings');
+  }
   return { ...result, actuallyProcessed };
 }
 
