@@ -601,14 +601,19 @@ async function register_commands_and_menus(
     await joplin.views.toolbarButtons.create(button.id, button.command, ToolbarButtonLocation.EditorToolbar);
   }
 
-  // On mobile, add "Update Jarvis note DB" button to NoteToolbar
+  // On mobile, add "Update Jarvis note DB" and "Toggle panel" buttons to NoteToolbar
   // This is needed because imported notes with old timestamps won't be caught by incremental sweeps
-  // and mobile doesn't have easy access to the Tools menu
+  // and mobile doesn't have easy access to the Tools menu or panels
   // Note: Use actual platform detection, not effective profile (which is for performance tuning)
   if (runtime.settings.notes_device_platform === 'mobile') {
     await joplin.views.toolbarButtons.create(
       'jarvis.toolbar.notes.db.update',
       'jarvis.notes.db.update',
+      ToolbarButtonLocation.NoteToolbar
+    );
+    await joplin.views.toolbarButtons.create(
+      'jarvis.toolbar.notes.toggle_panel',
+      'jarvis.notes.toggle_panel',
       ToolbarButtonLocation.NoteToolbar
     );
   }
