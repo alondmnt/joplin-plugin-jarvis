@@ -664,11 +664,18 @@ async function update_note(note: any,
   
   if (hashMatch) {
     // Content unchanged - decide whether to skip based on force parameter
-    
+
     if (!force) {
       // force=false (note save/sweep): Skip if content unchanged, but validate settings
       // This is for incremental updates when user saves a note or background sweeps
-      
+
+      // Backfill from SQLite when userData is completely missing (migration path)
+      if (!userDataMeta && old_embd.length > 0 && settings.notes_db_in_user_data) {
+        log.debug(`Note ${note.id} needs backfill from SQLite - no userData exists`);
+        await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
+        return { embeddings: old_embd, skippedUnchanged: true };
+      }
+
       if (userDataMeta) {
         const modelMeta = userDataMeta?.models?.[model.id];
         let needsBackfill = !userDataMeta
@@ -782,9 +789,17 @@ async function update_note(note: any,
       // notes_db_in_user_data disabled - skip since content unchanged
       return { embeddings: old_embd, skippedUnchanged: true };
     }
+
+    // Backfill from SQLite when userData is missing but SQLite has valid embeddings
+    // This enables migration without re-embedding (saves API quota)
+    if (old_embd.length > 0) {
+      log.debug(`Note ${note.id} - backfilling from SQLite to userData (migration)`);
+      await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
+      return { embeddings: old_embd, skippedUnchanged: true };
+    }
   }
 
-  // Rebuild needed: content changed OR (force=true AND userData outdated/missing)
+  // Rebuild needed: content changed OR (force=true AND userData outdated/missing AND no SQLite to backfill)
   try {
     const new_embd = await calc_note_embeddings(note, note_tags, model, settings, abortSignal, 'doc');
 

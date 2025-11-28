@@ -326,9 +326,11 @@ export async function update_note_db(
   }
 
   // Mark first build as complete after main sweep finishes
+  // Only after a FULL sweep (not incremental), which ensures migration/backfill actually happened
   if (
     !abortController.signal.aborted
     && isFullSweep
+    && !incrementalSweep
     && settings.notes_db_in_user_data
     && model?.id
     && !settings.notes_model_first_build_completed?.[model.id]
@@ -351,6 +353,8 @@ export async function update_note_db(
     }
     model.db = null;
     model.disableDbLoad = true;
+    // Clear SQLite embeddings from memory (migration complete, userData is now authoritative)
+    model.embeddings = [];
 
     await mark_model_first_build_completed(model.id);
     console.info('Jarvis: first userData build completed, disabled legacy SQLite access', { modelId: model.id });

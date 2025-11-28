@@ -10,6 +10,7 @@ import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
 import { find_nearest_notes, validate_model_metadata_on_startup, clear_corpus_cache } from './notes/embeddings';
 import { ensure_catalog_note, get_catalog_note_id } from './notes/catalog';
+import { read_model_metadata } from './notes/catalogMetadataStore';
 import { register_panel, update_panel } from './ux/panel';
 import { get_settings, register_settings, set_folders, get_model_last_sweep_time, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
 import type { JarvisSettings } from './ux/settings';
@@ -654,9 +655,34 @@ async function register_workspace_listeners(
           return;
         }
         try {
+          // Check if userData exists on other devices but hasn't synced locally yet
+          // If catalog shows data but we have no local data, wait for sync
+          if (runtime.settings.notes_db_in_user_data) {
+            const catalogId = await get_catalog_note_id();
+            if (catalogId) {
+              const catalogMeta = await read_model_metadata(catalogId, runtime.model_embed.id);
+              const hasRemoteData = catalogMeta?.noteCount > 0;
+              const hasLocalData = runtime.model_embed.embeddings.length > 0;
+              if (hasRemoteData && !hasLocalData) {
+                console.info('Jarvis: userData exists on other devices, waiting for sync before sweep', {
+                  modelId: runtime.model_embed.id,
+                  remoteNoteCount: catalogMeta?.noteCount,
+                });
+                return; // Skip this sweep, let sync complete first
+              }
+            }
+          }
+
           // Only use incremental sweep if database has been built before (check settings)
+          // Force full sweep if migration is needed (SQLite has data but userData not built yet)
           const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
-          const useIncremental = lastSweepTime > 0;
+          const needsMigration = runtime.settings.notes_db_in_user_data
+            && !runtime.settings.notes_model_first_build_completed?.[runtime.model_embed.id]
+            && runtime.model_embed.embeddings.length > 0;
+          const useIncremental = lastSweepTime > 0 && !needsMigration;
+          if (needsMigration) {
+            console.info('Jarvis: migration needed - forcing full sweep to backfill SQLite → userData');
+          }
           await updates.start_update({ force: false, silent: true, incrementalSweep: useIncremental });
           runtime.pending_note_ids.clear();
           runtime.initial_sweep_completed = true;
@@ -767,11 +793,23 @@ async function register_settings_handler(
       }
 
       if (runtime.settings.notes_db_in_user_data && newModelId) {
+        // Skip coverage check if migration from SQLite may be pending
+        // (firstBuildCompleted is false AND model was used before, indicated by lastSweepTime > 0)
+        const firstBuildCompleted = Boolean(runtime.settings.notes_model_first_build_completed?.[newModelId]);
+        const lastSweepTime = await get_model_last_sweep_time(newModelId);
+        const migrationPending = !firstBuildCompleted && lastSweepTime > 0;
+
+        if (migrationPending) {
+          runtime.log.info('Jarvis: skipping coverage check for model (migration pending)', { modelId: newModelId, lastSweepTime });
+        }
+
         let coverageStats: ModelCoverageStats | null = null;
-        try {
-          coverageStats = await estimate_model_coverage(newModelId);
-        } catch (error) {
-          runtime.log.warn('Jarvis: failed to estimate model coverage', { modelId: newModelId, error });
+        if (!migrationPending) {
+          try {
+            coverageStats = await estimate_model_coverage(newModelId);
+          } catch (error) {
+            runtime.log.warn('Jarvis: failed to estimate model coverage', { modelId: newModelId, error });
+          }
         }
 
         const totalNotes = coverageStats?.totalNotes ?? 0;
@@ -892,12 +930,33 @@ async function register_settings_handler(
             return;
           }
           try {
+            // Check if userData exists on other devices but hasn't synced locally yet
+            if (runtime.settings.notes_db_in_user_data) {
+              const catalogId = await get_catalog_note_id();
+              if (catalogId) {
+                const catalogMeta = await read_model_metadata(catalogId, runtime.model_embed.id);
+                const hasRemoteData = catalogMeta?.noteCount > 0;
+                const hasLocalData = runtime.model_embed.embeddings.length > 0;
+                if (hasRemoteData && !hasLocalData) {
+                  console.info('Jarvis: userData exists on other devices, waiting for sync before sweep');
+                  return;
+                }
+              }
+            }
+
             // Only use incremental sweep if database has been built before (check settings)
+            // Force full sweep if migration is needed (SQLite has data but userData not built yet)
             const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
-            const useIncremental = lastSweepTime > 0;
+            const needsMigration = runtime.settings.notes_db_in_user_data
+              && !runtime.settings.notes_model_first_build_completed?.[runtime.model_embed.id]
+              && runtime.model_embed.embeddings.length > 0;
+            const useIncremental = lastSweepTime > 0 && !needsMigration;
+            if (needsMigration) {
+              console.info('Jarvis: migration needed - forcing full sweep to backfill SQLite → userData');
+            }
             await updates.start_update({ force: false, silent: true, incrementalSweep: useIncremental });
-          runtime.pending_note_ids.clear();
-          runtime.initial_sweep_completed = true;
+            runtime.pending_note_ids.clear();
+            runtime.initial_sweep_completed = true;
           } catch (error) {
             console.warn('Jarvis: note DB sweep failed after delay change', error);
           }

@@ -90,7 +90,7 @@ function estimateTokens(text: string): number {
 }
 
 import { HfInference } from '@huggingface/inference'
-import { JarvisSettings } from '../ux/settings';
+import { JarvisSettings, clear_model_first_build_completed } from '../ux/settings';
 import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, ModelError } from '../utils';
 import * as openai from './openai';
 import * as google from './google';
@@ -392,14 +392,21 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
   if (model) {
     const isMobile = settings.notes_device_platform === 'mobile';
     model.allowFsCache = !isMobile;
-    const firstBuildCompleted = Boolean(settings.notes_model_first_build_completed?.[model?.id ?? '']);
-    // Skip legacy SQLite if: mobile (not supported) OR (userData enabled AND first build completed)
-    // If userData is disabled, always load legacy SQLite (even if firstBuildCompleted was set previously)
+    let firstBuildCompleted = Boolean(settings.notes_model_first_build_completed?.[model?.id ?? '']);
+
+    // Clear firstBuildCompleted when userData is disabled (enables migration when re-enabled)
+    if (!settings.notes_db_in_user_data && firstBuildCompleted && model?.id) {
+      clear_model_first_build_completed(model.id);
+      firstBuildCompleted = false;
+    }
+
+    // Skip SQLite if: mobile OR (userData enabled AND first build completed)
+    // When userData is enabled but first build NOT completed, load SQLite for migration
     model.disableDbLoad = isMobile || (settings.notes_db_in_user_data && firstBuildCompleted);
-    if (settings.notes_db_in_user_data && firstBuildCompleted) {
-      console.info('Jarvis: skipping legacy SQLite load (userData enabled, first build completed)', { modelId: model?.id });
-    } else if (isMobile) {
-      console.info('Jarvis: skipping legacy SQLite load (mobile platform)', { modelId: model?.id, experimental: settings.notes_db_in_user_data });
+    if (isMobile) {
+      console.info('Jarvis: skipping legacy SQLite load (mobile platform)', { modelId: model?.id });
+    } else if (settings.notes_db_in_user_data && firstBuildCompleted) {
+      console.info('Jarvis: skipping legacy SQLite load (migration completed)', { modelId: model?.id });
     }
     model.disableModelLoad = isMobile && !settings.notes_db_in_user_data;
 
