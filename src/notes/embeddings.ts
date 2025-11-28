@@ -573,6 +573,15 @@ async function update_note(note: any,
       if (!userDataMeta && old_embd.length > 0 && settings.notes_db_in_user_data) {
         log.debug(`Note ${note.id} needs backfill from SQLite - no userData exists`);
         await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
+
+        // Update cache after backfill
+        const cache = corpusCaches.get(model.id);
+        if (cache?.isBuilt()) {
+          await cache.updateNote(userDataStore, model.id, note.id, hash, settings.notes_debug_mode).catch(error => {
+            log.warn(`Failed to update cache after backfill for note ${note.id}`, error);
+          });
+        }
+
         return { embeddings: old_embd, skippedUnchanged: true };
       }
 
@@ -629,7 +638,16 @@ async function update_note(note: any,
             };
           }
         }
-        
+
+        // Before returning skippedUnchanged, update cache with existing userData
+        // This ensures cache includes recently-synced notes even if embeddings are up-to-date
+        const cache = corpusCaches.get(model.id);
+        if (cache?.isBuilt() && settings.notes_db_in_user_data) {
+          await cache.updateNote(userDataStore, model.id, note.id, hash, settings.notes_debug_mode).catch(error => {
+            log.warn(`Failed to update cache for unchanged note ${note.id}`, error);
+          });
+        }
+
         return { embeddings: old_embd, skippedUnchanged: true }; // Skip - content unchanged, settings match
       }
     }
@@ -668,6 +686,15 @@ async function update_note(note: any,
             // Everything up-to-date: content, settings, model, and shards all valid - skip
             // This is the expected behavior: force=true means "recheck everything", not "rebuild everything"
             // Note: old_embd may be empty when userData is enabled (embeddings stored in userData, not SQLite)
+
+            // Update cache with existing userData
+            const cache = corpusCaches.get(model.id);
+            if (cache?.isBuilt() && settings.notes_db_in_user_data) {
+              await cache.updateNote(userDataStore, model.id, note.id, hash, settings.notes_debug_mode).catch(error => {
+                log.warn(`Failed to update cache for unchanged note ${note.id}`, error);
+              });
+            }
+
             return { embeddings: old_embd, skippedUnchanged: true };
           }
           
@@ -695,6 +722,15 @@ async function update_note(note: any,
     if (old_embd.length > 0) {
       log.debug(`Note ${note.id} - backfilling from SQLite to userData (migration)`);
       await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
+
+      // Update cache after backfill
+      const cache = corpusCaches.get(model.id);
+      if (cache?.isBuilt()) {
+        await cache.updateNote(userDataStore, model.id, note.id, hash, settings.notes_debug_mode).catch(error => {
+          log.warn(`Failed to update cache after backfill for note ${note.id}`, error);
+        });
+      }
+
       return { embeddings: old_embd, skippedUnchanged: true };
     }
   }
