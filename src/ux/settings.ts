@@ -726,7 +726,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Notes: Embedding timeout (sec)',
-      description: 'The maximal time to wait for an embedding response in seconds. Set to 0 to disable. Default: 20',
+      description: 'The maximal time to wait for an embedding response in seconds. Set to 0 to disable. Default: 120',
     },
     'notes_embed_title': {
       value: true,
