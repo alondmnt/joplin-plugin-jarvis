@@ -1256,7 +1256,7 @@ async function show_validation_dialog(
 
 // given a list of embeddings, find the nearest ones to the query
 export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, markup_language: number, current_title: string, query: string,
-    model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true, panel?: string):
+    model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true, panel?: string, isUpdateInProgress: boolean=false):
     Promise<NoteEmbedding[]> {
 
   let searchStartTime = 0;  // Will be set right before cache search starts
@@ -1368,12 +1368,13 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         }
 
         // Build cache (handles concurrent builds gracefully)
+        // Skip progress updates when database update is running to avoid UI flickering
         await cache.ensureBuilt(
           userDataStore,
           model.id,
           Array.from(candidateIds),
           queryDim,
-          panel && settings ? async (processed, total, stage) => {
+          (panel && settings && !isUpdateInProgress) ? async (processed, total, stage) => {
             await update_progress_bar(panel, processed, total, settings, stage);
           } : undefined
         );

@@ -729,7 +729,8 @@ async function register_workspace_listeners(
         runtime.model_embed,
         runtime.settings,
         true,
-        runtime.panel
+        runtime.panel,
+        updates.is_update_in_progress()
       );
       // Compute capacity warning from in-memory stats (if available)
       const stats = getModelStats(runtime.model_embed.id);
