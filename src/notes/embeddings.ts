@@ -23,7 +23,7 @@ const userDataStore = new UserDataEmbStore();
 const log = getLogger();
 
 // Per-model in-memory cache instances
-const corpusCaches = new Map<string, SimpleCorpusCache>();
+export const corpusCaches = new Map<string, SimpleCorpusCache>();
 
 // Cache corpus size per model to avoid repeated metadata reads (persists across function calls)
 const corpusSizeCache = new Map<string, number>();
@@ -127,106 +127,6 @@ export async function get_all_note_ids_with_embeddings(
   }
   return { noteIds, totalBlocks: modelId ? totalBlocks : undefined };
 }
-
-/**
- * Validate and correct model metadata on startup by scanning all notes with embeddings.
- * This catches drift from aborted sweeps or other issues.
- * Only updates if drift exceeds 15% threshold.
- * 
- * @param modelId - Model ID to validate
- * @param settings - Jarvis settings
- */
-export async function validate_model_metadata_on_startup(modelId: string, settings: JarvisSettings): Promise<void> {
-  if (!settings.notes_db_in_user_data) {
-    return;
-  }
-
-  try {
-    const catalogId = await get_catalog_note_id();
-    if (!catalogId) {
-      return;
-    }
-
-    const modelMeta = await read_model_metadata(catalogId, modelId);
-    const storedRowCount = modelMeta?.rowCount ?? 0;
-    const storedNoteCount = modelMeta?.noteCount ?? 0;
-    let dim = modelMeta?.dim ?? 0;
-
-    log.info('Startup validation: scanning corpus to validate model metadata...');
-    const scanStart = Date.now();
-    const result = await get_all_note_ids_with_embeddings(modelId);
-    const actualRowCount = result.totalBlocks ?? 0;
-    const actualNoteCount = result.noteIds.size;
-
-    // Discover dimension from actual embeddings if missing from metadata
-    if (dim === 0 && actualNoteCount > 0) {
-      for (const noteId of Array.from(result.noteIds).slice(0, 5)) {
-        try {
-          const noteMeta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
-          if (noteMeta?.models?.[modelId]?.dim) {
-            dim = noteMeta.models[modelId].dim;
-            log.debug('Startup validation: discovered dimension from note', { noteId: noteId.substring(0, 8), dim });
-            break;
-          }
-        } catch (_) {
-          // Continue to next note
-        }
-      }
-    }
-
-    // Always update in-memory stats with accurate values (for memory warnings etc.)
-    setModelStats(modelId, { rowCount: actualRowCount, noteCount: actualNoteCount, dim });
-
-    if (actualRowCount === 0 && storedRowCount === 0) {
-      log.debug('Startup validation: no embeddings found for model', { modelId });
-      return;
-    }
-
-    // Check if drift exceeds 15% threshold for either rowCount or noteCount
-    // Also update if stored is 0 but actual is non-zero (aborted sweep recovery)
-    // Also update if dim was missing and we discovered it
-    const rowDrift = storedRowCount > 0 ? Math.abs(actualRowCount - storedRowCount) / storedRowCount : (actualRowCount > 0 ? 1 : 0);
-    const noteDrift = storedNoteCount > 0 ? Math.abs(actualNoteCount - storedNoteCount) / storedNoteCount : (actualNoteCount > 0 ? 1 : 0);
-    const dimMissing = (modelMeta?.dim ?? 0) === 0 && dim > 0;
-    const needsUpdate = rowDrift >= 0.15 || noteDrift >= 0.15 || dimMissing;
-
-    if (needsUpdate) {
-      log.warn('Startup validation: model metadata drift detected, correcting catalog...', {
-        modelId,
-        storedRowCount,
-        actualRowCount,
-        storedNoteCount,
-        actualNoteCount,
-        storedDim: modelMeta?.dim ?? 0,
-        actualDim: dim,
-        rowDrift: `${(rowDrift * 100).toFixed(1)}%`,
-        noteDrift: `${(noteDrift * 100).toFixed(1)}%`,
-        scanTimeMs: Date.now() - scanStart,
-      });
-
-      await write_model_metadata(catalogId, modelId, {
-        modelId,
-        dim,
-        version: modelMeta?.version,
-        settings: modelMeta?.settings,
-        rowCount: actualRowCount,
-        noteCount: actualNoteCount,
-        updatedAt: new Date().toISOString(),
-      });
-    } else {
-      log.info('Startup validation: model metadata accurate', {
-        modelId,
-        rowCount: storedRowCount,
-        noteCount: storedNoteCount,
-        rowDrift: `${(rowDrift * 100).toFixed(1)}%`,
-        scanTimeMs: Date.now() - scanStart,
-      });
-    }
-  } catch (error) {
-    log.warn('Startup validation: failed to validate model metadata', error);
-  }
-}
-
 interface SearchTuning {
   profile: 'desktop' | 'mobile';
   candidateLimit: number;
@@ -1350,19 +1250,20 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         corpusCaches.set(model.id, cache);
       }
 
-      // Get current note IDs (needed for count comparison and build)
-      const result = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
-      const candidateIds = result.noteIds;
-      candidateIds.add(current_id);
-
-      // Check if cache needs rebuilding
+      // Check if cache needs rebuilding (dimension mismatch or not built)
       let needsBuild = !cache.isBuilt() || cache.getDim() !== queryDim;
 
-      // Also rebuild if note count changed (sync added/removed notes)
-      if (!needsBuild && cache.getNoteCount() !== candidateIds.size) {
-        log.info(`[Cache] Note count changed (cached=${cache.getNoteCount()}, current=${candidateIds.size}), invalidating`);
-        cache.invalidate();
-        needsBuild = true;
+      // Only fetch note IDs when we actually need to build the cache
+      // This avoids expensive iteration through all notes on every search
+      // Cache is properly invalidated by sweeps and note updates, so we trust that
+      let candidateIds: Set<string>;
+      if (needsBuild) {
+        const result = await get_all_note_ids_with_embeddings(model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
+        candidateIds = result.noteIds;
+        candidateIds.add(current_id);
+      } else {
+        // Cache is valid - no need to fetch note IDs
+        candidateIds = new Set([current_id]);
       }
 
       if (needsBuild) {

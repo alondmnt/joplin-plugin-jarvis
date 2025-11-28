@@ -1,9 +1,9 @@
 import joplin from 'api';
 import { ModelType } from 'api/types';
-import { find_nearest_notes, update_embeddings, get_all_note_ids_with_embeddings } from '../notes/embeddings';
+import { find_nearest_notes, update_embeddings, get_all_note_ids_with_embeddings, corpusCaches } from '../notes/embeddings';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
-import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time } from '../ux/settings';
+import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time, get_model_last_full_sweep_time, set_model_last_full_sweep_time } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
 import { ModelError, clearApiResponse, clearObjectReferences } from '../utils';
 import { UserDataEmbStore, EmbeddingSettings } from '../notes/userDataStore';
@@ -45,6 +45,7 @@ export async function update_note_db(
   noteIds?: string[],
   force: boolean = false,
   incrementalSweep: boolean = false,
+  lastSyncTime: number = 0,
 ): Promise<void> {
   if (model.model === null) { return; }
 
@@ -83,6 +84,32 @@ export async function update_note_db(
   const allSettingsMismatches: Array<{ noteId: string; currentSettings: any; storedSettings: any }> = [];
 
   const isFullSweep = !noteIds || noteIds.length === 0;
+
+  // Check if sync staleness should force a full sweep instead of incremental
+  // Margin prevents forcing full sweep for syncs that happened right after last full sweep
+  const SYNC_STALENESS_MARGIN_MS = 5 * 60 * 1000;  // 5 minutes
+  if (isFullSweep && incrementalSweep && !force) {
+    const lastFullSweepTime = await get_model_last_full_sweep_time(model.id);
+    if (lastSyncTime > 0 && lastFullSweepTime > 0) {
+      if (lastSyncTime > lastFullSweepTime + SYNC_STALENESS_MARGIN_MS) {
+        console.info(
+          `Jarvis: sync detected after full sweep (sync: ${new Date(lastSyncTime).toISOString()}, ` +
+          `last full sweep: ${new Date(lastFullSweepTime).toISOString()}), forcing full sweep`
+        );
+        incrementalSweep = false;  // Force full sweep to catch synced changes
+      }
+    }
+  }
+
+  // Invalidate cache at sweep start (rebuilds on next search)
+  // This ensures cache reflects any synced changes after sweep completes
+  if (settings.notes_db_in_user_data && isFullSweep) {
+    const cache = corpusCaches.get(model.id);
+    if (cache?.isBuilt()) {
+      cache.invalidate();
+      console.debug('Jarvis: invalidated cache at sweep start');
+    }
+  }
 
   // Track total embedding rows created during sweep (for userData model metadata)
   // This avoids loading all embeddings into memory to count them
@@ -270,6 +297,12 @@ export async function update_note_db(
     const timestamp = Date.now();
     await set_model_last_sweep_time(model.id, timestamp);
     console.debug(`Jarvis: updated last sweep time to ${new Date(timestamp).toISOString()}`);
+
+    // Track full sweep timestamp separately for sync staleness detection
+    if (!incrementalSweep) {
+      await set_model_last_full_sweep_time(model.id, timestamp);
+      console.debug(`Jarvis: updated last full sweep time to ${new Date(timestamp).toISOString()}`);
+    }
   }
 
   // Update model metadata after FULL non-incremental sweeps only.

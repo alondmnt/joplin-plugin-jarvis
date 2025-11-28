@@ -119,6 +119,7 @@ export interface JarvisSettings {
   notes_max_shard_bytes?: number;
   notes_model_first_build_completed: Record<string, boolean>;
   notes_model_last_sweep_time: Record<string, number>;  // Unix timestamp (ms) per model
+  notes_model_last_full_sweep_time: Record<string, number>;  // Unix timestamp (ms) of last full sweep per model
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -269,6 +270,7 @@ export async function get_settings(): Promise<JarvisSettings> {
   const rawProfileSetting = (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile');
   const firstBuildCompleted = safe_parse_first_build_completed(await joplin.settings.value('notes_model_first_build_completed'));
   const lastSweepTimes = safe_parse_last_sweep_time(await joplin.settings.value('notes_model_last_sweep_time'));
+  const lastFullSweepTimes = safe_parse_last_sweep_time(await joplin.settings.value('notes_model_last_full_sweep_time'));
 
   // Detect platform from Joplin API (defaults to 'desktop' on error)
   let detectedPlatform = 'desktop';
@@ -362,6 +364,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_max_shard_bytes: await joplin.settings.value('notes_max_shard_bytes'),
     notes_model_first_build_completed: firstBuildCompleted,
     notes_model_last_sweep_time: lastSweepTimes,
+    notes_model_last_full_sweep_time: lastFullSweepTimes,
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
@@ -1296,6 +1299,15 @@ export async function register_settings() {
       label: 'Notes: Last incremental sweep timestamps (internal)',
       description: 'Internal map tracking per-model last successful incremental sweep (Unix timestamp ms). Do not modify.',
     },
+    'notes_model_last_full_sweep_time': {
+      value: '{}',
+      type: SettingItemType.String,
+      section: 'jarvis.notes',
+      public: false,
+      advanced: true,
+      label: 'Notes: Last full sweep timestamps (internal)',
+      description: 'Internal map tracking per-model last successful full sweep (Unix timestamp ms). Used for sync staleness detection. Do not modify.',
+    },
   });
 }
 
@@ -1432,6 +1444,42 @@ export async function clear_model_last_sweep_time(modelId: string): Promise<void
     await joplin.settings.setValue('notes_model_last_sweep_time', JSON.stringify(current));
     console.debug('Jarvis: cleared model last sweep time', { modelId });
   }
+}
+
+/**
+ * Get the timestamp (Unix ms) of the last full sweep for a model.
+ * Returns 0 if the model has never had a full sweep.
+ * Used for sync staleness detection with margin.
+ *
+ * @param modelId - The embedding model ID
+ * @returns Unix timestamp in milliseconds, or 0 if never swept
+ */
+export async function get_model_last_full_sweep_time(modelId: string): Promise<number> {
+  if (!modelId) {
+    return 0;
+  }
+  const raw = await joplin.settings.value('notes_model_last_full_sweep_time');
+  const times = safe_parse_last_sweep_time(raw);
+  return times[modelId] || 0;
+}
+
+/**
+ * Save the timestamp of a successful full sweep for a model.
+ * Used for sync staleness detection - if sync happened after (lastFullSweep + margin),
+ * force next sweep to be full instead of incremental.
+ *
+ * @param modelId - The embedding model ID
+ * @param timestamp - Unix timestamp in milliseconds
+ */
+export async function set_model_last_full_sweep_time(modelId: string, timestamp: number): Promise<void> {
+  if (!modelId) {
+    return;
+  }
+  const raw = await joplin.settings.value('notes_model_last_full_sweep_time');
+  const current = safe_parse_last_sweep_time(raw);
+  current[modelId] = timestamp;
+  await joplin.settings.setValue('notes_model_last_full_sweep_time', JSON.stringify(current));
+  console.debug('Jarvis: saved model last full sweep time', { modelId, timestamp: new Date(timestamp).toISOString() });
 }
 
 export async function set_folders(exclude: boolean, folder_id: string, settings: JarvisSettings) {

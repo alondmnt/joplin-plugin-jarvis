@@ -8,11 +8,11 @@ import { find_notes, update_note_db, skip_db_init_dialog } from './commands/note
 import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
-import { find_nearest_notes, validate_model_metadata_on_startup, clear_corpus_cache } from './notes/embeddings';
+import { find_nearest_notes, clear_corpus_cache } from './notes/embeddings';
 import { ensure_catalog_note, get_catalog_note_id } from './notes/catalog';
 import { read_model_metadata } from './notes/catalogMetadataStore';
 import { register_panel, update_panel } from './ux/panel';
-import { get_settings, register_settings, set_folders, get_model_last_sweep_time, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
+import { get_settings, register_settings, set_folders, get_model_last_sweep_time, get_model_last_full_sweep_time, GENERATION_SETTING_KEYS, EMBEDDING_SETTING_KEYS } from './ux/settings';
 import type { JarvisSettings } from './ux/settings';
 import { auto_complete } from './commands/complete';
 import { getLogger } from './utils/logger';
@@ -56,6 +56,7 @@ interface PluginRuntime {
   initial_sweep_completed: boolean;
   full_sweep_timer: ReturnType<typeof setInterval> | null;
   suppressModelSwitchRevert: boolean;
+  lastSyncTime: number;  // Timestamp of last sync completion (for sweep staleness detection)
 }
 
 interface UpdateManager {
@@ -102,11 +103,9 @@ joplin.plugins.register({
         find_notes_debounce(runtime.model_embed, runtime.panel);
       }
 
-      // Validate model metadata on startup to catch and correct any drift
-      // This runs before the initial sweep to ensure accurate baseline
-      if (runtime.model_embed.id && runtime.settings.notes_db_in_user_data) {
-        await validate_model_metadata_on_startup(runtime.model_embed.id, runtime.settings);
-      }
+      // Skip startup validation (would scan all notes, ~1min on mobile)
+      // Metadata is kept fresh by daily full sweeps instead (see schedule_full_sweep_timer)
+      // Stats are set correctly when cache builds on first search (embeddingCache.ts:183)
 
       await run_initial_sweep(runtime, updates);
       schedule_full_sweep_timer(runtime, updates);
@@ -161,6 +160,7 @@ async function initialize_runtime_ui(): Promise<Partial<PluginRuntime>> {
     initial_sweep_completed: false,
     full_sweep_timer: null,
     suppressModelSwitchRevert: false,
+    lastSyncTime: 0,
   };
 }
 
@@ -236,7 +236,7 @@ function create_update_manager(runtime: PluginRuntime): UpdateManager {
     runtime.update_start_time = Date.now();
 
     try {
-      await update_note_db(runtime.model_embed, runtime.panel, runtime.update_abort_controller, targetIds, force, incrementalSweep);
+      await update_note_db(runtime.model_embed, runtime.panel, runtime.update_abort_controller, targetIds, force, incrementalSweep, runtime.lastSyncTime);
     } finally {
       runtime.update_abort_controller = null;
       runtime.update_start_time = null;
@@ -277,9 +277,20 @@ function schedule_full_sweep_timer(runtime: PluginRuntime, updates: UpdateManage
         return;
       }
       try {
-        // Only use incremental sweep if database has been built before (check settings)
+        // Determine sweep type: full sweep once per day for self-healing and metadata updates
         const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
-        const useIncremental = lastSweepTime > 0;
+        const lastFullSweepTime = await get_model_last_full_sweep_time(runtime.model_embed.id);
+        const now = Date.now();
+        const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+        // Use full sweep if: never done before OR more than 24h since last full sweep
+        const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > ONE_DAY_MS;
+        const useIncremental = !needsFullSweep;
+
+        if (needsFullSweep) {
+          console.info('Jarvis: running daily full sweep for metadata update and self-healing');
+        }
+
         const updateOptions: UpdateOptions = { force: false, silent: true, incrementalSweep: useIncremental };
         await updates.start_update(updateOptions);
         runtime.pending_note_ids.clear();
@@ -700,6 +711,11 @@ async function register_workspace_listeners(
       return;
     }
     runtime.pending_note_ids.add(noteId);
+  });
+
+  await joplin.workspace.onSyncComplete(async () => {
+    runtime.lastSyncTime = Date.now();
+    console.debug('Jarvis: sync completed at', new Date(runtime.lastSyncTime).toISOString());
   });
 
   await joplin.views.panels.onMessage(runtime.panel, async (message) => {
