@@ -17,8 +17,9 @@ import { prepare_user_data_embeddings } from './userDataIndexer';
 import { extract_embedding_settings_for_validation, settings_equal } from './validator';
 import { append_ocr_text_to_body } from './noteHelpers';
 import type { BlockEmbedding } from './embeddings';
-import { calc_note_embeddings, calc_hash, update_cache_for_note, userDataStore } from './embeddings';
+import { calc_note_embeddings, calc_hash, userDataStore } from './embeddings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
+import { update_cache_for_note } from './embeddingCache';
 import { htmlToText } from '../utils';
 
 const log = getLogger();
@@ -184,7 +185,7 @@ async function update_note(note: any,
       }
 
       // Incrementally update cache (remove blocks for deleted note)
-      await update_cache_for_note(model.id, note.id, '', settings, true, true);
+      await update_cache_for_note(userDataStore, model.id, note.id, '', settings.notes_debug_mode, true, true);
     }
 
     return { embeddings: [] };
@@ -241,7 +242,7 @@ async function update_note(note: any,
         await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
 
         // Update cache after backfill
-        await update_cache_for_note(model.id, note.id, hash, settings);
+        await update_cache_for_note(userDataStore, model.id, note.id, hash, settings.notes_debug_mode);
 
         return { embeddings: old_embd, skippedUnchanged: true };
       }
@@ -303,7 +304,7 @@ async function update_note(note: any,
         // Before returning skippedUnchanged, update cache with existing userData
         // This ensures cache includes recently-synced notes even if embeddings are up-to-date
         if (settings.notes_db_in_user_data) {
-          await update_cache_for_note(model.id, note.id, hash, settings);
+          await update_cache_for_note(userDataStore, model.id, note.id, hash, settings.notes_debug_mode);
         }
 
         return { embeddings: old_embd, skippedUnchanged: true }; // Skip - content unchanged, settings match
@@ -347,7 +348,7 @@ async function update_note(note: any,
 
             // Update cache with existing userData
             if (settings.notes_db_in_user_data) {
-              await update_cache_for_note(model.id, note.id, hash, settings);
+              await update_cache_for_note(userDataStore, model.id, note.id, hash, settings.notes_debug_mode);
             }
 
             return { embeddings: old_embd, skippedUnchanged: true };
@@ -379,7 +380,7 @@ async function update_note(note: any,
       await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
 
       // Update cache after backfill
-      await update_cache_for_note(model.id, note.id, hash, settings);
+      await update_cache_for_note(userDataStore, model.id, note.id, hash, settings.notes_debug_mode);
 
       return { embeddings: old_embd, skippedUnchanged: true };
     }
@@ -395,7 +396,7 @@ async function update_note(note: any,
       await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId);
 
       // Incrementally update cache (replace blocks for updated note)
-      await update_cache_for_note(model.id, note.id, hash, settings, true, true);
+      await update_cache_for_note(userDataStore, model.id, note.id, hash, settings.notes_debug_mode, true, true);
     } else {
       // Legacy mode: SQLite is primary storage, clean up any old userData
       await insert_note_embeddings(model.db, new_embd, model);

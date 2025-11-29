@@ -15,7 +15,7 @@ import { quantize_vector_to_q8, cosine_similarity_q8, QuantizedRowView } from '.
 import { TopKHeap } from './topK';
 import { read_model_metadata, write_model_metadata } from './catalogMetadataStore';
 import { get_catalog_note_id } from './catalog';
-import { SimpleCorpusCache } from './embeddingCache';
+import { SimpleCorpusCache, corpusCaches, update_cache_for_note, clear_corpus_cache, clear_all_corpus_caches } from './embeddingCache';
 import { setModelStats } from './modelStats';
 import { get_note_tags, get_all_note_ids_with_embeddings, append_ocr_text_to_body } from './noteHelpers';
 import { ensure_float_embedding, calc_similarity, calc_mean_embedding, calc_mean_embedding_float32, calc_links_embedding } from './embeddingHelpers';
@@ -25,46 +25,11 @@ import { find_nearest_notes } from './embeddingSearch';
 export const userDataStore = new UserDataEmbStore();
 const log = getLogger();
 
-// Per-model in-memory cache instances
-export const corpusCaches = new Map<string, SimpleCorpusCache>();
-
 // Cache corpus size per model to avoid repeated metadata reads (persists across function calls)
 const corpusSizeCache = new Map<string, number>();
 
-/**
- * Update cache incrementally for a note.
- * Handles cache updates for various scenarios (updates, deletions, backfills).
- *
- * @param modelId - Embedding model ID
- * @param noteId - Note ID to update
- * @param hash - Content hash (empty string '' for deletions)
- * @param settings - Jarvis settings
- * @param invalidate_on_error - Whether to invalidate cache if update fails
- * @param invalidate_if_not_built - Whether to invalidate cache if not yet built
- * @returns Promise that resolves when cache is updated (or fails gracefully)
- */
-export async function update_cache_for_note(
-  modelId: string,
-  noteId: string,
-  hash: string,
-  settings: JarvisSettings,
-  invalidate_on_error: boolean = false,
-  invalidate_if_not_built: boolean = false,
-): Promise<void> {
-  const cache = corpusCaches.get(modelId);
-
-  if (cache?.isBuilt()) {
-    await cache.updateNote(userDataStore, modelId, noteId, hash, settings.notes_debug_mode).catch(error => {
-      const action = hash === '' ? 'delete from' : 'update';
-      log.warn(`Failed to ${action} cache for note ${noteId}`, error);
-      if (invalidate_on_error) {
-        cache.invalidate();
-      }
-    });
-  } else if (invalidate_if_not_built) {
-    cache?.invalidate();
-  }
-}
+// Maximum heading level in Markdown (h1-h6)
+const MAX_HEADING_LEVEL = 6;
 
 export interface BlockEmbedding {
   id: string;  // note id
@@ -142,7 +107,7 @@ export async function calc_note_embeddings(
           title = parse_heading[2];
         }
       }
-      if (level > 6) { level = 6; }  // max heading level is 6
+      if (level > MAX_HEADING_LEVEL) { level = MAX_HEADING_LEVEL; }
       path[level] = title;
 
       const sub_blocks = split_block_to_max_size(block, model, model.max_block_size, is_code_block);
@@ -372,30 +337,6 @@ function get_slug(title: string): string {
       .replace(/^-|-$/g, '');               // remove hyphens at the beginning and end of the string
 }
 
-/**
- * Clear in-memory cache for a model (called on model switch).
- * Frees memory from old model.
- */
-export function clear_corpus_cache(modelId: string): void {
-  const cache = corpusCaches.get(modelId);
-  if (cache) {
-    cache.invalidate();
-    corpusCaches.delete(modelId);
-    log.info(`[Cache] Cleared cache for model ${modelId}`);
-  }
-}
-
-/**
- * Clear all corpus caches (all models).
- * Used when deleting all models.
- */
-export function clear_all_corpus_caches(): void {
-  for (const [modelId, cache] of corpusCaches) {
-    cache.invalidate();
-  }
-  corpusCaches.clear();
-  log.info('[Cache] Cleared all corpus caches');
-}
 
 /**
  * Show validation dialog when mismatched embeddings are detected
@@ -451,6 +392,9 @@ export { update_embeddings, UpdateNoteResult } from './embeddingUpdate';
 
 // Re-export semantic search orchestration from embeddingSearch module
 export { find_nearest_notes } from './embeddingSearch';
+
+// Re-export cache management utilities from embeddingCache module
+export { corpusCaches, update_cache_for_note, clear_corpus_cache, clear_all_corpus_caches } from './embeddingCache';
 
 // calculate the hash of a string
 export function calc_hash(text: string): string {

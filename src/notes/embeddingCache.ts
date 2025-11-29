@@ -553,3 +553,68 @@ export class SimpleCorpusCache {
   }
 }
 
+// === Cache Management Functions ===
+// Per-model cache instances (shared across modules)
+export const corpusCaches = new Map<string, SimpleCorpusCache>();
+
+/**
+ * Update cache incrementally for a note.
+ * Handles cache updates for various scenarios (updates, deletions, backfills).
+ *
+ * @param userDataStore - UserData store instance for reading embeddings
+ * @param modelId - Embedding model ID
+ * @param noteId - Note ID to update
+ * @param hash - Content hash (empty string '' for deletions)
+ * @param debugMode - Enable debug logging
+ * @param invalidate_on_error - Whether to invalidate cache if update fails
+ * @param invalidate_if_not_built - Whether to invalidate cache if not yet built
+ * @returns Promise that resolves when cache is updated (or fails gracefully)
+ */
+export async function update_cache_for_note(
+  userDataStore: UserDataEmbStore,
+  modelId: string,
+  noteId: string,
+  hash: string,
+  debugMode: boolean = false,
+  invalidate_on_error: boolean = false,
+  invalidate_if_not_built: boolean = false,
+): Promise<void> {
+  const cache = corpusCaches.get(modelId);
+
+  if (cache?.isBuilt()) {
+    await cache.updateNote(userDataStore, modelId, noteId, hash, debugMode).catch(error => {
+      const action = hash === '' ? 'delete from' : 'update';
+      log.warn(`Failed to ${action} cache for note ${noteId}`, error);
+      if (invalidate_on_error) {
+        cache.invalidate();
+      }
+    });
+  } else if (invalidate_if_not_built) {
+    cache?.invalidate();
+  }
+}
+
+/**
+ * Clear in-memory cache for a model (called on model switch).
+ * Frees memory from old model.
+ */
+export function clear_corpus_cache(modelId: string): void {
+  const cache = corpusCaches.get(modelId);
+  if (cache) {
+    cache.invalidate();
+    corpusCaches.delete(modelId);
+    log.info(`[Cache] Cleared cache for model ${modelId}`);
+  }
+}
+
+/**
+ * Clear all corpus caches (all models).
+ * Used when deleting all models.
+ */
+export function clear_all_corpus_caches(): void {
+  for (const [modelId, cache] of corpusCaches) {
+    cache.invalidate();
+  }
+  corpusCaches.clear();
+  log.info('[Cache] Cleared all corpus caches');
+}
