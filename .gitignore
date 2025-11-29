@@ -4,3 +4,4 @@
 /notes/
 .DS_Store
 package-lock.json
+.drafts/
