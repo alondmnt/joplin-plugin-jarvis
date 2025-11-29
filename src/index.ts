@@ -259,12 +259,18 @@ function cancel_full_sweep_timer(runtime: PluginRuntime): void {
 
 /**
  * Schedule periodic userData sweeps to keep remote changes fresh.
+ * Uses a short polling interval (30s) to check wall-clock time, ensuring sweeps
+ * happen even after app resume from background (mobile/web compatibility).
  */
 function schedule_full_sweep_timer(runtime: PluginRuntime, updates: UpdateManager): void {
   cancel_full_sweep_timer(runtime);
   if (runtime.delay_db_update <= 0) {
     return;
   }
+
+  const TIMER_CHECK_INTERVAL_MS = 60 * 1000;  // Check every 60 seconds
+  const FULL_SWEEP_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12 hours
+  const INCREMENTAL_SWEEP_INTERVAL_MS = runtime.delay_db_update * 1000;  // User-configured (default 10 min)
 
   runtime.full_sweep_timer = setInterval(() => {
     void (async () => {
@@ -275,29 +281,38 @@ function schedule_full_sweep_timer(runtime: PluginRuntime, updates: UpdateManage
         return;
       }
       try {
-        // Determine sweep type: full sweep every 12 hours for self-healing and metadata updates
         const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
         const lastFullSweepTime = await get_model_last_full_sweep_time(runtime.model_embed.id);
         const now = Date.now();
-        const FULL_SWEEP_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12 hours
 
-        // Use full sweep if: never done before OR more than 12h since last full sweep
-        const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > FULL_SWEEP_INTERVAL_MS;
-        const useIncremental = !needsFullSweep;
+        const timeSinceLastSweep = now - lastSweepTime;
+        const timeSinceLastFullSweep = now - lastFullSweepTime;
+
+        // Check if full sweep is needed (never done OR > 12h since last full sweep)
+        const needsFullSweep = lastSweepTime === 0 || timeSinceLastFullSweep > FULL_SWEEP_INTERVAL_MS;
+
+        // Check if incremental sweep is needed (> configured interval since last sweep)
+        const needsIncrementalSweep = timeSinceLastSweep > INCREMENTAL_SWEEP_INTERVAL_MS;
 
         if (needsFullSweep) {
           console.info('Jarvis: running 12-hour full sweep for metadata update and self-healing');
+          const updateOptions: UpdateOptions = { force: false, silent: true, incrementalSweep: false };
+          await updates.start_update(updateOptions);
+          runtime.pending_note_ids.clear();
+          runtime.initial_sweep_completed = true;
+        } else if (needsIncrementalSweep) {
+          console.debug('Jarvis: running incremental sweep');
+          const updateOptions: UpdateOptions = { force: false, silent: true, incrementalSweep: true };
+          await updates.start_update(updateOptions);
+          runtime.pending_note_ids.clear();
+          runtime.initial_sweep_completed = true;
         }
-
-        const updateOptions: UpdateOptions = { force: false, silent: true, incrementalSweep: useIncremental };
-        await updates.start_update(updateOptions);
-        runtime.pending_note_ids.clear();
-        runtime.initial_sweep_completed = true;
+        // Otherwise: pass (not enough time has elapsed)
       } catch (error) {
         console.warn('Jarvis: periodic note DB sweep failed', error);
       }
     })();
-  }, runtime.delay_db_update * 1000);
+  }, TIMER_CHECK_INTERVAL_MS);
 }
 
 /**
