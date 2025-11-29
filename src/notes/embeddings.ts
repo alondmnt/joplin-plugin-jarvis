@@ -18,6 +18,7 @@ import { get_catalog_note_id } from './catalog';
 import { SimpleCorpusCache } from './embeddingCache';
 import { setModelStats } from './modelStats';
 import { get_note_tags, get_all_note_ids_with_embeddings, append_ocr_text_to_body } from './noteHelpers';
+import { ensure_float_embedding, calc_similarity, calc_mean_embedding, calc_mean_embedding_float32, calc_links_embedding } from './embeddingHelpers';
 
 export const userDataStore = new UserDataEmbStore();
 const log = getLogger();
@@ -102,25 +103,6 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
     candidateLimit,
     parentTargetSize,
   };
-}
-
-function ensure_float_embedding(block: BlockEmbedding): Float32Array {
-  if (block.embedding && block.embedding.length > 0) {
-    return block.embedding;
-  }
-  const q8 = block.q8;
-  if (!q8) {
-    block.embedding = new Float32Array(0);
-    return block.embedding;
-  }
-  const dim = q8.values.length;
-  const floats = new Float32Array(dim);
-  const scale = q8.scale;
-  for (let i = 0; i < dim; i += 1) {
-    floats[i] = q8.values[i] * scale;
-  }
-  block.embedding = floats;
-  return block.embedding;
 }
 
 export interface BlockEmbedding {
@@ -1410,75 +1392,14 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   return result;
 }
 
-// calculate the cosine similarity between two embeddings
-export function calc_similarity(embedding1: Float32Array, embedding2: Float32Array): number {
-  let sim = 0;
-  for (let i = 0; i < embedding1.length; i++) {
-    sim += embedding1[i] * embedding2[i];
-  }
-  return sim;
-}
-
-function calc_mean_embedding(embeddings: BlockEmbedding[], weights?: number[]): Float32Array {
-  if (!embeddings || (embeddings.length == 0)) { return null; }
-
-  const norm = weights ? weights.reduce((acc, w) => acc + w, 0) : embeddings.length;
-  return embeddings.reduce((acc, emb, emb_index) => {
-    for (let i = 0; i < acc.length; i++) {
-      if (weights) {
-        acc[i] += weights[emb_index] * emb.embedding[i];
-      } else {
-        acc[i] += emb.embedding[i];
-      }
-    }
-    return acc;
-  }, new Float32Array(embeddings[0].embedding.length)).map(x => x / norm);
-}
-
-function calc_mean_embedding_float32(embeddings: Float32Array[], weights?: number[]): Float32Array {
-  if (!embeddings || (embeddings.length == 0)) { return null; }
-
-  const norm = weights ? weights.reduce((acc, w) => acc + w, 0) : embeddings.length;
-  return embeddings.reduce((acc, emb, emb_index) => {
-    for (let i = 0; i < acc.length; i++) {
-      if (weights) {
-        acc[i] += weights[emb_index] * emb[i];
-      } else {
-        acc[i] += emb[i];
-      }
-    }
-    return acc;
-  }, new Float32Array(embeddings[0].length)).map(x => x / norm);
-}
-
-// calculate the mean embedding of all notes that are linked in the query
-// parse the query and extract all markdown links
-function calc_links_embedding(query: string, embeddings: BlockEmbedding[]): Float32Array {
-  const lines = query.split('\n');
-  const filtered_query = lines.filter(line => !line.startsWith(ref_notes_prefix) && !line.startsWith(user_notes_cmd)).join('\n');
-  const links = filtered_query.match(/\[([^\]]+)\]\(:\/([^\)]+)\)/g);
-
-  if (!links) {
-    return null;
-  }
-
-  const ids: Set<string> = new Set();
-  const linked_notes = links.map((link) => {
-    const note_id = link.match(/:\/([a-zA-Z0-9]{32})/);
-    if (!note_id) { return []; }
-    if (ids.has(note_id[1])) { return []; }
-
-    ids.add(note_id[1]);
-    return embeddings.filter((embd) => embd.id === note_id[1]) || [];
-  });
-  return calc_mean_embedding([].concat(...linked_notes));
-}
-
 // Re-export block navigation utilities from blockOperations module
 export { get_next_blocks, get_prev_blocks, get_nearest_blocks } from './blockOperations';
 
 // Re-export note helper utilities from noteHelpers module
 export { get_note_tags, get_all_note_ids_with_embeddings, append_ocr_text_to_body } from './noteHelpers';
+
+// Re-export embedding math/transformation utilities from embeddingHelpers module
+export { ensure_float_embedding, calc_similarity, calc_mean_embedding, calc_mean_embedding_float32, calc_links_embedding } from './embeddingHelpers';
 
 // calculate the hash of a string
 function calc_hash(text: string): string {
