@@ -1620,39 +1620,8 @@ function calc_links_embedding(query: string, embeddings: BlockEmbedding[]): Floa
   return calc_mean_embedding([].concat(...linked_notes));
 }
 
-// given a block, find the next n blocks in the same note and return them
-export async function get_next_blocks(block: BlockEmbedding, embeddings: BlockEmbedding[], n: number = 1): Promise<BlockEmbedding[]> {
-  const next_blocks = embeddings.filter((embd) => embd.id === block.id && embd.line > block.line)
-    .sort((a, b) => a.line - b.line);
-  if (next_blocks.length === 0) {
-    return [];
-  }
-  return next_blocks.slice(0, n);
-}
-
-// given a block, find the previous n blocks in the same note and return them
-export async function get_prev_blocks(block: BlockEmbedding, embeddings: BlockEmbedding[], n: number = 1): Promise<BlockEmbedding[]> {
-  const prev_blocks = embeddings.filter((embd) => embd.id === block.id && embd.line < block.line)
-    .sort((a, b) => b.line - a.line);
-  if (prev_blocks.length === 0) {
-    return [];
-  }
-  return prev_blocks.slice(0, n);
-}
-
-// given a block, find the nearest n blocks and return them
-export async function get_nearest_blocks(block: BlockEmbedding, embeddings: BlockEmbedding[], settings: JarvisSettings, n: number = 1): Promise<BlockEmbedding[]> {
-  // see also find_nearest_notes
-  const nearest = embeddings.map(
-    (embd: BlockEmbedding): BlockEmbedding => {
-    const new_embd = Object.assign({}, embd);
-    new_embd.similarity = calc_similarity(block.embedding, new_embd.embedding);
-    return new_embd;
-  }
-  ).filter((embd) => (embd.similarity >= settings.notes_min_similarity) && (embd.length >= settings.notes_min_length));
-
-  return nearest.sort((a, b) => b.similarity - a.similarity).slice(1, n+1);
-}
+// Re-export block navigation utilities from blockOperations module
+export { get_next_blocks, get_prev_blocks, get_nearest_blocks } from './blockOperations';
 
 // calculate the hash of a string
 function calc_hash(text: string): string {
