@@ -29,6 +29,41 @@ export const corpusCaches = new Map<string, SimpleCorpusCache>();
 const corpusSizeCache = new Map<string, number>();
 
 /**
+ * Update cache incrementally for a note.
+ * Handles cache updates for various scenarios (updates, deletions, backfills).
+ *
+ * @param modelId - Embedding model ID
+ * @param noteId - Note ID to update
+ * @param hash - Content hash (empty string '' for deletions)
+ * @param settings - Jarvis settings
+ * @param invalidate_on_error - Whether to invalidate cache if update fails
+ * @param invalidate_if_not_built - Whether to invalidate cache if not yet built
+ * @returns Promise that resolves when cache is updated (or fails gracefully)
+ */
+async function update_cache_for_note(
+  modelId: string,
+  noteId: string,
+  hash: string,
+  settings: JarvisSettings,
+  invalidate_on_error: boolean = false,
+  invalidate_if_not_built: boolean = false,
+): Promise<void> {
+  const cache = corpusCaches.get(modelId);
+
+  if (cache?.isBuilt()) {
+    await cache.updateNote(userDataStore, modelId, noteId, hash, settings.notes_debug_mode).catch(error => {
+      const action = hash === '' ? 'delete from' : 'update';
+      log.warn(`Failed to ${action} cache for note ${noteId}`, error);
+      if (invalidate_on_error) {
+        cache.invalidate();
+      }
+    });
+  } else if (invalidate_if_not_built) {
+    cache?.invalidate();
+  }
+}
+
+/**
  * Get tags for a note. Returns empty array on error.
  */
 async function get_note_tags(noteId: string): Promise<string[]> {
@@ -509,16 +544,7 @@ async function update_note(note: any,
       }
 
       // Incrementally update cache (remove blocks for deleted note)
-      const cache = corpusCaches.get(model.id);
-      if (cache?.isBuilt()) {
-        // Note deleted - remove its blocks incrementally
-        await cache.updateNote(userDataStore, model.id, note.id, '', settings.notes_debug_mode).catch(error => {
-          log.warn(`Failed to incrementally update cache for deleted note ${note.id}, invalidating`, error);
-          cache.invalidate();
-        });
-      } else {
-        cache?.invalidate();
-      }
+      await update_cache_for_note(model.id, note.id, '', settings, true, true);
     }
     
     return { embeddings: [] };
@@ -575,12 +601,7 @@ async function update_note(note: any,
         await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
 
         // Update cache after backfill
-        const cache = corpusCaches.get(model.id);
-        if (cache?.isBuilt()) {
-          await cache.updateNote(userDataStore, model.id, note.id, hash, settings.notes_debug_mode).catch(error => {
-            log.warn(`Failed to update cache after backfill for note ${note.id}`, error);
-          });
-        }
+        await update_cache_for_note(model.id, note.id, hash, settings);
 
         return { embeddings: old_embd, skippedUnchanged: true };
       }
@@ -641,11 +662,8 @@ async function update_note(note: any,
 
         // Before returning skippedUnchanged, update cache with existing userData
         // This ensures cache includes recently-synced notes even if embeddings are up-to-date
-        const cache = corpusCaches.get(model.id);
-        if (cache?.isBuilt() && settings.notes_db_in_user_data) {
-          await cache.updateNote(userDataStore, model.id, note.id, hash, settings.notes_debug_mode).catch(error => {
-            log.warn(`Failed to update cache for unchanged note ${note.id}`, error);
-          });
+        if (settings.notes_db_in_user_data) {
+          await update_cache_for_note(model.id, note.id, hash, settings);
         }
 
         return { embeddings: old_embd, skippedUnchanged: true }; // Skip - content unchanged, settings match
@@ -688,11 +706,8 @@ async function update_note(note: any,
             // Note: old_embd may be empty when userData is enabled (embeddings stored in userData, not SQLite)
 
             // Update cache with existing userData
-            const cache = corpusCaches.get(model.id);
-            if (cache?.isBuilt() && settings.notes_db_in_user_data) {
-              await cache.updateNote(userDataStore, model.id, note.id, hash, settings.notes_debug_mode).catch(error => {
-                log.warn(`Failed to update cache for unchanged note ${note.id}`, error);
-              });
+            if (settings.notes_db_in_user_data) {
+              await update_cache_for_note(model.id, note.id, hash, settings);
             }
 
             return { embeddings: old_embd, skippedUnchanged: true };
@@ -724,12 +739,7 @@ async function update_note(note: any,
       await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
 
       // Update cache after backfill
-      const cache = corpusCaches.get(model.id);
-      if (cache?.isBuilt()) {
-        await cache.updateNote(userDataStore, model.id, note.id, hash, settings.notes_debug_mode).catch(error => {
-          log.warn(`Failed to update cache after backfill for note ${note.id}`, error);
-        });
-      }
+      await update_cache_for_note(model.id, note.id, hash, settings);
 
       return { embeddings: old_embd, skippedUnchanged: true };
     }
@@ -745,16 +755,7 @@ async function update_note(note: any,
       await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId);
 
       // Incrementally update cache (replace blocks for updated note)
-      const cache = corpusCaches.get(model.id);
-      if (cache?.isBuilt()) {
-        // Note updated - replace its blocks incrementally
-        await cache.updateNote(userDataStore, model.id, note.id, hash, settings.notes_debug_mode).catch(error => {
-          log.warn(`Failed to incrementally update cache for note ${note.id}, invalidating`, error);
-          cache.invalidate();
-        });
-      } else {
-        cache?.invalidate();
-      }
+      await update_cache_for_note(model.id, note.id, hash, settings, true, true);
     } else {
       // Legacy mode: SQLite is primary storage, clean up any old userData
       await insert_note_embeddings(model.db, new_embd, model);
