@@ -59,7 +59,7 @@ graph TD
 graph TD
     A[Timer Fires] --> B{Update in Progress?}
     B -->|Yes| C[Skip]
-    B -->|No| D{Last Full Sweep > 24h?}
+    B -->|No| D{Last Full Sweep > 12h?}
     D -->|Yes| E[FULL SWEEP]
     D -->|No| F[INCREMENTAL SWEEP]
 
@@ -79,21 +79,21 @@ graph TD
     Q -->|Skip| S[Continue]
     O -->|No| S
     S --> T[Preserve Metadata]
-    T --> U[Preserve Cache]
+    T --> U[Incrementally Update Cache]
 ```
 
 **Decision Logic:**
 ```typescript
 const lastFullSweepTime = await get_model_last_full_sweep_time(modelId);
 const now = Date.now();
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const FULL_SWEEP_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12 hours
 
-const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > ONE_DAY_MS;
+const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > FULL_SWEEP_INTERVAL_MS;
 ```
 
 **What gets updated:**
 
-**Full Sweep (once per day):**
+**Full Sweep (every 12 hours):**
 - ✅ UserData embeddings (all changed notes)
 - ✅ Catalog metadata (rowCount, noteCount, dim)
 - ✅ lastFullSweepTime timestamp
@@ -359,7 +359,7 @@ graph TD
 | Event | Frequency | Full Sweep? | Metadata? | Cache? | Settings Check? |
 |-------|-----------|-------------|-----------|--------|-----------------|
 | **Startup** | Once | Only if first time | Only if full | Not built | Only if full |
-| **Periodic (Timer)** | Every N min | Once per 24h | Once per 24h | Invalidated daily | Yes (all processed notes) |
+| **Periodic (Timer)** | Every N min | Once per 12h | Once per 12h | Invalidated every 12h | Yes (all processed notes) |
 | **Note Edit** | Per save | No | No | Incrementally updated | No |
 | **Search** | On demand | No | No | Built if needed | No |
 | **Manual Update** | User action | Yes | Yes | Invalidated | Yes (all notes) |
@@ -380,8 +380,9 @@ graph TD
 ### Decision Points
 
 ```typescript
-// When to do full sweep (index.ts:289)
-const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > ONE_DAY_MS;
+// When to do full sweep (index.ts:287)
+const FULL_SWEEP_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12 hours
+const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > FULL_SWEEP_INTERVAL_MS;
 
 // When to fetch note IDs (embeddings.ts:1360)
 if (!cache.isBuilt() || cache.getDim() !== queryDim) {

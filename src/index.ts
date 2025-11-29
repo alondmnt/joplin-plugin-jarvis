@@ -56,7 +56,6 @@ interface PluginRuntime {
   initial_sweep_completed: boolean;
   full_sweep_timer: ReturnType<typeof setInterval> | null;
   suppressModelSwitchRevert: boolean;
-  lastSyncTime: number;  // Timestamp of last sync completion (for sweep staleness detection)
 }
 
 interface UpdateManager {
@@ -160,7 +159,6 @@ async function initialize_runtime_ui(): Promise<Partial<PluginRuntime>> {
     initial_sweep_completed: false,
     full_sweep_timer: null,
     suppressModelSwitchRevert: false,
-    lastSyncTime: 0,
   };
 }
 
@@ -236,7 +234,7 @@ function create_update_manager(runtime: PluginRuntime): UpdateManager {
     runtime.update_start_time = Date.now();
 
     try {
-      await update_note_db(runtime.model_embed, runtime.panel, runtime.update_abort_controller, targetIds, force, incrementalSweep, runtime.lastSyncTime);
+      await update_note_db(runtime.model_embed, runtime.panel, runtime.update_abort_controller, targetIds, force, incrementalSweep);
     } finally {
       runtime.update_abort_controller = null;
       runtime.update_start_time = null;
@@ -277,18 +275,18 @@ function schedule_full_sweep_timer(runtime: PluginRuntime, updates: UpdateManage
         return;
       }
       try {
-        // Determine sweep type: full sweep once per day for self-healing and metadata updates
+        // Determine sweep type: full sweep every 12 hours for self-healing and metadata updates
         const lastSweepTime = await get_model_last_sweep_time(runtime.model_embed.id);
         const lastFullSweepTime = await get_model_last_full_sweep_time(runtime.model_embed.id);
         const now = Date.now();
-        const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+        const FULL_SWEEP_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12 hours
 
-        // Use full sweep if: never done before OR more than 24h since last full sweep
-        const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > ONE_DAY_MS;
+        // Use full sweep if: never done before OR more than 12h since last full sweep
+        const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > FULL_SWEEP_INTERVAL_MS;
         const useIncremental = !needsFullSweep;
 
         if (needsFullSweep) {
-          console.info('Jarvis: running daily full sweep for metadata update and self-healing');
+          console.info('Jarvis: running 12-hour full sweep for metadata update and self-healing');
         }
 
         const updateOptions: UpdateOptions = { force: false, silent: true, incrementalSweep: useIncremental };
@@ -719,8 +717,8 @@ async function register_workspace_listeners(
   });
 
   await joplin.workspace.onSyncComplete(async () => {
-    runtime.lastSyncTime = Date.now();
-    console.debug('Jarvis: sync completed at', new Date(runtime.lastSyncTime).toISOString());
+    // Sync completed - incremental sweeps will catch any synced notes via cache updates
+    console.debug('Jarvis: sync completed at', new Date().toISOString());
   });
 
   await joplin.views.panels.onMessage(runtime.panel, async (message) => {

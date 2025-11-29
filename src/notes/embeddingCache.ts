@@ -328,12 +328,18 @@ export class SimpleCorpusCache {
    * Full rebuild on next search.
    */
   invalidate(): void {
+    // Only log if cache was actually built (avoid spam when invalidating empty cache)
+    const wasBuilt = this.isBuilt();
+
     this.q8Buffer = null;
     this.blocks = [];
     this.dim = 0;
     this.buildPromise = null;
     this.buildDurationMs = 0;
-    log.debug('[Cache] Invalidated');
+
+    if (wasBuilt) {
+      log.debug('[Cache] Invalidated');
+    }
   }
 
   /**

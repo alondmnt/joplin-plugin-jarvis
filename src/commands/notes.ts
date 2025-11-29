@@ -45,7 +45,6 @@ export async function update_note_db(
   noteIds?: string[],
   force: boolean = false,
   incrementalSweep: boolean = false,
-  lastSyncTime: number = 0,
 ): Promise<void> {
   if (model.model === null) { return; }
 
@@ -85,25 +84,9 @@ export async function update_note_db(
 
   const isFullSweep = !noteIds || noteIds.length === 0;
 
-  // Check if sync staleness should force a full sweep instead of incremental
-  // Margin prevents forcing full sweep for syncs that happened right after last full sweep
-  const SYNC_STALENESS_MARGIN_MS = 5 * 60 * 1000;  // 5 minutes
-  if (isFullSweep && incrementalSweep && !force) {
-    const lastFullSweepTime = await get_model_last_full_sweep_time(model.id);
-    if (lastSyncTime > 0 && lastFullSweepTime > 0) {
-      if (lastSyncTime > lastFullSweepTime + SYNC_STALENESS_MARGIN_MS) {
-        console.info(
-          `Jarvis: sync detected after full sweep (sync: ${new Date(lastSyncTime).toISOString()}, ` +
-          `last full sweep: ${new Date(lastFullSweepTime).toISOString()}), forcing full sweep`
-        );
-        incrementalSweep = false;  // Force full sweep to catch synced changes
-      }
-    }
-  }
-
-  // Invalidate cache at sweep start (rebuilds on next search)
-  // This ensures cache reflects any synced changes after sweep completes
-  if (settings.notes_db_in_user_data && isFullSweep) {
+  // Invalidate cache at start of scheduled full sweeps only (every 12h)
+  // Incremental sweeps rely on incremental cache updates to handle synced notes
+  if (settings.notes_db_in_user_data && isFullSweep && !incrementalSweep) {
     const cache = corpusCaches.get(model.id);
     if (cache?.isBuilt()) {
       cache.invalidate();
