@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { ModelType } from 'api/types';
-import { find_nearest_notes, update_embeddings, get_all_note_ids_with_embeddings, corpusCaches } from '../notes/embeddings';
+import { find_nearest_notes, update_embeddings, get_all_note_ids_with_embeddings, corpusCaches, userDataStore } from '../notes/embeddings';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time, get_model_last_full_sweep_time, set_model_last_full_sweep_time } from '../ux/settings';
@@ -308,7 +308,7 @@ export async function update_note_db(
       const currentMetadata = await read_model_metadata(catalogId, model.id);
 
       console.debug('Jarvis: performing final count after full sweep...');
-      const countResult = await get_all_note_ids_with_embeddings(model.id);
+      const countResult = await get_all_note_ids_with_embeddings(userDataStore, model.id);
       const finalRowCount = countResult.totalBlocks ?? 0;
       const finalNoteCount = countResult.noteIds.size;
 
