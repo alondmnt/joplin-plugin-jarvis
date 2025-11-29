@@ -1,26 +1,20 @@
 import joplin from 'api';
-import { ModelType } from 'api/types';
 import { createHash } from '../utils/crypto';
-import { JarvisSettings, ref_notes_prefix, title_separator, user_notes_cmd } from '../ux/settings';
-import { update_progress_bar } from '../ux/panel';
-import { delete_note_and_embeddings, insert_note_embeddings } from './db';
-import { UserDataEmbStore, EmbeddingSettings, NoteEmbMeta, EMB_META_KEY } from './userDataStore';
-import { prepare_user_data_embeddings } from './userDataIndexer';
-import { read_user_data_embeddings } from './userDataReader';
-import { globalValidationTracker, extract_embedding_settings_for_validation, settings_equal } from './validator';
+import { JarvisSettings, ref_notes_prefix, title_separator } from '../ux/settings';
+import { UserDataEmbStore } from './userDataStore';
+import { globalValidationTracker } from './validator';
 import { getLogger } from '../utils/logger';
 import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
-import { search_keywords, ModelError, htmlToText, clearObjectReferences, clearApiResponse } from '../utils';
-import { quantize_vector_to_q8, cosine_similarity_q8, QuantizedRowView } from './q8';
-import { TopKHeap } from './topK';
-import { read_model_metadata, write_model_metadata } from './catalogMetadataStore';
-import { get_catalog_note_id } from './catalog';
-import { SimpleCorpusCache, corpusCaches, update_cache_for_note, clear_corpus_cache, clear_all_corpus_caches } from './embeddingCache';
-import { setModelStats } from './modelStats';
-import { get_note_tags, get_all_note_ids_with_embeddings, append_ocr_text_to_body } from './noteHelpers';
+import { search_keywords, htmlToText, clearObjectReferences } from '../utils';
+import { QuantizedRowView } from './q8';
+import { append_ocr_text_to_body } from './noteHelpers';
+// Re-exported from other modules (preserved for backward compatibility)
+import { get_next_blocks, get_prev_blocks, get_nearest_blocks } from './blockOperations';
+import { get_note_tags, get_all_note_ids_with_embeddings } from './noteHelpers';
 import { ensure_float_embedding, calc_similarity, calc_mean_embedding, calc_mean_embedding_float32, calc_links_embedding } from './embeddingHelpers';
 import { update_embeddings, UpdateNoteResult } from './embeddingUpdate';
 import { find_nearest_notes } from './embeddingSearch';
+import { corpusCaches, update_cache_for_note, clear_corpus_cache, clear_all_corpus_caches } from './embeddingCache';
 
 export const userDataStore = new UserDataEmbStore();
 const log = getLogger();
