@@ -388,7 +388,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
   const searchTimeMs = searchStartTime > 0 ? searchEndTime - searchStartTime : 0;
 
   // Now fetch titles (not included in timing)
-  // Also fetch parent_id to filter out notes in excluded folders (safeguard for edge cases)
+  // Also fetch parent_id and deleted_time to filter out excluded/deleted notes (safeguard for edge cases)
   // Fetch a small buffer of extra candidates to compensate for any filtered results
   const hasExcludedFolders = settings.notes_exclude_folders && settings.notes_exclude_folders.size > 0;
   const fetchLimit = hasExcludedFolders
@@ -398,12 +398,17 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     let title: string;
     let noteResponse: any = null;
     try {
-      noteResponse = await joplin.data.get(['notes', note_id], {fields: ['title', 'parent_id']});
+      noteResponse = await joplin.data.get(['notes', note_id], {fields: ['title', 'parent_id', 'deleted_time']});
       title = noteResponse.title;
 
-      // Safeguard: filter out notes in excluded folders (catches edge cases like
-      // notes moved to excluded folder after cache was built, or settings changed mid-session)
+      // Safeguard: filter out excluded folders and deleted notes (catches edge cases like
+      // notes moved to excluded folder after cache was built, or deleted before 12h full sweep cleanup)
       if (hasExcludedFolders && noteResponse.parent_id && settings.notes_exclude_folders.has(noteResponse.parent_id)) {
+        clearObjectReferences(noteResponse);
+        return null; // Will be filtered out below
+      }
+
+      if (noteResponse.deleted_time > 0) {
         clearObjectReferences(noteResponse);
         return null; // Will be filtered out below
       }
