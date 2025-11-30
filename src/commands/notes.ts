@@ -11,7 +11,7 @@ import type { JarvisSettings } from '../ux/settings';
 import { compute_final_model_metadata, model_metadata_changed } from '../notes/userDataIndexer';
 import { read_model_metadata, write_model_metadata } from '../notes/catalogMetadataStore';
 import { setModelStats, getModelStats } from '../notes/modelStats';
-import { checkCapacityWarning } from '../notes/embeddingCache';
+import { checkCapacityWarning, SimpleCorpusCache } from '../notes/embeddingCache';
 
 /**
  * Refresh embeddings for either the entire notebook set or a specific list of notes.
@@ -84,14 +84,16 @@ export async function update_note_db(
 
   const isFullSweep = !noteIds || noteIds.length === 0;
 
-  // Invalidate cache at start of scheduled full sweeps only (every 12h)
+  // Initialize cache for incremental building during full sweeps
   // Incremental sweeps rely on incremental cache updates to handle synced notes
   if (settings.notes_db_in_user_data && isFullSweep && !incrementalSweep) {
-    const cache = corpusCaches.get(model.id);
-    if (cache?.isBuilt()) {
-      cache.invalidate();
-      console.debug('Jarvis: invalidated cache at sweep start');
+    let cache = corpusCaches.get(model.id);
+    if (!cache) {
+      cache = new SimpleCorpusCache();
+      corpusCaches.set(model.id, cache);
+      console.debug('Jarvis: initialized empty cache for incremental build');
     }
+    // Don't invalidate - let incremental updates build it during sweep
   }
 
   // Track total embedding rows created during sweep (for userData model metadata)
@@ -300,58 +302,10 @@ export async function update_note_db(
     }
   }
 
-  // Update model metadata after FULL non-incremental sweeps only.
-  // Incremental sweeps and specific note updates rely on startup validation to correct drift.
-  // This simplifies the code and avoids accumulator complexity.
-  if (!abortController.signal.aborted && settings.notes_db_in_user_data && catalogId && model?.id && isFullSweep && !incrementalSweep) {
-    try {
-      const currentMetadata = await read_model_metadata(catalogId, model.id);
-
-      console.debug('Jarvis: performing final count after full sweep...');
-      const countResult = await get_all_note_ids_with_embeddings(userDataStore, model.id);
-      const finalRowCount = countResult.totalBlocks ?? 0;
-      const finalNoteCount = countResult.noteIds.size;
-
-      // If dimension wasn't captured during sweep (all notes skipped), read it from an existing note
-      let finalDim = embeddingDim;
-      if (finalDim === 0 && finalRowCount > 0) {
-        console.debug('Jarvis: dimension not captured during sweep, reading from existing note...');
-        for (const noteId of Array.from(countResult.noteIds).slice(0, 5)) {
-          const noteMeta = await joplin.data.userDataGet<any>(ModelType.Note, noteId, 'jarvis/v1/meta');
-          if (noteMeta?.models?.[model.id]?.dim) {
-            finalDim = noteMeta.models[model.id].dim;
-            console.debug(`Jarvis: captured dimension ${finalDim} from note ${noteId}`);
-            break;
-          }
-        }
-      }
-
-      // Always update in-memory stats with accurate values (for memory warnings etc.)
-      setModelStats(model.id, { rowCount: finalRowCount, noteCount: finalNoteCount, dim: finalDim });
-
-      const newMetadata = await compute_final_model_metadata(model, settings, catalogId, finalRowCount, finalDim, finalNoteCount);
-
-      if (newMetadata && model_metadata_changed(currentMetadata, newMetadata)) {
-        await write_model_metadata(catalogId, model.id, newMetadata);
-        console.debug('Jarvis: model metadata updated after full sweep', {
-          modelId: model.id,
-          rowCount: newMetadata.rowCount,
-          noteCount: newMetadata.noteCount,
-        });
-      } else if (newMetadata) {
-        console.debug('Jarvis: model metadata unchanged (<15% change), skipping update', {
-          modelId: model.id,
-          rowCount: newMetadata.rowCount,
-          oldRowCount: currentMetadata?.rowCount,
-        });
-      }
-    } catch (error) {
-      console.warn('Jarvis: failed to update model metadata after sweep', {
-        modelId: model.id,
-        error: String((error as any)?.message ?? error),
-      });
-    }
-  }
+  // Post-sweep metadata update removed (use cache stats instead)
+  // Cache stats are updated when cache is built/used during search (see embeddingCache.ts:183)
+  // Metadata not critical-path, can be updated lazily with 15% threshold check
+  // This saves 10-30s of post-sweep processing time
 
   // Mark first build as complete after main sweep finishes
   // Only after a FULL sweep (not incremental), which ensures migration/backfill actually happened

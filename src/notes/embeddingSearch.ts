@@ -163,41 +163,42 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       // Check if cache needs rebuilding (dimension mismatch or not built)
       let needsBuild = !cache.isBuilt() || cache.getDim() !== queryDim;
 
-      // Only fetch note IDs when we actually need to build the cache
-      // This avoids expensive iteration through all notes on every search
-      // Cache is properly invalidated by sweeps and note updates, so we trust that
-      let candidateIds: Set<string>;
       if (needsBuild) {
-        const result = await get_all_note_ids_with_embeddings(userDataStore, model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
-        candidateIds = result.noteIds;
-        candidateIds.add(current_id);
-      } else {
-        // Cache is valid - no need to fetch note IDs
-        candidateIds = new Set([current_id]);
-      }
+        // Don't build cache during updates - wait for sweep to finish
+        // Panel shows "Update in progress" anyway, and will auto-refresh when sweep completes
+        if (isUpdateInProgress) {
+          log.info('[Cache] Update in progress, waiting for cache to be built by sweep...');
+          // Return empty results - panel will update when sweep completes
+          combinedEmbeddings = [];
+        } else {
+          // Normal search-triggered build (only if no update running)
+          const result = await get_all_note_ids_with_embeddings(userDataStore, model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
+          const candidateIds = result.noteIds;
+          candidateIds.add(current_id);
 
-      if (needsBuild) {
-        if (cache.getDim() !== 0 && cache.getDim() !== queryDim) {
-          log.warn(`[Cache] Dimension mismatch (cached=${cache.getDim()}, query=${queryDim}), invalidating`);
-          cache.invalidate();
+          if (cache.getDim() !== 0 && cache.getDim() !== queryDim) {
+            log.warn(`[Cache] Dimension mismatch (cached=${cache.getDim()}, query=${queryDim}), invalidating`);
+            cache.invalidate();
+          }
+
+          if (settings.notes_debug_mode) {
+            const estimatedBlocks = candidateIds.size * 10;
+            log.info(`[Cache] Building cache (${candidateIds.size} notes, ~${estimatedBlocks} blocks @ ${queryDim}-dim)`);
+          }
+
+          // Build cache (handles concurrent builds gracefully)
+          await cache.ensureBuilt(
+            userDataStore,
+            model.id,
+            Array.from(candidateIds),
+            queryDim,
+            (panel && settings) ? async (processed, total, stage) => {
+              await update_progress_bar(panel, processed, total, settings, stage);
+            } : undefined,
+            model,
+            settings
+          );
         }
-
-        if (settings.notes_debug_mode) {
-          const estimatedBlocks = candidateIds.size * 10;
-          log.info(`[Cache] Building cache (${candidateIds.size} notes, ~${estimatedBlocks} blocks @ ${queryDim}-dim)`);
-        }
-
-        // Build cache (handles concurrent builds gracefully)
-        // Skip progress updates when database update is running to avoid UI flickering
-        await cache.ensureBuilt(
-          userDataStore,
-          model.id,
-          Array.from(candidateIds),
-          queryDim,
-          (panel && settings && !isUpdateInProgress) ? async (processed, total, stage) => {
-            await update_progress_bar(panel, processed, total, settings, stage);
-          } : undefined
-        );
       }
 
       // Search in pure RAM (10-50ms, no I/O)

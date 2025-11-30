@@ -185,7 +185,7 @@ async function update_note(note: any,
       }
 
       // Incrementally update cache (remove blocks for deleted note)
-      await update_cache_for_note(userDataStore, model.id, note.id, '', settings.notes_debug_mode, true, true);
+      await update_cache_for_note(userDataStore, model.id, note.id, '', settings.notes_debug_mode, true);
     }
 
     return { embeddings: [] };
@@ -255,8 +255,9 @@ async function update_note(note: any,
         let needsCompaction = false;
         let shardMissing = false;
         if (!needsBackfill && userDataMeta && modelMeta && modelMeta.current?.shards > 0) {
+          let first: any = null;
           try {
-            const first = await userDataStore.getShard(note.id, model.id, 0);
+            first = await userDataStore.getShard(note.id, model.id, 0);
             if (!first) {
               // Metadata exists but shard is missing/corrupt - needs backfill
               shardMissing = true;
@@ -274,6 +275,8 @@ async function update_note(note: any,
             // Shard read failed - treat as missing/corrupt
             shardMissing = true;
             log.debug(`Note ${note.id} shard read failed - will backfill`, e);
+          } finally {
+            clearObjectReferences(first);
           }
         }
         if (needsBackfill || needsCompaction || shardMissing) {
@@ -327,8 +330,9 @@ async function update_note(note: any,
           // Everything appears up-to-date, but check for incomplete shards
           let shardMissing = false;
           if (modelMeta.current?.shards > 0) {
+            let first: any = null;
             try {
-              const first = await userDataStore.getShard(note.id, model.id, 0);
+              first = await userDataStore.getShard(note.id, model.id, 0);
               if (!first) {
                 // Metadata exists but shard is missing/corrupt - needs rebuild
                 shardMissing = true;
@@ -338,6 +342,8 @@ async function update_note(note: any,
               // Shard read failed - treat as missing/corrupt
               shardMissing = true;
               log.info(`Note ${note.id} shard read failed - will rebuild`, e);
+            } finally {
+              clearObjectReferences(first);
             }
           }
 
@@ -396,7 +402,7 @@ async function update_note(note: any,
       await write_user_data_embeddings(note, new_embd, model, settings, hash, catalogId);
 
       // Incrementally update cache (replace blocks for updated note)
-      await update_cache_for_note(userDataStore, model.id, note.id, hash, settings.notes_debug_mode, true, true);
+      await update_cache_for_note(userDataStore, model.id, note.id, hash, settings.notes_debug_mode, true);
     } else {
       // Legacy mode: SQLite is primary storage, clean up any old userData
       await insert_note_embeddings(model.db, new_embd, model);

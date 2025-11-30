@@ -155,7 +155,9 @@ export class SimpleCorpusCache {
     modelId: string,
     noteIds: string[],
     dim: number,
-    onProgress?: (processed: number, total: number, stage?: string) => Promise<void>
+    onProgress?: (processed: number, total: number, stage?: string) => Promise<void>,
+    model?: any,
+    settings?: any,
   ): Promise<void> {
     // Check dimension mismatch (model changed)
     if (this.isBuilt() && this.dim !== dim) {
@@ -181,6 +183,49 @@ export class SimpleCorpusCache {
     if (this.isBuilt()) {
       const stats = this.getStats();
       setModelStats(modelId, { rowCount: stats.blocks, noteCount: noteIds.length, dim });
+
+      // Update catalog metadata lazily (not during sweep, but after first search)
+      // This replaces the removed post-sweep metadata count
+      // Only update if significant change (>=15% threshold, same as current behavior)
+      if (model && settings) {
+        let currentMetadata: any = null;
+        let newMetadata: any = null;
+        try {
+          const { get_catalog_note_id } = await import('./catalog');
+          const { read_model_metadata, write_model_metadata } = await import('./catalogMetadataStore');
+          const { compute_final_model_metadata, model_metadata_changed } = await import('./userDataIndexer');
+          const { clearObjectReferences } = await import('../utils');
+
+          const catalogId = await get_catalog_note_id();
+          if (catalogId) {
+            currentMetadata = await read_model_metadata(catalogId, modelId);
+            newMetadata = await compute_final_model_metadata(
+              model, settings, catalogId, stats.blocks, dim, noteIds.length
+            );
+
+            if (newMetadata && model_metadata_changed(currentMetadata, newMetadata)) {
+              await write_model_metadata(catalogId, modelId, newMetadata);
+              log.debug('Catalog metadata updated after cache build', {
+                modelId,
+                rowCount: newMetadata.rowCount,
+                noteCount: newMetadata.noteCount,
+              });
+            } else if (newMetadata) {
+              log.debug('Catalog metadata unchanged (<15% change), skipping update', {
+                modelId,
+                rowCount: newMetadata.rowCount,
+                oldRowCount: currentMetadata?.rowCount,
+              });
+            }
+          }
+        } catch (error) {
+          log.debug('Failed to update catalog metadata after cache build', error);
+        } finally {
+          // Clear metadata objects to prevent memory leaks
+          clearObjectReferences(currentMetadata);
+          clearObjectReferences(newMetadata);
+        }
+      }
     }
   }
 
@@ -367,15 +412,61 @@ export class SimpleCorpusCache {
     noteHash: string,
     debugMode: boolean = false
   ): Promise<void> {
-    if (!this.isBuilt()) {
-      // Not built - full rebuild needed
-      this.invalidate();
+    // Initialize cache from first note if empty
+    if (!this.isBuilt() && this.dim === 0) {
+      // Read this note's embeddings to discover dimension
+      const results = await read_user_data_embeddings({
+        store,
+        modelId,
+        noteIds: [noteId],
+        maxRows: undefined,
+        currentModel: null,
+        currentSettings: null,
+        validationTracker: null,
+      });
+
+      // Extract dimension from first block
+      for (const result of results) {
+        for (const block of result.blocks) {
+          if (block.q8?.values?.length > 0) {
+            this.dim = block.q8.values.length;
+            this.q8Buffer = new Int8Array(0);
+            this.blocks = [];
+
+            if (debugMode) {
+              log.info(`[Cache] Initialized with dim=${this.dim} from first note`);
+            }
+            break;
+          }
+        }
+        if (this.dim > 0) break;
+      }
+
+      clearObjectReferences(results);
+
+      if (this.dim === 0) {
+        // No embeddings found
+        return;
+      }
+      // Fall through to add this note's blocks
+    }
+
+    if (!this.isBuilt() && this.dim > 0) {
+      // Cache has dimension but not yet built (building incrementally during sweep)
+      if (debugMode) {
+        log.debug(`[Cache] Building incrementally: adding note ${noteId.substring(0, 8)}...`);
+      }
+    } else if (!this.isBuilt()) {
+      // Not built and no dimension - can't update
+      if (debugMode) {
+        log.debug(`[Cache] Skipping update, cache not initialized`);
+      }
       return;
     }
 
     const dim = this.dim; // Use cached dimension
 
-    if (debugMode) {
+    if (debugMode && this.isBuilt()) {
       log.info(`[Cache] Incrementally updating note ${noteId.substring(0, 8)}...`);
     }
 
@@ -560,6 +651,7 @@ export const corpusCaches = new Map<string, SimpleCorpusCache>();
 /**
  * Update cache incrementally for a note.
  * Handles cache updates for various scenarios (updates, deletions, backfills).
+ * Now allows updates even when cache is not fully built (enables incremental building during sweeps).
  *
  * @param userDataStore - UserData store instance for reading embeddings
  * @param modelId - Embedding model ID
@@ -567,7 +659,6 @@ export const corpusCaches = new Map<string, SimpleCorpusCache>();
  * @param hash - Content hash (empty string '' for deletions)
  * @param debugMode - Enable debug logging
  * @param invalidate_on_error - Whether to invalidate cache if update fails
- * @param invalidate_if_not_built - Whether to invalidate cache if not yet built
  * @returns Promise that resolves when cache is updated (or fails gracefully)
  */
 export async function update_cache_for_note(
@@ -577,11 +668,11 @@ export async function update_cache_for_note(
   hash: string,
   debugMode: boolean = false,
   invalidate_on_error: boolean = false,
-  invalidate_if_not_built: boolean = false,
 ): Promise<void> {
   const cache = corpusCaches.get(modelId);
 
-  if (cache?.isBuilt()) {
+  // Allow updates to cache even if not fully built (enables incremental building during sweeps)
+  if (cache) {
     await cache.updateNote(userDataStore, modelId, noteId, hash, debugMode).catch(error => {
       const action = hash === '' ? 'delete from' : 'update';
       log.warn(`Failed to ${action} cache for note ${noteId}`, error);
@@ -589,8 +680,6 @@ export async function update_cache_for_note(
         cache.invalidate();
       }
     });
-  } else if (invalidate_if_not_built) {
-    cache?.invalidate();
   }
 }
 

@@ -6,7 +6,7 @@ import { ensure_catalog_note, load_model_registry, remove_model_from_catalog } f
 import { read_model_metadata } from '../notes/catalogMetadataStore';
 import { estimate_shard_size } from '../notes/shards';
 import { clear_all_corpus_caches } from '../notes/embeddings';
-import { clearApiResponse } from '../utils';
+import { clearApiResponse, clearObjectReferences } from '../utils';
 import { update_progress_bar } from './panel';
 import { JarvisSettings, clear_model_last_sweep_time, clear_model_first_build_completed } from './settings';
 
@@ -142,6 +142,7 @@ async function scan_note_ids_for_model(modelId: string): Promise<string[]> {
           if (meta?.models?.[modelId]?.current) {
             noteIds.push(noteId);
           }
+          clearObjectReferences(meta);
         } catch (_) {
           // No userData or error, skip
         }
@@ -196,25 +197,29 @@ async function delete_model_data(
   for (const noteId of noteIds) {
     try {
       const meta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
-      if (!meta || !meta.models || !meta.models[modelId]) {
-        summary.skippedNotes += 1;
-        processed += 1;
-        continue;
-      }
+      try {
+        if (!meta || !meta.models || !meta.models[modelId]) {
+          summary.skippedNotes += 1;
+          processed += 1;
+          continue;
+        }
 
-      const modelMeta = meta.models[modelId];
-      const shardCount = Math.max(1, modelMeta?.current?.shards ?? 1);
-      await delete_shards_for_model(noteId, modelId, shardCount);
+        const modelMeta = meta.models[modelId];
+        const shardCount = Math.max(1, modelMeta?.current?.shards ?? 1);
+        await delete_shards_for_model(noteId, modelId, shardCount);
 
-      delete meta.models[modelId];
+        delete meta.models[modelId];
 
-      const remainingModels = Object.keys(meta.models ?? {});
-      if (remainingModels.length === 0) {
-        await joplin.data.userDataDelete(ModelType.Note, noteId, EMB_META_KEY);
-        summary.removedMeta += 1;
-      } else {
-        await joplin.data.userDataSet(ModelType.Note, noteId, EMB_META_KEY, meta);
-        summary.updatedNotes += 1;
+        const remainingModels = Object.keys(meta.models ?? {});
+        if (remainingModels.length === 0) {
+          await joplin.data.userDataDelete(ModelType.Note, noteId, EMB_META_KEY);
+          summary.removedMeta += 1;
+        } else {
+          await joplin.data.userDataSet(ModelType.Note, noteId, EMB_META_KEY, meta);
+          summary.updatedNotes += 1;
+        }
+      } finally {
+        clearObjectReferences(meta);
       }
     } catch (error) {
       summary.errors += 1;
@@ -267,22 +272,26 @@ async function delete_all_model_data(
   for (const noteId of allNoteIds) {
     try {
       const meta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
-      if (!meta || !meta.models) {
-        summary.skippedNotes += 1;
-        processed += 1;
-        continue;
-      }
+      try {
+        if (!meta || !meta.models) {
+          summary.skippedNotes += 1;
+          processed += 1;
+          continue;
+        }
 
-      // Delete shards for all models
-      for (const modelId of Object.keys(meta.models)) {
-        const modelMeta = meta.models[modelId];
-        const shardCount = Math.max(1, modelMeta?.current?.shards ?? 1);
-        await delete_shards_for_model(noteId, modelId, shardCount);
-      }
+        // Delete shards for all models
+        for (const modelId of Object.keys(meta.models)) {
+          const modelMeta = meta.models[modelId];
+          const shardCount = Math.max(1, modelMeta?.current?.shards ?? 1);
+          await delete_shards_for_model(noteId, modelId, shardCount);
+        }
 
-      // Delete the metadata entirely
-      await joplin.data.userDataDelete(ModelType.Note, noteId, EMB_META_KEY);
-      summary.removedMeta += 1;
+        // Delete the metadata entirely
+        await joplin.data.userDataDelete(ModelType.Note, noteId, EMB_META_KEY);
+        summary.removedMeta += 1;
+      } finally {
+        clearObjectReferences(meta);
+      }
     } catch (error) {
       summary.errors += 1;
       log.warn('Delete all: failed to process note', { noteId, error });

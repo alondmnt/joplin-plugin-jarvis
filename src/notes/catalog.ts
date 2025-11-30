@@ -92,19 +92,23 @@ async function ensure_system_folder(): Promise<string> {
 async function ensure_note_tag(noteId: string): Promise<void> {
   try {
     const existing = await joplin.data.get(['notes', noteId, 'tags'], { fields: ['title'], limit: 100 });
-    const titles = (existing?.items ?? [])
-      .map((t: any) => (typeof t?.title === 'string' ? t.title : null))
-      .filter((t: string | null): t is string => !!t);
-    const already_has_required_tags = titles.includes(CATALOG_TAG) && titles.includes(EXCLUDE_TAG);
-    if (already_has_required_tags) {
-      return;
+    try {
+      const titles = (existing?.items ?? [])
+        .map((t: any) => (typeof t?.title === 'string' ? t.title : null))
+        .filter((t: string | null): t is string => !!t);
+      const already_has_required_tags = titles.includes(CATALOG_TAG) && titles.includes(EXCLUDE_TAG);
+      if (already_has_required_tags) {
+        return;
+      }
+
+      await ensure_tag_id(CATALOG_TAG);
+      await ensure_tag_id(EXCLUDE_TAG);
+
+      const next = Array.from(new Set([...titles, CATALOG_TAG, EXCLUDE_TAG]));
+      await joplin.data.put(['notes', noteId], null, { tags: next.join(', ') });
+    } finally {
+      clearApiResponse(existing);
     }
-
-    await ensure_tag_id(CATALOG_TAG);
-    await ensure_tag_id(EXCLUDE_TAG);
-
-    const next = Array.from(new Set([...titles, CATALOG_TAG, EXCLUDE_TAG]));
-    await joplin.data.put(['notes', noteId], null, { tags: next.join(', ') });
   } catch (error) {
     log.warn('Failed to ensure note tag', { noteId, error });
   }
