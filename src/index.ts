@@ -201,7 +201,6 @@ async function initialize_models_and_db(runtime: PluginRuntime): Promise<void> {
  */
 function create_update_manager(runtime: PluginRuntime): UpdateManager {
   const is_update_in_progress = (): boolean => {
-    console.debug('is_update_in_progress', runtime.update_abort_controller, runtime.update_start_time);
     return runtime.update_abort_controller !== null &&
       (runtime.update_start_time !== null && (Date.now() - runtime.update_start_time) < runtime.abort_timeout * 60 * 1000);
   };
@@ -209,7 +208,6 @@ function create_update_manager(runtime: PluginRuntime): UpdateManager {
   const start_update = async (options: UpdateOptions = {}) => {
     const { force = false, noteIds, silent = false, incrementalSweep = false } = options;
     const targetIds = noteIds && noteIds.length > 0 ? Array.from(new Set(noteIds)) : undefined;
-    console.debug('start_update', is_update_in_progress(), force, targetIds?.length ?? 0, 'incremental:', incrementalSweep);
 
     if (targetIds && targetIds.length === 0 && !force) {
       return;
@@ -733,7 +731,6 @@ async function register_workspace_listeners(
 
   await joplin.workspace.onSyncComplete(async () => {
     // Sync completed - incremental sweeps will catch any synced notes via cache updates
-    console.debug('Jarvis: sync completed at', new Date().toISOString());
   });
 
   await joplin.views.panels.onMessage(runtime.panel, async (message) => {

@@ -14,6 +14,31 @@ import { setModelStats, getModelStats } from '../notes/modelStats';
 import { checkCapacityWarning, SimpleCorpusCache } from '../notes/embeddingCache';
 
 /**
+ * Safety margin for incremental sweeps to catch notes that sync late.
+ *
+ * When an incremental sweep runs, it queries notes modified after:
+ *   lastSweepTime - SYNC_SAFETY_MARGIN_MS
+ *
+ * This creates temporal overlap to handle the race condition where:
+ * 1. Sweep runs at time T, sets lastSweepTime=T
+ * 2. Sync completes during/after sweep, bringing notes modified before T
+ * 3. Next sweep would miss these notes without the margin
+ *
+ * The 12-hour margin is a best-effort heuristic that handles typical usage:
+ * - Daily device switching
+ * - Overnight syncs
+ * - Notes modified within ~12h that sync late
+ *
+ * Limitations (by design):
+ * - Does NOT catch notes modified >12h ago that sync late
+ * - Does NOT catch prolonged offline scenarios (device offline for days)
+ * - Only the 12-hour full sweep guarantees eventual consistency
+ *
+ * The 12-hour value matches FULL_SWEEP_INTERVAL_MS for consistency.
+ */
+const SYNC_SAFETY_MARGIN_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+/**
  * Refresh embeddings for either the entire notebook set or a specific list of notes.
  * When `noteIds` are provided the function reuses the existing update pipeline to
  * rebuild only those entries, skipping the legacy full-library scan.
@@ -25,11 +50,13 @@ import { checkCapacityWarning, SimpleCorpusCache } from '../notes/embeddingCache
  *     Example: Manual "Update DB", settings changed, validation dialog rebuild
  * 
  * @param incrementalSweep - When true, use timestamp-based early termination:
- *   - Query notes ordered by updated_time DESC
- *   - Stop when reaching notes older than model.lastIncrementalSweepTime
+ *   - Query notes ordered by user_updated_time DESC
+ *   - Stop when reaching notes older than (lastSweepTime - SYNC_SAFETY_MARGIN_MS)
+ *   - The 12-hour safety margin creates temporal overlap to catch late-arriving syncs
  *   - Typical cost: ~50-100ms for 10-50 updated notes
  *   - Used for: periodic background sweeps to catch sync changes
  *   - Requires: force=false (thoroughness incompatible with early termination)
+ *   - Limitation: Only catches notes modified within ~12h of last sweep
  * 
  * Smart rebuild: Both modes skip when up-to-date, but "up-to-date" means different things:
  *   - force=false: Content unchanged (backfills userData from SQLite if needed for migration)
@@ -170,6 +197,12 @@ export async function update_note_db(
     let hasMore = true;
     let reachedOldNotes = false;
 
+    // Apply safety margin to catch notes that synced late (see SYNC_SAFETY_MARGIN_MS docs)
+    const cutoffTime = lastSweepTime - SYNC_SAFETY_MARGIN_MS;
+    if (settings.notes_debug_mode) {
+      console.debug(`Jarvis: incremental sweep cutoff time: ${new Date(cutoffTime).toISOString()} (lastSweepTime - ${SYNC_SAFETY_MARGIN_MS / (60 * 60 * 1000)}h margin)`);
+    }
+
     while (hasMore && !reachedOldNotes && !abortController.signal.aborted) {
       let notes: any = null;
       try {
@@ -183,10 +216,12 @@ export async function update_note_db(
 
         const batch: any[] = [];
         for (const note of notes.items) {
-          // Stop when we reach notes older than last sweep (comparing user content timestamp)
-          if (note.user_updated_time <= lastSweepTime) {
+          // Stop when we reach notes older than cutoff (lastSweepTime - safety margin)
+          if (note.user_updated_time <= cutoffTime) {
             reachedOldNotes = true;
-            console.debug(`Reached old notes at page ${page}, stopping early`);
+            if (settings.notes_debug_mode) {
+              console.debug(`Reached old notes at page ${page}, stopping early (note timestamp: ${new Date(note.user_updated_time).toISOString()})`);
+            }
             break;
           }
 
