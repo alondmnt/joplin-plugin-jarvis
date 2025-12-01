@@ -34,15 +34,21 @@ export function ensure_float_embedding(block: BlockEmbedding): Float32Array {
 
 /**
  * Calculate cosine similarity between two embeddings.
- * Assumes embeddings are already normalized (unit vectors).
- * Returns dot product as similarity score.
+ * Computes full cosine similarity with explicit normalization.
  */
 export function calc_similarity(embedding1: Float32Array, embedding2: Float32Array): number {
-  let sim = 0;
+  let dot = 0;
+  let norm1 = 0;
+  let norm2 = 0;
   for (let i = 0; i < embedding1.length; i++) {
-    sim += embedding1[i] * embedding2[i];
+    const v1 = embedding1[i];
+    const v2 = embedding2[i];
+    dot += v1 * v2;
+    norm1 += v1 * v1;
+    norm2 += v2 * v2;
   }
-  return sim;
+  const denom = Math.sqrt(norm1 * norm2);
+  return denom > 0 ? dot / denom : 0;
 }
 
 /**
