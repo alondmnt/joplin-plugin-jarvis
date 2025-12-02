@@ -452,20 +452,16 @@ async function filter_excluded_notes(
   const tagsByNoteId = new Map(tagResults.map(r => [r.noteId, r.tags]));
   
   for (const note of batch) {
-    // Don't skip deleted notes - they need to reach update_embeddings() for proper cache cleanup
-    // Deleted notes are handled in update_embeddings() at line 494 (userData cleanup, cache removal, SQLite cleanup)
-    const result = should_exclude_note(
-      note,
-      tagsByNoteId.get(note.id) || [],
-      settings,
-      { checkDeleted: false, checkTags: true }  // Tags already fetched in parallel above
-    );
-
-    if (result.excluded) {
+    // Only filter conflict notes - they should never be touched
+    // All other excluded notes (deleted, excluded folders/tags) flow through to the safety net
+    // in update_embeddings() where userData cleanup happens before expensive embedding calculation
+    if (note.is_conflict) {
       excludedCount++;
       continue;
     }
 
+    // Let all other notes through (including deleted, excluded folders/tags)
+    // The safety net in update_embeddings() will check and clean them up
     filtered.push(note);
   }
   
