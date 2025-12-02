@@ -432,25 +432,7 @@ async function filter_excluded_notes(
   
   const filtered: any[] = [];
   let excludedCount = 0;
-  
-  // Fetch tags for all notes in batch (parallel for efficiency)
-  const tagPromises = batch.map(async (note) => {
-    let tagsResponse: any = null;
-    try {
-      tagsResponse = await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] });
-      const tagTitles = tagsResponse.items.map((t: any) => t.title);
-      clearApiResponse(tagsResponse);
-      return { noteId: note.id, tags: tagTitles };
-    } catch (error) {
-      clearApiResponse(tagsResponse);
-      // If tag fetch fails, assume no tags (note will be processed)
-      return { noteId: note.id, tags: [] };
-    }
-  });
-  
-  const tagResults = await Promise.all(tagPromises);
-  const tagsByNoteId = new Map(tagResults.map(r => [r.noteId, r.tags]));
-  
+
   for (const note of batch) {
     // Only filter conflict notes - they should never be touched
     // All other excluded notes (deleted, excluded folders/tags) flow through to the safety net

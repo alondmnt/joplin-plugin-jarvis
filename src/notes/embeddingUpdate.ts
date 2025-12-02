@@ -15,7 +15,7 @@ import { getLogger } from '../utils/logger';
 import { UserDataEmbStore, EmbeddingSettings } from './userDataStore';
 import { prepare_user_data_embeddings } from './userDataIndexer';
 import { extract_embedding_settings_for_validation, settings_equal } from './validator';
-import { append_ocr_text_to_body, should_exclude_note } from './noteHelpers';
+import { append_ocr_text_to_body, should_exclude_note, get_excluded_note_ids_by_tags, clear_excluded_note_ids_cache } from './noteHelpers';
 import type { BlockEmbedding } from './embeddings';
 import { calc_note_embeddings, calc_hash, userDataStore } from './embeddings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
@@ -143,31 +143,18 @@ async function write_user_data_embeddings(
 
 async function update_note(note: any,
     model: TextEmbeddingModel, settings: JarvisSettings,
-    abortSignal: AbortSignal, force: boolean = false, catalogId?: string): Promise<UpdateNoteResult> {
+    abortSignal: AbortSignal, force: boolean = false, catalogId?: string, excludedByTag?: Set<string>): Promise<UpdateNoteResult> {
   if (abortSignal.aborted) {
     throw new ModelError("Operation cancelled");
   }
 
-  // NOTE: Tag-based exclusion is now handled by early filtering in update_note_db
-  // This check is kept as a safety fallback in case notes slip through
-  // (e.g., tags added/changed during processing, or direct update_note calls)
-  let note_tags: string[];
-  let tagsResponse: any = null;
-  try {
-    tagsResponse = await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] });
-    note_tags = tagsResponse.items.map((t: any) => t.title);
-    clearApiResponse(tagsResponse);
-  } catch (error) {
-    clearApiResponse(tagsResponse);
-    note_tags = ['jarvis-exclude'];
-  }
-
-  // Use unified filtering logic
+  // Check exclusion using reverse-lookup (no per-note tag fetch!)
+  // This safety net handles exclusion before expensive embedding calculation
   const exclusionResult = should_exclude_note(
     note,
-    note_tags,
+    null,  // No tag array (using reverse-lookup instead)
     settings,
-    { checkDeleted: true, checkTags: true }
+    { checkDeleted: true, checkTags: true, excludedByTag }
   );
 
   if (exclusionResult.excluded) {
@@ -402,6 +389,21 @@ async function update_note(note: any,
   }
 
   // Rebuild needed: content changed OR (force=true AND userData outdated/missing AND no SQLite to backfill)
+
+  // Fetch tags ONLY if needed for embedding (after hash check determined re-embedding is needed)
+  let note_tags: string[] = [];
+  if (settings.notes_embed_tags) {
+    let tagsResponse: any = null;
+    try {
+      tagsResponse = await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] });
+      note_tags = tagsResponse.items.map((t: any) => t.title);
+      clearApiResponse(tagsResponse);
+    } catch (error) {
+      clearApiResponse(tagsResponse);
+      note_tags = [];
+    }
+  }
+
   try {
     const new_embd = await calc_note_embeddings(note, note_tags, model, settings, abortSignal, 'doc');
 
@@ -455,6 +457,9 @@ export async function update_embeddings(
   totalRows: number;
   dim: number;
 }> {
+  // Fetch excluded note IDs once for entire batch (with pagination)
+  const excludedByTag = await get_excluded_note_ids_by_tags();
+
   const successfulNotes: Array<{ note: any; embeddings: BlockEmbedding[] }> = [];
   const skippedNotes: string[] = [];
   const skippedUnchangedNotes: string[] = []; // Notes skipped due to matching hash and settings
@@ -471,7 +476,7 @@ export async function update_embeddings(
     let attempt = 0;
     while (!abortController.signal.aborted) {
       try {
-        const result = await update_note(note, model, settings, abortController.signal, force, catalogId);
+        const result = await update_note(note, model, settings, abortController.signal, force, catalogId, excludedByTag);
         successfulNotes.push({ note, embeddings: result.embeddings });
 
         // Track notes that were skipped due to matching hash and settings
@@ -579,6 +584,9 @@ export async function update_embeddings(
     }
   }
   clearObjectReferences(successfulNotes);
+
+  // Clear excluded note IDs cache after batch
+  clear_excluded_note_ids_cache();
 
   return { settingsMismatches, totalRows, dim };
 }

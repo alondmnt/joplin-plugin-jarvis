@@ -26,6 +26,56 @@ export async function get_note_tags(noteId: string): Promise<string[]> {
   }
 }
 
+// Cache for exclusion tag reverse-lookup (cleared per batch)
+let excludedNoteIdsCache: Set<string> | null = null;
+
+/**
+ * Get all note IDs with exclusion tags via reverse-lookup.
+ * Uses pagination to get all results. Cached per batch.
+ */
+export async function get_excluded_note_ids_by_tags(): Promise<Set<string>> {
+  if (excludedNoteIdsCache) {
+    return excludedNoteIdsCache;
+  }
+
+  const excludedIds = new Set<string>();
+  const exclusionTags = ['jarvis-exclude', 'exclude.from.jarvis'];
+
+  for (const tagTitle of exclusionTags) {
+    try {
+      let page = 1;
+      while (true) {
+        const response = await joplin.data.get(['tags', tagTitle, 'notes'], {
+          fields: ['id'],
+          page,
+          limit: 100,
+        });
+
+        for (const note of response.items) {
+          excludedIds.add(note.id);
+        }
+
+        clearApiResponse(response);
+
+        if (!response.has_more) break;
+        page++;
+      }
+    } catch (error) {
+      // Tag doesn't exist or fetch failed - continue
+    }
+  }
+
+  excludedNoteIdsCache = excludedIds;
+  return excludedIds;
+}
+
+/**
+ * Clear cached excluded note IDs (call between batches)
+ */
+export function clear_excluded_note_ids_cache(): void {
+  excludedNoteIdsCache = null;
+}
+
 /**
  * Get all note IDs that have embeddings in userData.
  * Queries Joplin API for all notes, then filters to those with userData embeddings.
@@ -179,12 +229,12 @@ export async function append_ocr_text_to_body(note: any): Promise<void> {
  * @returns Object with { excluded: boolean, reason?: string }
  */
 export function should_exclude_note(
-  note: { parent_id?: string; is_conflict?: boolean; deleted_time?: number },
+  note: { id?: string; parent_id?: string; is_conflict?: boolean; deleted_time?: number },
   noteTags?: string[] | null,
   settings?: JarvisSettings | null,
-  options: { checkDeleted?: boolean; checkTags?: boolean } = {}
+  options: { checkDeleted?: boolean; checkTags?: boolean; excludedByTag?: Set<string> } = {}
 ): { excluded: boolean; reason?: string } {
-  const { checkDeleted = false, checkTags = true } = options;
+  const { checkDeleted = false, checkTags = true, excludedByTag } = options;
 
   // Normalize inputs to handle undefined/null gracefully
   const tags = noteTags || [];
@@ -201,9 +251,17 @@ export function should_exclude_note(
   }
 
   // Check exclusion tags (optional, controlled by checkTags flag)
-  if (checkTags && (tags.includes('jarvis-exclude') || tags.includes('exclude.from.jarvis'))) {
-    const tag = tags.includes('jarvis-exclude') ? 'jarvis-exclude' : 'exclude.from.jarvis';
-    return { excluded: true, reason: `${tag} tag` };
+  if (checkTags) {
+    // Check reverse-lookup first (if provided)
+    if (excludedByTag && excludedByTag.has(note.id)) {
+      return { excluded: true, reason: 'exclusion tag' };
+    }
+
+    // Fall back to checking tags array (for compatibility with other flows)
+    if (tags.includes('jarvis-exclude') || tags.includes('exclude.from.jarvis')) {
+      const tag = tags.includes('jarvis-exclude') ? 'jarvis-exclude' : 'exclude.from.jarvis';
+      return { excluded: true, reason: `${tag} tag` };
+    }
   }
 
   // Check deleted (optional, controlled by checkDeleted flag)
