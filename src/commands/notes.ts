@@ -1,16 +1,13 @@
 import joplin from 'api';
-import { ModelType } from 'api/types';
-import { find_nearest_notes, update_embeddings, get_all_note_ids_with_embeddings, corpusCaches, userDataStore, should_exclude_note } from '../notes/embeddings';
+import { find_nearest_notes, update_embeddings, corpusCaches } from '../notes/embeddings';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
-import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time, get_model_last_full_sweep_time, set_model_last_full_sweep_time } from '../ux/settings';
+import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time, set_model_last_full_sweep_time } from '../ux/settings';
 import { TextEmbeddingModel } from '../models/models';
 import { ModelError, clearApiResponse, clearObjectReferences } from '../utils';
-import { UserDataEmbStore, EmbeddingSettings } from '../notes/userDataStore';
+import { EmbeddingSettings } from '../notes/userDataStore';
 import type { JarvisSettings } from '../ux/settings';
-import { compute_final_model_metadata, model_metadata_changed } from '../notes/userDataIndexer';
-import { read_model_metadata, write_model_metadata } from '../notes/catalogMetadataStore';
-import { setModelStats, getModelStats } from '../notes/modelStats';
+import { getModelStats } from '../notes/modelStats';
 import { checkCapacityWarning, SimpleCorpusCache } from '../notes/embeddingCache';
 
 /**
