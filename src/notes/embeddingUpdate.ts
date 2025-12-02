@@ -172,7 +172,9 @@ async function update_note(note: any,
 
   if (exclusionResult.excluded) {
     // Log why this note is excluded (helps identify repeated processing or filter bypass)
-    log.debug(`Late exclusion (safety check): note ${note.id} - reason: ${exclusionResult.reason}`);
+    if (settings.notes_debug_mode) {
+      log.debug(`Late exclusion (safety check): note ${note.id} - reason: ${exclusionResult.reason}`);
+    }
     delete_note_and_embeddings(model.db, note.id);
 
     // Delete all userData embeddings (for all models)
@@ -237,7 +239,9 @@ async function update_note(note: any,
 
       // Backfill from SQLite when userData is completely missing (migration path)
       if (!userDataMeta && old_embd.length > 0 && settings.notes_db_in_user_data) {
-        log.debug(`Note ${note.id} needs backfill from SQLite - no userData exists`);
+        if (settings.notes_debug_mode) {
+          log.debug(`Note ${note.id} needs backfill from SQLite - no userData exists`);
+        }
         await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
 
         // Update cache after backfill
@@ -260,7 +264,9 @@ async function update_note(note: any,
             if (!first) {
               // Metadata exists but shard is missing/corrupt - needs backfill
               shardMissing = true;
-              log.debug(`Note ${note.id} has metadata but missing/invalid shard - will backfill`);
+              if (settings.notes_debug_mode) {
+                log.debug(`Note ${note.id} has metadata but missing/invalid shard - will backfill`);
+              }
             } else {
               const row0 = first?.meta?.[0] as any;
               // Detect legacy rows by presence of duplicated per-row fields or blockId
@@ -279,7 +285,9 @@ async function update_note(note: any,
           }
         }
         if (needsBackfill || needsCompaction || shardMissing) {
-          log.debug(`Note ${note.id} needs backfill/compaction - needsBackfill=${needsBackfill}, needsCompaction=${needsCompaction}, shardMissing=${shardMissing}`);
+          if (settings.notes_debug_mode) {
+            log.debug(`Note ${note.id} needs backfill/compaction - needsBackfill=${needsBackfill}, needsCompaction=${needsCompaction}, shardMissing=${shardMissing}`);
+          }
           await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
         }
 
@@ -381,7 +389,9 @@ async function update_note(note: any,
     // Backfill from SQLite when userData is missing but SQLite has valid embeddings
     // This enables migration without re-embedding (saves API quota)
     if (old_embd.length > 0) {
-      log.debug(`Note ${note.id} - backfilling from SQLite to userData (migration)`);
+      if (settings.notes_debug_mode) {
+        log.debug(`Note ${note.id} - backfilling from SQLite to userData (migration)`);
+      }
       await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
 
       // Update cache after backfill
