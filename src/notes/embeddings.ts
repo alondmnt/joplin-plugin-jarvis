@@ -376,7 +376,7 @@ async function show_validation_dialog(
 export { get_next_blocks, get_prev_blocks, get_nearest_blocks } from './blockOperations';
 
 // Re-export note helper utilities from noteHelpers module
-export { get_note_tags, get_all_note_ids_with_embeddings, append_ocr_text_to_body } from './noteHelpers';
+export { get_note_tags, get_all_note_ids_with_embeddings, append_ocr_text_to_body, should_exclude_note } from './noteHelpers';
 
 // Re-export embedding math/transformation utilities from embeddingHelpers module
 export { ensure_float_embedding, calc_similarity, calc_mean_embedding, calc_mean_embedding_float32, calc_links_embedding } from './embeddingHelpers';

@@ -5,6 +5,7 @@ import joplin from 'api';
 import { clearApiResponse } from '../utils';
 import { UserDataEmbStore } from './userDataStore';
 import { getLogger } from '../utils/logger';
+import type { JarvisSettings } from '../ux/settings';
 
 const log = getLogger();
 const ocrMergedFlag = Symbol('ocrTextMerged');
@@ -32,8 +33,9 @@ export async function get_note_tags(noteId: string): Promise<string[]> {
  *
  * @param userDataStore - UserData store instance for reading note metadata
  * @param modelId - Optional model ID to count blocks for a specific model
- * @param excludedFolders - Optional set of folder IDs to exclude from results
+ * @param excludedFolders - Optional set of folder IDs to exclude from results (deprecated, use settings)
  * @param debugMode - Enable debug logging
+ * @param settings - Optional Jarvis settings for comprehensive filtering
  * @returns Object with noteIds set and optional totalBlocks count
  */
 export async function get_all_note_ids_with_embeddings(
@@ -41,6 +43,7 @@ export async function get_all_note_ids_with_embeddings(
   modelId?: string,
   excludedFolders?: Set<string>,
   debugMode: boolean = false,
+  settings?: JarvisSettings,
 ): Promise<{
   noteIds: Set<string>;
   totalBlocks?: number;
@@ -52,14 +55,14 @@ export async function get_all_note_ids_with_embeddings(
   let page = 1;
   let hasMore = true;
 
-  // Determine if we need to filter by folders/tags
-  const shouldFilter = excludedFolders && excludedFolders.size > 0;
+  // Support both old excludedFolders param and new settings param for backwards compatibility
+  const effectiveSettings = settings || { notes_exclude_folders: excludedFolders || new Set() } as JarvisSettings;
 
   while (hasMore) {
     let response: any = null;
     try {
       response = await joplin.data.get(['notes'], {
-        fields: shouldFilter ? ['id', 'parent_id'] : ['id'],
+        fields: ['id', 'parent_id', 'deleted_time', 'is_conflict'],
         page,
         limit: 100,
         order_by: 'user_updated_time',
@@ -67,19 +70,19 @@ export async function get_all_note_ids_with_embeddings(
       });
 
       for (const note of response.items) {
-        // Filter by excluded folders if provided
-        if (shouldFilter && excludedFolders.has(note.parent_id)) {
+        // Fetch tags and check all exclusion criteria
+        // Cache build is not a hot path, so prefer correctness over micro-optimization
+        const tags = await get_note_tags(note.id);
+        const result = should_exclude_note(
+          note,
+          tags,
+          effectiveSettings,
+          { checkDeleted: true, checkTags: true }
+        );
+
+        if (result.excluded) {
           excludedCount++;
           continue;
-        }
-
-        // Filter by exclusion tags if filtering is enabled
-        if (shouldFilter) {
-          const tags = await get_note_tags(note.id);
-          if (tags.includes('jarvis-exclude') || tags.includes('exclude.from.jarvis')) {
-            excludedCount++;
-            continue;
-          }
         }
 
         // Check if this note has userData embeddings
@@ -161,4 +164,52 @@ export async function append_ocr_text_to_body(note: any): Promise<void> {
   }
 
   note[ocrMergedFlag] = true;
+}
+
+/**
+ * Check if a note should be excluded based on filtering criteria.
+ * Handles undefined/null values gracefully.
+ *
+ * @param note - Note object with optional fields
+ * @param noteTags - Array of tag titles for this note (can be undefined/null, treated as empty array)
+ * @param settings - Jarvis settings containing excluded folders (can be undefined/partial)
+ * @param options - Filtering options
+ * @param options.checkDeleted - Whether to filter deleted notes (default: false)
+ * @param options.checkTags - Whether to check exclusion tags (default: true)
+ * @returns Object with { excluded: boolean, reason?: string }
+ */
+export function should_exclude_note(
+  note: { parent_id?: string; is_conflict?: boolean; deleted_time?: number },
+  noteTags?: string[] | null,
+  settings?: JarvisSettings | null,
+  options: { checkDeleted?: boolean; checkTags?: boolean } = {}
+): { excluded: boolean; reason?: string } {
+  const { checkDeleted = false, checkTags = true } = options;
+
+  // Normalize inputs to handle undefined/null gracefully
+  const tags = noteTags || [];
+  const excludedFolders = settings?.notes_exclude_folders;
+
+  // Check conflict notes (always checked)
+  if (note.is_conflict) {
+    return { excluded: true, reason: 'conflict note' };
+  }
+
+  // Check excluded folders (always checked, if parent_id and excluded folders are available)
+  if (note.parent_id && excludedFolders?.has(note.parent_id)) {
+    return { excluded: true, reason: 'excluded folder' };
+  }
+
+  // Check exclusion tags (optional, controlled by checkTags flag)
+  if (checkTags && (tags.includes('jarvis-exclude') || tags.includes('exclude.from.jarvis'))) {
+    const tag = tags.includes('jarvis-exclude') ? 'jarvis-exclude' : 'exclude.from.jarvis';
+    return { excluded: true, reason: `${tag} tag` };
+  }
+
+  // Check deleted (optional, controlled by checkDeleted flag)
+  if (checkDeleted && note.deleted_time && note.deleted_time > 0) {
+    return { excluded: true, reason: 'deleted' };
+  }
+
+  return { excluded: false };
 }

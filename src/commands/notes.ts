@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { ModelType } from 'api/types';
-import { find_nearest_notes, update_embeddings, get_all_note_ids_with_embeddings, corpusCaches, userDataStore } from '../notes/embeddings';
+import { find_nearest_notes, update_embeddings, get_all_note_ids_with_embeddings, corpusCaches, userDataStore, should_exclude_note } from '../notes/embeddings';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time, get_model_last_full_sweep_time, set_model_last_full_sweep_time } from '../ux/settings';
@@ -454,20 +454,18 @@ async function filter_excluded_notes(
   for (const note of batch) {
     // Don't skip deleted notes - they need to reach update_embeddings() for proper cache cleanup
     // Deleted notes are handled in update_embeddings() at line 494 (userData cleanup, cache removal, SQLite cleanup)
+    const result = should_exclude_note(
+      note,
+      tagsByNoteId.get(note.id) || [],
+      settings,
+      { checkDeleted: false, checkTags: true }  // Tags already fetched in parallel above
+    );
 
-    // Skip notes in excluded folders
-    if (settings.notes_exclude_folders.has(note.parent_id)) {
+    if (result.excluded) {
       excludedCount++;
       continue;
     }
-    
-    // Skip notes with exclusion tags (includes catalog note which has jarvis-exclude tag)
-    const noteTags = tagsByNoteId.get(note.id) || [];
-    if (noteTags.includes('jarvis-exclude') || noteTags.includes('exclude.from.jarvis')) {
-      excludedCount++;
-      continue;
-    }
-    
+
     filtered.push(note);
   }
   

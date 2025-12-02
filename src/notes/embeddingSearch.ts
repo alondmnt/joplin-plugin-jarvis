@@ -15,7 +15,7 @@ import { update_progress_bar } from '../ux/panel';
 import { quantize_vector_to_q8, cosine_similarity_q8 } from './q8';
 import { TopKHeap } from './topK';
 import { SimpleCorpusCache } from './embeddingCache';
-import { get_all_note_ids_with_embeddings } from './noteHelpers';
+import { get_all_note_ids_with_embeddings, should_exclude_note } from './noteHelpers';
 import { calc_mean_embedding, calc_mean_embedding_float32, calc_links_embedding, calc_similarity } from './embeddingHelpers';
 import { ensure_model_error, promptEmbeddingError, MAX_EMBEDDING_RETRIES } from './embeddingUpdate';
 import type { BlockEmbedding, NoteEmbedding } from './embeddings';
@@ -399,17 +399,20 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     let title: string;
     let noteResponse: any = null;
     try {
-      noteResponse = await joplin.data.get(['notes', note_id], {fields: ['title', 'parent_id', 'deleted_time']});
+      noteResponse = await joplin.data.get(['notes', note_id], {
+        fields: ['title', 'parent_id', 'deleted_time', 'is_conflict']
+      });
       title = noteResponse.title;
 
-      // Safeguard: filter out excluded folders and deleted notes (catches edge cases like
-      // notes moved to excluded folder after cache was built, or deleted before 12h full sweep cleanup)
-      if (hasExcludedFolders && noteResponse.parent_id && settings.notes_exclude_folders.has(noteResponse.parent_id)) {
-        clearObjectReferences(noteResponse);
-        return null; // Will be filtered out below
-      }
+      // Use unified filtering (skip tags for performance)
+      const result = should_exclude_note(
+        noteResponse,
+        undefined,  // No tags needed when checkTags: false
+        settings,
+        { checkDeleted: true, checkTags: false }
+      );
 
-      if (noteResponse.deleted_time > 0) {
+      if (result.excluded) {
         clearObjectReferences(noteResponse);
         return null; // Will be filtered out below
       }

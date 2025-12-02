@@ -15,7 +15,7 @@ import { getLogger } from '../utils/logger';
 import { UserDataEmbStore, EmbeddingSettings } from './userDataStore';
 import { prepare_user_data_embeddings } from './userDataIndexer';
 import { extract_embedding_settings_for_validation, settings_equal } from './validator';
-import { append_ocr_text_to_body } from './noteHelpers';
+import { append_ocr_text_to_body, should_exclude_note } from './noteHelpers';
 import type { BlockEmbedding } from './embeddings';
 import { calc_note_embeddings, calc_hash, userDataStore } from './embeddings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
@@ -147,9 +147,6 @@ async function update_note(note: any,
   if (abortSignal.aborted) {
     throw new ModelError("Operation cancelled");
   }
-  if (note.is_conflict) {
-    return { embeddings: [] };
-  }
 
   // NOTE: Tag-based exclusion is now handled by early filtering in update_note_db
   // This check is kept as a safety fallback in case notes slip through
@@ -164,16 +161,18 @@ async function update_note(note: any,
     clearApiResponse(tagsResponse);
     note_tags = ['jarvis-exclude'];
   }
-  // Support both new tag (jarvis-exclude) and old tag (exclude.from.jarvis) for backward compatibility
-  if (note_tags.includes('jarvis-exclude') || note_tags.includes('exclude.from.jarvis') ||
-      settings.notes_exclude_folders.has(note.parent_id) ||
-      (note.deleted_time > 0)) {
+
+  // Use unified filtering logic
+  const exclusionResult = should_exclude_note(
+    note,
+    note_tags,
+    settings,
+    { checkDeleted: true, checkTags: true }
+  );
+
+  if (exclusionResult.excluded) {
     // Log why this note is excluded (helps identify repeated processing or filter bypass)
-    const excludeReason = note_tags.includes('jarvis-exclude') ? 'jarvis-exclude tag' :
-                         note_tags.includes('exclude.from.jarvis') ? 'exclude.from.jarvis tag' :
-                         settings.notes_exclude_folders.has(note.parent_id) ? 'excluded folder' :
-                         'deleted';
-    log.debug(`Late exclusion (safety check): note ${note.id} - reason: ${excludeReason}`);
+    log.debug(`Late exclusion (safety check): note ${note.id} - reason: ${exclusionResult.reason}`);
     delete_note_and_embeddings(model.db, note.id);
 
     // Delete all userData embeddings (for all models)
