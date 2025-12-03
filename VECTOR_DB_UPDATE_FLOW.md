@@ -281,7 +281,7 @@ graph TD
 | Scenario | Detection Window | Action |
 |----------|-----------------|---------|
 | **Recently synced notes** | Next incremental sweep (≤30 min) | User prompted immediately |
-| **Old synced notes** | Daily full sweep (≤24h) | User prompted |
+| **Old synced notes** | Daily full sweep (≤12h) | User prompted |
 | **Settings changed locally** | Immediate | Force rebuild triggered |
 
 **What gets checked:**
@@ -352,7 +352,7 @@ graph TD
 ┌────────────────────────────────────────────────────────────────────┐
 │                          TRIGGER EVENTS                            │
 ├────────────┬───────────────┬──────────────┬────────────────────────┤
-│  Startup   │  Timer (24h)  │  Note Edit   │  Search                │
+│  Startup   │  Timer (12h)  │  Note Edit   │  Search                │
 └────┬───────┴───────┬───────┴──────┬───────┴────────┬───────────-───┘
      │               │              │                │
      │               ▼              ▼                ▼
