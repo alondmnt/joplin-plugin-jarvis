@@ -211,7 +211,7 @@ async function update_note(note: any,
   // When userData is enabled and SQLite is empty, check userData for existing hash
   if (!hashMatch && userDataMeta && old_embd.length === 0) {
     const modelMeta = userDataMeta?.models?.[model.id];
-    if (modelMeta && modelMeta.current?.contentHash === hash) {
+    if (modelMeta && modelMeta.contentHash === hash) {
       hashMatch = true;
       userDataHashMatch = true;
     }
@@ -241,10 +241,10 @@ async function update_note(note: any,
         const modelMeta = userDataMeta?.models?.[model.id];
         let needsBackfill = !userDataMeta
           || !modelMeta
-          || modelMeta.current?.contentHash !== hash;
+          || modelMeta.contentHash !== hash;
         let needsCompaction = false;
         let shardMissing = false;
-        if (!needsBackfill && userDataMeta && modelMeta && modelMeta.current?.shards > 0) {
+        if (!needsBackfill && userDataMeta && modelMeta && modelMeta.shards > 0) {
           let first: any = null;
           try {
             first = await userDataStore.getShard(note.id, model.id, 0);
@@ -315,7 +315,7 @@ async function update_note(note: any,
         const modelMeta = userDataMeta.models[model.id];
         const currentSettings = extract_embedding_settings_for_validation(settings);
 
-        const hashMatches = modelMeta.current.contentHash === hash;
+        const hashMatches = modelMeta.contentHash === hash;
         const modelVersionMatches = modelMeta.modelVersion === (model.version ?? 'unknown');
         const embeddingVersionMatches = modelMeta.embeddingVersion === (model.embedding_version ?? 0);
         const settingsMatch = settings_equal(currentSettings, modelMeta.settings);
@@ -323,7 +323,7 @@ async function update_note(note: any,
         if (modelMeta && hashMatches && modelVersionMatches && embeddingVersionMatches && settingsMatch) {
           // Everything appears up-to-date, but check for incomplete shards
           let shardMissing = false;
-          if (modelMeta.current?.shards > 0) {
+          if (modelMeta.shards > 0) {
             let first: any = null;
             try {
               first = await userDataStore.getShard(note.id, model.id, 0);

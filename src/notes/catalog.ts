@@ -188,15 +188,15 @@ async function discover_models_from_userData(): Promise<DiscoveredModel[]> {
             for (const [modelId, modelMeta] of Object.entries(meta.models)) {
               const m = modelMeta as any;
               const existing = modelStats.get(modelId);
-              const rows = m?.current?.rows ?? 0;
+              // Note: blockCount unavailable during discovery (no per-note row count stored)
+              // Will be updated accurately on next sweep via modelStats
               if (existing) {
-                existing.blockCount += rows;
                 existing.noteCount += 1;
                 // Keep first dim/version found
               } else {
                 modelStats.set(modelId, {
                   dim: m?.dim ?? 0,
-                  blockCount: rows,
+                  blockCount: 0,  // Placeholder; updated on next sweep
                   noteCount: 1,
                   version: m?.modelVersion,
                 });

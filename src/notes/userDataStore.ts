@@ -21,19 +21,15 @@ export interface EmbeddingSettings {
   maxTokens: number;
 }
 
-export interface NoteEmbMetaCurrent {
-  epoch: number;
-  contentHash: string;
-  shards: number;
-  updatedAt: string;
-}
-
 export interface ModelMetadata {
   dim: number;
   modelVersion: string;
   embeddingVersion: number;
   settings: EmbeddingSettings;
-  current: NoteEmbMetaCurrent;
+  epoch: number;
+  contentHash: string;
+  shards: number;
+  updatedAt: string;
 }
 
 export interface NoteEmbMeta {
@@ -144,20 +140,18 @@ const defaultClient: UserDataClient = {
 };
 
 /**
- * `EmbStore` backed by Joplin note-scoped userData. Handles LRU caching, history
- * trimming, and cleaning up legacy shard slots on updates.
+ * `EmbStore` backed by Joplin note-scoped userData. Handles LRU caching and
+ * cleaning up legacy shard slots on updates.
  */
 export class UserDataEmbStore implements EmbStore {
   private readonly metaCache: Map<string, NoteEmbMeta>;
   private readonly maxCacheSize: number;
-  private readonly historyLimit: number;
 
   constructor(
     private readonly client: UserDataClient = defaultClient,
-    options: { cacheSize?: number; historyLimit?: number } = {},
+    options: { cacheSize?: number } = {},
   ) {
     this.maxCacheSize = Math.max(options.cacheSize ?? 128, 0);
-    this.historyLimit = Math.max(options.historyLimit ?? 2, 0);
     this.metaCache = new Map();
   }
 
@@ -271,8 +265,8 @@ export class UserDataEmbStore implements EmbStore {
       throw new Error(`No model metadata found for modelId: ${modelId}`);
     }
 
-    if (shards.length !== modelMeta.current.shards) {
-      throw new Error(`Shard count mismatch: meta expects ${modelMeta.current.shards}, got ${shards.length}`);
+    if (shards.length !== modelMeta.shards) {
+      throw new Error(`Shard count mismatch: meta expects ${modelMeta.shards}, got ${shards.length}`);
     }
 
     // Write shards for the specified model (single shard per note per model, always at index 0)
@@ -300,13 +294,13 @@ export class UserDataEmbStore implements EmbStore {
       return;
     }
     const modelMeta = meta.models[keepModelId];
-    if (!modelMeta || modelMeta.current.contentHash !== keepHash) {
+    if (!modelMeta || modelMeta.contentHash !== keepHash) {
       // Delete all shards for all models and the metadata
       await this.client.del(noteId, EMB_META_KEY);
-      
+
       // Clean up shards for all models
       for (const modelId of Object.keys(meta.models)) {
-        const shardCount = meta.models[modelId].current.shards;
+        const shardCount = meta.models[modelId].shards;
         for (let i = 0; i < shardCount; i += 1) {
           await this.client.del(noteId, shardKey(modelId, i));
         }

@@ -139,7 +139,7 @@ async function scan_note_ids_for_model(modelId: string): Promise<string[]> {
 
         try {
           const meta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
-          if (meta?.models?.[modelId]?.current) {
+          if (meta?.models?.[modelId]) {
             noteIds.push(noteId);
           }
           clearObjectReferences(meta);
@@ -205,7 +205,7 @@ async function delete_model_data(
         }
 
         const modelMeta = meta.models[modelId];
-        const shardCount = Math.max(1, modelMeta?.current?.shards ?? 1);
+        const shardCount = Math.max(1, modelMeta?.shards ?? 1);
         await delete_shards_for_model(noteId, modelId, shardCount);
 
         delete meta.models[modelId];
@@ -282,7 +282,7 @@ async function delete_all_model_data(
         // Delete shards for all models
         for (const modelId of Object.keys(meta.models)) {
           const modelMeta = meta.models[modelId];
-          const shardCount = Math.max(1, modelMeta?.current?.shards ?? 1);
+          const shardCount = Math.max(1, modelMeta?.shards ?? 1);
           await delete_shards_for_model(noteId, modelId, shardCount);
         }
 

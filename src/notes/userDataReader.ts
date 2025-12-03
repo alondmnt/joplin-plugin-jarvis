@@ -87,10 +87,10 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
     let rowsRead = 0;
 
     // Single-shard constraint: always fetch shard 0 (one shard per note per model)
-    const cacheKey = `${noteId}:${modelId}:${modelMeta.current.epoch}:0`;
+    const cacheKey = `${noteId}:${modelId}:${modelMeta.epoch}:0`;
     let cached = cache.get(cacheKey);
     const shard = await store.getShard(noteId, modelId, 0);
-    if (!shard || shard.epoch !== modelMeta.current.epoch) {
+    if (!shard || shard.epoch !== modelMeta.epoch) {
       continue;
     }
     if (!cached) {
@@ -139,7 +139,7 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
       };
       const block: BlockEmbedding = {
         id: noteId,
-        hash: modelMeta.current.contentHash,
+        hash: modelMeta.contentHash,
         line: metaRow.lineNumber,
         body_idx: metaRow.bodyStart,
         length: metaRow.bodyLength,
@@ -173,7 +173,7 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
     if (!useCallback && blocks.length > 0) {
       results.push({
         noteId,
-        hash: modelMeta.current.contentHash,
+        hash: modelMeta.contentHash,
         blocks,
       });
     }

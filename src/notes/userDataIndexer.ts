@@ -92,7 +92,7 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
 
   // Determine epoch for this model
   const previousModelMeta = previousMeta?.models?.[model.id];
-  const epoch = (previousModelMeta?.current.epoch ?? 0) + 1;
+  const epoch = (previousModelMeta?.epoch ?? 0) + 1;
   const updatedAt = new Date().toISOString();
 
   const quantized = quantize_per_row(blockVectors);
@@ -124,12 +124,10 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
     modelVersion: model.version ?? 'unknown',
     embeddingVersion: model.embedding_version ?? 0,
     settings: embeddingSettings,
-    current: {
-      epoch,
-      contentHash,
-      shards: shards.length,
-      updatedAt,
-    },
+    epoch,
+    contentHash,
+    shards: shards.length,
+    updatedAt,
   };
 
   const meta: NoteEmbMeta = {

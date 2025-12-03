@@ -1,10 +1,10 @@
 # Jarvis Vector Database: Technical Specification
 
-**Version**: 3.0
+**Version**: 3.1
 **Status**: Experimental (behind `notes_db_in_user_data` flag)
-**Last Updated**: 2025-11-27
+**Last Updated**: 2025-12-04
 
-> **Note**: Version 3.0 removed IVF (Inverted File Index) in favor of simpler in-memory brute-force search. This significantly simplifies the architecture while maintaining excellent performance for typical note collections.
+> **Note**: Version 3.1 removed redundant metadata fields and flattened the storage structure (YAGNI cleanup). Version 3.0 removed IVF (Inverted File Index) in favor of simpler in-memory brute-force search. These changes significantly simplify the architecture while maintaining excellent performance for typical note collections.
 
 ---
 
@@ -167,7 +167,6 @@ Jarvis Database (Folder)
 
 ```typescript
 interface NoteEmbMeta {
-  metric: 'cosine' | 'l2';  // Similarity metric (cosine only for now)
   models: {
     [modelId: string]: ModelMetadata
   };
@@ -177,20 +176,11 @@ interface ModelMetadata {
   dim: number;                      // Embedding dimension (e.g., 512, 1536)
   modelVersion: string;             // Model version string (e.g., "v4.0")
   embeddingVersion: number;         // Embedding format version
-  maxBlockSize: number;             // Max tokens per block
   settings: EmbeddingSettings;      // Settings used for this model
-  current: {
-    epoch: number;                  // Increments on each update (monotonic)
-    contentHash: string;            // MD5 of normalized note content
-    shards: number;                 // Number of shards (always 1 currently)
-    rows: number;                   // Number of embedding blocks
-    blocking?: {
-      algo: string;                 // Block segmentation algorithm
-      avgTokens: number;            // Average tokens per block
-    };
-    updatedAt: string;              // ISO8601 timestamp
-  };
-  rowCount?: number;                // Optional: track total rows for this model
+  epoch: number;                    // Increments on each update (monotonic)
+  contentHash: string;              // MD5 of normalized note content
+  shards: number;                   // Number of shards (always 1 currently)
+  updatedAt: string;                // ISO8601 timestamp
 }
 
 interface EmbeddingSettings {
@@ -207,13 +197,11 @@ interface EmbeddingSettings {
 **Example**:
 ```json
 {
-  "metric": "cosine",
   "models": {
     "Universal Sentence Encoder": {
       "dim": 512,
       "modelVersion": "v4.0",
       "embeddingVersion": 0,
-      "maxBlockSize": 512,
       "settings": {
         "embedTitle": true,
         "embedPath": true,
@@ -223,17 +211,10 @@ interface EmbeddingSettings {
         "minLength": 100,
         "maxTokens": 512
       },
-      "current": {
-        "epoch": 3,
-        "contentHash": "d41d8cd98f00b204e9800998ecf8427e",
-        "shards": 1,
-        "rows": 12,
-        "blocking": {
-          "algo": "legacy-blocker",
-          "avgTokens": 384
-        },
-        "updatedAt": "2025-11-07T10:30:00.000Z"
-      }
+      "epoch": 3,
+      "contentHash": "d41d8cd98f00b204e9800998ecf8427e",
+      "shards": 1,
+      "updatedAt": "2025-11-07T10:30:00.000Z"
     }
   }
 }
@@ -248,13 +229,10 @@ interface EmbeddingSettings {
 
 ```typescript
 interface EmbShard {
-  epoch: number;                    // Must match meta.models[modelId].current.epoch
-  format: 'q8';                     // Quantization format (8-bit only)
-  dim: number;                      // Embedding dimension
-  rows: number;                     // Number of blocks in this shard
-  vectorsB64: string;               // Base64-encoded Int8Array (rows × dim)
-  scalesB64: string;                // Base64-encoded Float32Array (rows)
-  meta: BlockRowMeta[];             // Block metadata (length = rows)
+  epoch: number;                    // Must match meta.models[modelId].epoch
+  vectorsB64: string;               // Base64-encoded Int8Array (Q8 quantized)
+  scalesB64: string;                // Base64-encoded Float32Array (per-row scales)
+  meta: BlockRowMeta[];             // Block metadata
 }
 
 interface BlockRowMeta {
@@ -271,9 +249,6 @@ interface BlockRowMeta {
 ```json
 {
   "epoch": 3,
-  "format": "q8",
-  "dim": 512,
-  "rows": 12,
   "vectorsB64": "AQIDBAUGBwgJ...",
   "scalesB64": "Q5oaPUA7wjtA...",
   "meta": [
@@ -601,7 +576,7 @@ for each note with embeddings (excluding folders/tags):
 7. Return results
 
 **Validation**:
-- Check `shard.epoch == meta.models[modelId].current.epoch`
+- Check `shard.epoch == meta.models[modelId].epoch`
 - Verify embedding settings match current settings
 - Track mismatches for user notification
 - Include mismatched notes in results (don't fail)
