@@ -404,6 +404,18 @@ export async function get_settings(): Promise<JarvisSettings> {
 }
 
 export async function register_settings() {
+  // Detect platform to set platform-specific defaults
+  let detectedPlatform = 'desktop';
+  try {
+    const info = await joplin.versionInfo();
+    if (info && typeof (info as any).platform === 'string') {
+      detectedPlatform = (info as any).platform;
+    }
+  } catch {
+    // Keep default
+  }
+  const isMobilePlatform = detectedPlatform.toLowerCase() === 'mobile';
+
   await joplin.settings.registerSection('jarvis.chat', {
     label: 'Jarvis: Chat',
     iconName: 'fas fa-robot',
@@ -680,7 +692,7 @@ export async function register_settings() {
       }
     },
     'notes_parallel_jobs': {
-      value: 10,
+      value: isMobilePlatform ? 1 : 10,
       type: SettingItemType.Int,
       minimum: 1,
       maximum: 50,
@@ -688,7 +700,7 @@ export async function register_settings() {
       section: 'jarvis.notes',
       public: true,
       label: 'Notes: Parallel jobs',
-      description: 'The number of parallel jobs to use for calculating text embeddings. Default: 10',
+      description: `The number of parallel jobs to use for calculating text embeddings. Default: ${isMobilePlatform ? '1 (mobile)' : '10 (desktop)'}. Lower values prevent UI freezing on mobile devices.`,
     },
     'notes_abort_on_error': {
       value: true,
