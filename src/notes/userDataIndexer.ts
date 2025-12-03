@@ -123,23 +123,16 @@ export async function prepare_user_data_embeddings(params: PrepareUserDataParams
     dim,
     modelVersion: model.version ?? 'unknown',
     embeddingVersion: model.embedding_version ?? 0,
-    maxBlockSize: model.max_block_size ?? settings.notes_max_tokens ?? 0,
     settings: embeddingSettings,
     current: {
       epoch,
       contentHash,
       shards: shards.length,
-      rows: blocks.length,
-      blocking: {
-        algo: 'legacy-blocker',
-        avgTokens: model.max_block_size ?? settings.notes_max_tokens ?? 0,
-      },
       updatedAt,
     },
   };
 
   const meta: NoteEmbMeta = {
-    metric: 'cosine',
     models,
   };
 

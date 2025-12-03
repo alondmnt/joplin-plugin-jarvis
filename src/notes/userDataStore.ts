@@ -25,11 +25,6 @@ export interface NoteEmbMetaCurrent {
   epoch: number;
   contentHash: string;
   shards: number;
-  rows: number;
-  blocking?: {
-    algo: string;
-    avgTokens: number;
-  };
   updatedAt: string;
 }
 
@@ -37,15 +32,11 @@ export interface ModelMetadata {
   dim: number;
   modelVersion: string;
   embeddingVersion: number;
-  maxBlockSize: number;
   settings: EmbeddingSettings;
   current: NoteEmbMetaCurrent;
-  rowCount?: number;
 }
 
 export interface NoteEmbMeta {
-  // L2 distance not yet supported, reserved for future use
-  metric: 'cosine' | 'l2';
   models: { [modelId: string]: ModelMetadata };
 }
 
@@ -60,9 +51,6 @@ export interface BlockRowMeta {
 
 export interface EmbShard {
   epoch: number;
-  format: 'q8';
-  dim: number;
-  rows: number;
   vectorsB64: string;
   scalesB64: string;
   meta: BlockRowMeta[];
@@ -261,9 +249,7 @@ export class UserDataEmbStore implements EmbStore {
           hasVectors: !!shard.vectorsB64,
           hasScales: !!shard.scalesB64,
           hasMeta: !!shard.meta,
-          hasEpoch: typeof shard.epoch === 'number',
-          vectorsLength: shard.vectorsB64?.length ?? 0,
-          scalesLength: shard.scalesB64?.length ?? 0
+          hasEpoch: typeof shard.epoch === 'number'
         });
         return null;
       }

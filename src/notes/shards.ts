@@ -80,9 +80,6 @@ export function build_shards(options: BuildShardsOptions): EmbShard[] {
   // Always return exactly one shard (single-shard constraint)
   return [{
     epoch,
-    format: 'q8',
-    dim,
-    rows: shardRows,
     vectorsB64: payload.vectorsB64,
     scalesB64: payload.scalesB64,
     meta: meta.slice(0, shardRows),
