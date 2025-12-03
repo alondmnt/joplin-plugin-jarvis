@@ -43,25 +43,42 @@ export async function get_excluded_note_ids_by_tags(): Promise<Set<string>> {
 
   for (const tagTitle of exclusionTags) {
     try {
+      // Search for tag by title using query parameter (same pattern as catalog.ts:571)
+      const tagSearchResponse = await joplin.data.get(['tags'], {
+        query: tagTitle,
+        fields: ['id', 'title'],
+      });
+
+      // Find exact title match (query may return partial matches)
+      const tag = tagSearchResponse.items?.find((t: any) => t.title === tagTitle);
+      clearApiResponse(tagSearchResponse);
+
+      if (!tag?.id) {
+        // Tag doesn't exist
+        continue;
+      }
+
+      // Fetch all notes with this tag ID (paginated)
       let page = 1;
       while (true) {
-        const response = await joplin.data.get(['tags', tagTitle, 'notes'], {
+        const notesResponse = await joplin.data.get(['tags', tag.id, 'notes'], {
           fields: ['id'],
           page,
           limit: 100,
         });
 
-        for (const note of response.items) {
+        for (const note of notesResponse.items) {
           excludedIds.add(note.id);
         }
 
-        clearApiResponse(response);
+        const hasMore = notesResponse.has_more;
+        clearApiResponse(notesResponse);
 
-        if (!response.has_more) break;
+        if (!hasMore) break;
         page++;
       }
     } catch (error) {
-      // Tag doesn't exist or fetch failed - continue
+      // Tag doesn't exist or fetch failed - continue silently
     }
   }
 

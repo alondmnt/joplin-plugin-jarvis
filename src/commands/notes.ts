@@ -222,8 +222,8 @@ export async function update_note_db(
             break;
           }
 
-        batch.push(note);
-      }
+          batch.push(note);
+        }
 
       const result = await process_batch_and_update_progress(
         batch, model, settings, abortController, force, catalogId, panel,
