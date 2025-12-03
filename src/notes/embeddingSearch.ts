@@ -15,7 +15,7 @@ import { update_progress_bar } from '../ux/panel';
 import { quantize_vector_to_q8, cosine_similarity_q8 } from './q8';
 import { TopKHeap } from './topK';
 import { SimpleCorpusCache } from './embeddingCache';
-import { get_all_note_ids_with_embeddings, should_exclude_note } from './noteHelpers';
+import { get_excluded_note_ids_by_tags, should_exclude_note } from './noteHelpers';
 import { calc_mean_embedding, calc_mean_embedding_float32, calc_links_embedding, calc_similarity } from './embeddingHelpers';
 import { ensure_model_error, promptEmbeddingError, MAX_EMBEDDING_RETRIES } from './embeddingUpdate';
 import type { BlockEmbedding, NoteEmbedding } from './embeddings';
@@ -172,9 +172,54 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
           combinedEmbeddings = [];
         } else {
           // Normal search-triggered build (only if no update running)
-          const result = await get_all_note_ids_with_embeddings(userDataStore, model.id, settings.notes_exclude_folders, settings.notes_debug_mode);
-          const candidateIds = result.noteIds;
-          candidateIds.add(current_id);
+
+          // Phase 1: Fetch all notes and filter with reverse-lookup (no progress updates yet)
+          const excludedByTag = await get_excluded_note_ids_by_tags();
+          const allNoteIds = new Set<string>();
+          let totalNotes = 0;
+          let excludedCount = 0;
+          let page = 1;
+
+          while (true) {
+            const response = await joplin.data.get(['notes'], {
+              fields: ['id', 'parent_id', 'deleted_time', 'is_conflict'],
+              page,
+              limit: 100,
+              order_by: 'user_updated_time',
+              order_dir: 'DESC',
+            });
+
+            for (const note of response.items) {
+              totalNotes++;
+
+              // Fast exclusion checks (no API calls - data already in response)
+              const result = should_exclude_note(
+                note,
+                [],  // No tags array needed (using reverse-lookup instead)
+                settings,
+                { checkDeleted: true, checkTags: true, excludedByTag }
+              );
+
+              if (result.excluded) {
+                excludedCount++;
+              } else {
+                allNoteIds.add(note.id);
+              }
+            }
+
+            const hasMore = response.has_more;
+            const itemCount = response.items?.length || 0;
+            clearApiResponse(response);
+
+            // Continue if we got items AND has_more is true
+            // Stop if no items OR has_more is explicitly false
+            if (itemCount === 0 || hasMore === false) break;
+            page++;
+          }
+
+          // Add current note (ensure it's included even if filtered)
+          allNoteIds.add(current_id);
+          const candidateIds = allNoteIds;
 
           if (cache.getDim() !== 0 && cache.getDim() !== queryDim) {
             log.warn(`[Cache] Dimension mismatch (cached=${cache.getDim()}, query=${queryDim}), invalidating`);
@@ -186,14 +231,24 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
             log.info(`[Cache] Building cache (${candidateIds.size} notes, ~${estimatedBlocks} blocks @ ${queryDim}-dim)`);
           }
 
-          // Build cache (handles concurrent builds gracefully)
+          // Phase 2: Build cache with progress starting from excludedCount
           await cache.ensureBuilt(
             userDataStore,
             model.id,
             Array.from(candidateIds),
             queryDim,
-            (panel && settings) ? async (processed, total, stage) => {
-              await update_progress_bar(panel, processed, total, settings, stage);
+            (panel && settings) ? async (loaded, total, stage) => {
+              // Show progress starting from excluded notes count
+              // Progress: (excludedCount + loaded) / totalNotes
+              if (loaded % 10 === 0 || loaded === total) {
+                await update_progress_bar(
+                  panel,
+                  excludedCount + loaded,
+                  totalNotes,
+                  settings,
+                  stage || 'Building cache'
+                );
+              }
             } : undefined,
             model,
             settings
@@ -241,13 +296,47 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       if (settings.notes_debug_mode) {
         // TEMPORARY: Validate cache precision/recall against brute-force baseline
         // Fetch note IDs only for validation (expensive, but only in debug mode)
-        const validationResult = await get_all_note_ids_with_embeddings(userDataStore, model.id, settings.notes_exclude_folders, false);
+        // Use inline filtering for consistency (same as cache build above)
+        const excludedByTag = await get_excluded_note_ids_by_tags();
+        const validationNoteIds = new Set<string>();
+        let page = 1;
+
+        while (true) {
+          const response = await joplin.data.get(['notes'], {
+            fields: ['id', 'parent_id', 'deleted_time', 'is_conflict'],
+            page,
+            limit: 100,
+            order_by: 'user_updated_time',
+            order_dir: 'DESC',
+          });
+
+          for (const note of response.items) {
+            const result = should_exclude_note(
+              note,
+              [],
+              settings,
+              { checkDeleted: true, checkTags: true, excludedByTag }
+            );
+
+            if (!result.excluded) {
+              validationNoteIds.add(note.id);
+            }
+          }
+
+          const hasMore = response.has_more;
+          const itemCount = response.items?.length || 0;
+          clearApiResponse(response);
+
+          if (itemCount === 0 || hasMore === false) break;
+          page++;
+        }
+
         const { validate_and_report } = await import('./cacheValidator');
         await validate_and_report(
           cache,
           userDataStore,
           model.id,
-          Array.from(validationResult.noteIds),
+          Array.from(validationNoteIds),
           rep_embedding,
           { precision: 0.95, recall: 0.95, debugMode: true }
         );

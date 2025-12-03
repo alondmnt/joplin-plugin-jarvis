@@ -144,7 +144,7 @@ export class SimpleCorpusCache {
   private dim: number = 0;
 
   // Concurrency control
-  private buildPromise: Promise<void> | null = null;
+  private buildPromise: Promise<number> | null = null;
   private buildDurationMs: number = 0;
 
   /**
@@ -176,13 +176,13 @@ export class SimpleCorpusCache {
     }
 
     this.buildPromise = this.build(store, modelId, noteIds, dim, onProgress);
-    await this.buildPromise;
+    const actualNoteCount = await this.buildPromise;
     this.buildPromise = null;
 
     // Update in-memory stats with accurate values from cache build
     if (this.isBuilt()) {
       const stats = this.getStats();
-      setModelStats(modelId, { rowCount: stats.blocks, noteCount: noteIds.length, dim });
+      setModelStats(modelId, { rowCount: stats.blocks, noteCount: actualNoteCount, dim });
 
       // Update catalog metadata lazily (not during sweep, but after first search)
       // This replaces the removed post-sweep metadata count
@@ -200,7 +200,7 @@ export class SimpleCorpusCache {
           if (catalogId) {
             currentMetadata = await read_model_metadata(catalogId, modelId);
             newMetadata = await compute_final_model_metadata(
-              model, settings, catalogId, stats.blocks, dim, noteIds.length
+              model, settings, catalogId, stats.blocks, dim, actualNoteCount
             );
 
             if (newMetadata && model_metadata_changed(currentMetadata, newMetadata)) {
@@ -238,11 +238,11 @@ export class SimpleCorpusCache {
     noteIds: string[],
     dim: number,
     onProgress?: (processed: number, total: number, stage?: string) => Promise<void>
-  ): Promise<void> {
+  ): Promise<number> {
     const startTime = Date.now();
     this.dim = dim;
-    
-    log.info(`[Cache] Building cache for ${noteIds.length} notes @ ${dim}-dim...`);
+
+    log.info(`[Cache] Scanning ${noteIds.length} candidates @ ${dim}-dim...`);
     
     // Read all embeddings from userData with progress updates
     const results = await read_user_data_embeddings({
@@ -268,7 +268,7 @@ export class SimpleCorpusCache {
     
     if (validBlocks === 0) {
       log.warn('[Cache] No valid blocks with Q8 data found, cache build aborted');
-      return;
+      return 0;
     }
     
     // Allocate shared buffers (only for valid blocks)
@@ -305,15 +305,20 @@ export class SimpleCorpusCache {
       }
     }
     
+    // Calculate actual note count from results (before clearing)
+    const actualNoteCount = new Set(results.map(r => r.noteId)).size;
+
     this.buildDurationMs = Date.now() - startTime;
     const memoryMB = (this.q8Buffer.byteLength + this.blocks.length * BYTES_PER_BLOCK) / (1024 * 1024);
 
-    log.info(`[Cache] Built cache: ${this.blocks.length} blocks, ${memoryMB.toFixed(1)}MB, ${this.buildDurationMs}ms`);
-    
+    log.info(`[Cache] Built ${actualNoteCount} notes, ${this.blocks.length} blocks, ${memoryMB.toFixed(1)}MB (${this.buildDurationMs}ms)`);
+
     // Clear intermediate results to prevent memory leak
     // We've copied all needed data (Q8 vectors + metadata) to our buffers
     // Now release the BlockEmbedding objects with their Float32 embeddings
     clearObjectReferences(results);
+
+    return actualNoteCount;
   }
 
   /**

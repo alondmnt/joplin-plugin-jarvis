@@ -32,11 +32,11 @@ graph TD
 
     D -->|Updates| H[UserData Embeddings]
     D -->|Updates| I[Catalog Metadata]
-    D -->|Invalidates| J[RAM Cache]
+    D -->|Updates| J[RAM Cache<br/>Incrementally]
 
     E -->|Updates| K[UserData Embeddings<br/>Changed Notes Only]
     E -->|No Update| L[Catalog Metadata<br/>Unchanged]
-    E -->|No Invalidation| M[RAM Cache<br/>Preserved]
+    E -->|Updates| M[RAM Cache<br/>Incrementally]
 ```
 
 **What happens:**
@@ -67,7 +67,7 @@ graph TD
     G --> H[Update Changed Notes]
     H --> I[Count All Notes]
     I --> J[Update Catalog Metadata]
-    J --> K[Invalidate Cache]
+    J --> K[Incrementally Update Cache]
 
     F --> L[Query Recent Notes<br/>by Timestamp]
     L --> M[Stop at Old Notes]
@@ -83,13 +83,8 @@ graph TD
 ```
 
 **Decision Logic:**
-```typescript
-const lastFullSweepTime = await get_model_last_full_sweep_time(modelId);
-const now = Date.now();
-const FULL_SWEEP_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12 hours
-
-const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > FULL_SWEEP_INTERVAL_MS;
-```
+- Full sweep needed if: never done before OR more than 12 hours since last full sweep
+- Otherwise: incremental sweep (only recently changed notes)
 
 **What gets updated:**
 
@@ -97,7 +92,8 @@ const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > FULL_S
 - ✅ UserData embeddings (all changed notes)
 - ✅ Catalog metadata (rowCount, noteCount, dim)
 - ✅ lastFullSweepTime timestamp
-- ⚠️ RAM cache (invalidated, rebuilds on next search)
+- ✅ RAM cache (incrementally updated for all processed notes)
+- ✅ Exclusion cleanup (removes embeddings for newly excluded notes)
 
 **Incremental Sweep (rest of the time):**
 - ✅ UserData embeddings (recently changed notes only)
@@ -160,37 +156,68 @@ graph TD
     D -->|No| E[Rebuild Cache]
     D -->|Yes| F[Use Existing Cache]
 
-    C --> G[Fetch Note IDs with Embeddings]
-    G --> H[Load All Q8 Vectors]
-    H --> I[Store in RAM]
-    I --> J[Set Model Stats]
-    J --> K[Search in RAM]
+    C --> G[Fetch All Notes<br/>Paginated]
+    G --> H[Tag Reverse-Lookup<br/>4 API calls]
+    H --> I[Filter Candidates<br/>In-Memory]
+    I --> J[Try Load Shards<br/>Graceful Failures]
+    J --> K[Store Q8 in RAM]
+    K --> L[Set Model Stats<br/>Actual Count]
+    L --> M[Search in RAM]
 
     E --> G
-    F --> K
+    F --> M
 
-    K --> L[Return Results<br/>10-50ms]
+    M --> N[Return Results<br/>10-50ms]
 ```
 
-**Cache Build Process:**
-```typescript
-// Only fetches note IDs when cache needs building
-if (!cache.isBuilt() || cache.getDim() !== queryDim) {
-  const result = await get_all_note_ids_with_embeddings(modelId, ...);
-  await cache.ensureBuilt(...);
-}
+**Cache Build Process (Two Phases):**
 
-// Subsequent searches skip this entirely
-const results = cache.search(queryQ8, k, minScore);
-```
+Only builds cache when needed (first search or dimension change).
+
+**Phase 1: Fetch and Filter (silent - fast)**
+1. Fetch exclusion tags once via reverse-lookup
+2. Paginate through all notes (100 per page)
+3. For each note: count total, check exclusions, collect candidate IDs
+4. Track: totalNotes, excludedCount, candidateIds
+
+**Phase 2: Load Embeddings (with progress)**
+1. Try loading shards for all candidate IDs
+2. `getShard` returns null if no embeddings → skip gracefully
+3. Update progress bar every 10 notes loaded
+4. Progress formula: `(excludedCount + loaded) / totalNotes`
+5. Example: 63 excluded, 999 with embeddings, 1062 total
+   - Shows: 73/1062, 163/1062, ..., 1062/1062
+
+**Subsequent searches:**
+- Skip both phases entirely
+- Pure RAM search using cached Q8 vectors (10-50ms)
+
+**Performance (example: 5000 notes, 3000 with embeddings):**
+
+| Step | API Calls | Description |
+|------|-----------|-------------|
+| Fetch notes (paginated) | 50 | 100 notes per page |
+| Tag reverse-lookup | 4 | Query notes by exclusion tags |
+| Filter candidates | 0 | In-memory using response data |
+| Try load metadata | 4,500 | One per candidate (inside getShard) |
+| Load shards | 3,000 | Only for notes with embeddings |
+| **Total** | **7,554** | **~45 seconds** |
+
+**Key characteristics:**
+- ✅ **Tag reverse-lookup**: Single query per exclusion tag (not per note)
+- ✅ **Graceful failure handling**: getShard returns null if no embeddings exist
+- ✅ **Single-pass architecture**: Metadata fetched once (inside getShard)
+- ✅ **Two-phase progress**: Phase 1 silent (fast fetch/filter), Phase 2 shows progress (embedding load)
+- ✅ **Total notes denominator**: Progress bar always shows X/1062 (matches full sweep UX)
 
 **What happens:**
-- **First search:** Cache built (2-5 seconds)
+- **First search:** Cache built (2-5 seconds on desktop, 5-15 seconds on mobile)
 - **Subsequent searches:** Pure RAM search (10-50ms)
+- **Progress indicator:** Phase 1 silent (fast), Phase 2 shows X/totalNotes progress every 10 embeddings loaded
 
 **What gets updated:**
-- ✅ RAM cache (all Q8 vectors loaded)
-- ✅ Model stats in memory (rowCount, noteCount, dim)
+- ✅ RAM cache (all Q8 vectors for notes with embeddings)
+- ✅ Model stats in memory (actual rowCount, noteCount, dim)
 - ❌ UserData embeddings (unchanged)
 - ❌ Catalog metadata (unchanged)
 
@@ -265,25 +292,16 @@ graph TD
 - `includeCode` (include code blocks)
 - `maxTokens` (maximum tokens per block)
 
-**Mismatch dialog example:**
-```
-Found 15 note(s) with different embedding settings (likely synced from another device).
-
-Settings: embedTitle No→Yes, maxTokens 512→1024
-
-Rebuild these notes with current settings?
-[OK] [Cancel]
-```
+**Mismatch dialog:**
+- Shows count of mismatched notes and which settings differ
+- User can choose to rebuild immediately or continue with mismatches
+- Example: "Found 15 note(s) with different embedding settings (likely synced from another device)"
 
 **Important notes:**
 - Only checks notes that are processed during the sweep (recently changed or all notes in full sweep)
-- Old, unchanged notes are only validated during daily full sweeps
+- Old, unchanged notes are only validated during daily full sweeps (every 12 hours)
 - Mismatches don't affect correctness, just embedding quality/consistency
 - User can choose to rebuild immediately or defer to next full sweep
-
-**Code references:**
-- Detection: embeddings.ts:613-629
-- Dialog: notes.ts:396-422
 
 ---
 
@@ -293,27 +311,38 @@ The RAM cache is invalidated (cleared) in these cases:
 
 ```mermaid
 graph TD
-    A{Cache Invalidation?} --> B[Full Sweep Starts]
-    A --> C[Dimension Changed]
-    A --> D[Note Deleted]
+    A{Cache Invalidation?} --> B[Excluded Folders Changed]
+    A --> C[Model Changed]
+    A --> D[Dimension Changed]
+    A --> E[Delete All Models]
 
-    B --> E[Cache.invalidate]
-    C --> E
-    D --> F{Cache Built?}
-    F -->|Yes| G[Incremental Update<br/>Remove note's blocks]
-    F -->|No| E
+    B --> F[Cache.invalidate]
+    C --> F
+    D --> F
+    E --> F
 ```
 
-**Invalidation triggers:**
-1. ❌ **Full sweep starts** → Complete rebuild on next search
-2. ❌ **Model changed** (dimension mismatch) → Complete rebuild
-3. ⚠️ **Note deleted** → Incremental update (remove blocks)
+**Invalidation triggers (complete rebuild on next search):**
+1. ❌ **Excluded folders changed** (settings change)
+2. ❌ **Model switched** (user selects different model)
+3. ❌ **Dimension mismatch** (model updated with different dim)
+4. ❌ **Delete all models** (user action)
 
-**NOT invalidated by:**
-- ✅ Incremental sweeps (cache updated incrementally for all processed notes)
+**NOT invalidated by (incremental updates instead):**
+- ✅ Full sweeps (cache updated incrementally for all processed notes)
+- ✅ Incremental sweeps (cache updated incrementally for recently changed notes)
 - ✅ Individual note updates (cache updated incrementally)
 - ✅ Note edits (cache updated incrementally)
+- ✅ Note deletions (blocks removed incrementally)
 - ✅ Sync operations (cache kept fresh via incremental sweeps)
+
+**Note about exclusion tags:**
+- Adding/removing `jarvis-exclude` tag does NOT invalidate cache
+- **If cache rebuilt:** New exclusions picked up immediately during Phase 1 filtering
+- **If note processed by sweep:** Embeddings removed from userData and cache incrementally
+- **If cache not rebuilt AND note not processed by sweep:** Excluded note may remain in search results until:
+  - Next cache rebuild (triggered by dimension change, excluded folder change, model switch), OR
+  - Next full sweep (every 12 hours) processes the note
 
 ---
 
@@ -359,38 +388,22 @@ graph TD
 | Event | Frequency | Full Sweep? | Metadata? | Cache? | Settings Check? |
 |-------|-----------|-------------|-----------|--------|-----------------|
 | **Startup** | Once | Only if first time | Only if full | Not built | Only if full |
-| **Periodic (Timer)** | Every N min | Once per 12h | Once per 12h | Invalidated every 12h | Yes (all processed notes) |
+| **Periodic (Timer)** | Every N min | Once per 12h | Once per 12h | Incrementally updated | Yes (all processed notes) |
 | **Note Edit** | Per save | No | No | Incrementally updated | No |
 | **Search** | On demand | No | No | Built if needed | No |
-| **Manual Update** | User action | Yes | Yes | Invalidated | Yes (all notes) |
+| **Manual Update** | User action | Yes | Yes | Incrementally updated | Yes (all notes) |
 
 ---
 
-## Code References
+## Key Decision Points
 
-### Key Functions
+**When to do full sweep:**
+- Never done before (lastSweepTime === 0), OR
+- More than 12 hours since last full sweep
 
-- **Full Sweep:** `update_note_db(..., incrementalSweep=false)` → notes.ts:232
-- **Incremental Sweep:** `update_note_db(..., incrementalSweep=true)` → notes.ts:172
-- **Cache Build:** `cache.ensureBuilt(...)` → embeddingCache.ts:153
-- **Cache Search:** `cache.search(queryQ8, k, minScore)` → embeddingCache.ts:278
-- **Metadata Update:** `write_model_metadata(...)` → notes.ts:340
-- **Timer Logic:** `schedule_full_sweep_timer(...)` → index.ts:267
+**When to build cache:**
+- Cache not built yet, OR
+- Dimension mismatch (model changed)
 
-### Decision Points
-
-```typescript
-// When to do full sweep (index.ts:287)
-const FULL_SWEEP_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12 hours
-const needsFullSweep = lastSweepTime === 0 || (now - lastFullSweepTime) > FULL_SWEEP_INTERVAL_MS;
-
-// When to fetch note IDs (embeddings.ts:1360)
-if (!cache.isBuilt() || cache.getDim() !== queryDim) {
-  const result = await get_all_note_ids_with_embeddings(...);
-}
-
-// When to update metadata (notes.ts:311)
-if (isFullSweep && !incrementalSweep) {
-  await write_model_metadata(...);
-}
-```
+**When to update catalog metadata:**
+- Full sweeps only (not incremental sweeps)
