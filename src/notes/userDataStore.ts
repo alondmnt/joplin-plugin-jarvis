@@ -59,7 +59,7 @@ export interface Q8Vectors {
 
 export interface EmbStore {
   getMeta(noteId: string): Promise<NoteEmbMeta | null>;
-  getShard(noteId: string, modelId: string, index: number): Promise<EmbShard | null>;
+  getShard(noteId: string, modelId: string, index: number, meta?: NoteEmbMeta | null): Promise<EmbShard | null>;
   put(noteId: string, modelId: string, meta: NoteEmbMeta, shards: EmbShard[]): Promise<void>;
   gcOld(noteId: string, keepModelId: string, keepHash: string): Promise<void>;
 }
@@ -140,74 +140,30 @@ const defaultClient: UserDataClient = {
 };
 
 /**
- * `EmbStore` backed by Joplin note-scoped userData. Handles LRU caching and
- * cleaning up legacy shard slots on updates.
+ * `EmbStore` backed by Joplin note-scoped userData. Handles cleaning up
+ * legacy shard slots on updates.
  */
 export class UserDataEmbStore implements EmbStore {
-  private readonly metaCache: Map<string, NoteEmbMeta>;
-  private readonly maxCacheSize: number;
-
   constructor(
     private readonly client: UserDataClient = defaultClient,
-    options: { cacheSize?: number } = {},
   ) {
-    this.maxCacheSize = Math.max(options.cacheSize ?? 128, 0);
-    this.metaCache = new Map();
-  }
-
-  private getCachedMeta(noteId: string): NoteEmbMeta | null {
-    if (this.maxCacheSize === 0) {
-      return null;
-    }
-    const cached = this.metaCache.get(noteId);
-    if (!cached) {
-      return null;
-    }
-    // refresh LRU ordering
-    this.metaCache.delete(noteId);
-    this.metaCache.set(noteId, cached);
-    return cached;
-  }
-
-  private setCachedMeta(noteId: string, meta: NoteEmbMeta | null): void {
-    if (this.maxCacheSize === 0) {
-      return;
-    }
-    if (!meta) {
-      this.metaCache.delete(noteId);
-      return;
-    }
-    this.metaCache.set(noteId, meta);
-    if (this.metaCache.size > this.maxCacheSize) {
-      const oldestKey = this.metaCache.keys().next().value as string | undefined;
-      if (oldestKey) {
-        this.metaCache.delete(oldestKey);
-      }
-    }
   }
 
   async getMeta(noteId: string): Promise<NoteEmbMeta | null> {
-    const cached = this.getCachedMeta(noteId);
-    if (cached) {
-      return cached;
-    }
-    
     // Robust format-agnostic metadata handling: wrap in try-catch for graceful migration
     try {
       const value = await this.client.get<NoteEmbMeta>(noteId, EMB_META_KEY);
       if (!value) {
         return null;
       }
-      
+
       // Basic sanity check: ensure it has the minimum required structure
       // If not, treat as no embeddings and it will be rebuilt on next update
       if (!value.models || typeof value.models !== 'object') {
         log.warn(`Metadata for note ${noteId} has unexpected structure, treating as no embeddings. Will rebuild on next update.`);
         return null;
       }
-      
-      this.setCachedMeta(noteId, value);
-      // Cache miss resolved - now cached for subsequent reads
+
       return value;
     } catch (error) {
       // Parse failures (corrupt JSON, wrong types, etc.) - treat as no embeddings
@@ -281,8 +237,6 @@ export class UserDataEmbStore implements EmbStore {
     // Write metadata last (two-phase commit: shards first, then meta)
     // Other models' shards remain untouched to support multi-model coexistence
     await this.client.set<NoteEmbMeta>(noteId, EMB_META_KEY, meta);
-    // Shard update complete
-    this.setCachedMeta(noteId, meta);
   }
 
   /**
@@ -307,7 +261,6 @@ export class UserDataEmbStore implements EmbStore {
         }
       }
       // Shards removed for models: ${Object.keys(meta.models).join(', ')}
-      this.setCachedMeta(noteId, null);
     }
   }
 }
