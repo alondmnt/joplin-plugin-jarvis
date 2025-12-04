@@ -242,17 +242,17 @@ export async function update_note_db(
 
       hasMore = notes.has_more && !reachedOldNotes;
       page++;
-      
+
       // Clear API response to help GC (keep notes.items as they're in batch)
       clearApiResponse(notes);
 
-      await apply_rate_limit_if_needed(hasMore, page, model);
+      await apply_rate_limit_if_needed(hasMore, page, model, abortController);
       } finally {
         // Clear API response to help GC
         clearApiResponse(notes);
       }
     }
-    
+
     console.info(`Jarvis: incremental sweep completed - ${processed_notes} notes processed (${reachedOldNotes ? 'stopped early' : 'reached end of notes'})`);
   } else {
     // Mode 3: Full sweep (thorough scan of all notes)
@@ -264,6 +264,11 @@ export async function update_note_db(
 
     // Count all notes for accurate progress bar
     do {
+      // Check abort signal before counting next page
+      if (abortController.signal.aborted) {
+        break;
+      }
+
       page += 1;
       notes = await joplin.data.get(['notes'], {
         fields: ['id'],
@@ -281,6 +286,11 @@ export async function update_note_db(
     page = 0;
     // Iterate over all notes
     do {
+      // Check abort signal before processing next page
+      if (abortController.signal.aborted) {
+        break;
+      }
+
       page += 1;
       notes = await joplin.data.get(['notes'], {
         fields: noteFields,
@@ -308,8 +318,8 @@ export async function update_note_db(
       const hasMoreNotes = notes.has_more;
       // Clear API response before next iteration
       clearApiResponse(notes);
-      
-      await apply_rate_limit_if_needed(hasMoreNotes, page, model);
+
+      await apply_rate_limit_if_needed(hasMoreNotes, page, model, abortController);
       
       if (!hasMoreNotes) break;
     } while (true);
@@ -499,15 +509,29 @@ async function process_batch_and_update_progress(
 /**
  * Apply rate limiting if needed based on page cycle.
  * Common helper to avoid duplication across sweep modes.
+ * Polls abort signal during wait for responsive cancellation.
  */
 async function apply_rate_limit_if_needed(
   hasMore: boolean,
   page: number,
   model: TextEmbeddingModel,
+  abortController: AbortController,
 ): Promise<void> {
   if (hasMore && (page % model.page_cycle) === 0) {
-    console.debug(`Waiting for ${model.wait_period} seconds...`);
-    await new Promise(res => setTimeout(res, model.wait_period * 1000));
+    console.debug(`Pause checkpoint at page ${page} (${model.wait_period}s)...`);
+
+    // Poll abort signal during wait period for immediate cancellation
+    const pollInterval = 50; // Check every 50ms
+    const totalWait = model.wait_period * 1000;
+    const polls = Math.ceil(totalWait / pollInterval);
+
+    for (let i = 0; i < polls; i++) {
+      if (abortController.signal.aborted) {
+        console.debug(`Cancel detected during pause at page ${page}`);
+        return; // Exit immediately without completing wait
+      }
+      await new Promise(res => setTimeout(res, pollInterval));
+    }
   }
 }
 

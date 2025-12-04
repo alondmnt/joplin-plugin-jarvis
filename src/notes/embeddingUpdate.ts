@@ -204,6 +204,11 @@ async function update_note(note: any,
     }
   }
 
+  // Check abort after potentially slow userData fetch (improves cancel responsiveness)
+  if (abortSignal.aborted) {
+    throw new ModelError("Operation cancelled");
+  }
+
   // Check if content unchanged (check both SQLite and userData)
   let hashMatch = (old_embd.length > 0) && (old_embd[0].hash === hash);
   let userDataHashMatch = false;
@@ -311,6 +316,11 @@ async function update_note(note: any,
     // force=true: Check if userData matches current settings/model before skipping
     // This is for manual "Update DB", settings changes, or validation dialog rebuilds
     if (userDataMeta) {
+      // Check abort before expensive force=true validation (improves cancel responsiveness)
+      if (abortSignal.aborted) {
+        throw new ModelError("Operation cancelled");
+      }
+
       if (userDataMeta.models[model.id]) {
         const modelMeta = userDataMeta.models[model.id];
         const currentSettings = extract_embedding_settings_for_validation(settings);
@@ -327,12 +337,23 @@ async function update_note(note: any,
             let first: any = null;
             try {
               first = await userDataStore.getShard(note.id, model.id, 0);
+
+              // Check abort after potentially slow shard fetch (improves cancel responsiveness)
+              if (abortSignal.aborted) {
+                clearObjectReferences(first);
+                throw new ModelError("Operation cancelled");
+              }
+
               if (!first) {
                 // Metadata exists but shard is missing/corrupt - needs rebuild
                 shardMissing = true;
                 log.info(`Note ${note.id} has incomplete shard (metadata exists but shard data missing) - will rebuild`);
               }
             } catch (e) {
+              // Check if this is a cancellation vs actual error
+              if (e instanceof ModelError && e.message === "Operation cancelled") {
+                throw e;
+              }
               // Shard read failed - treat as missing/corrupt
               shardMissing = true;
               log.info(`Note ${note.id} shard read failed - will rebuild`, e);

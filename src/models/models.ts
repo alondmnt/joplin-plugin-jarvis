@@ -441,7 +441,7 @@ export class TextEmbeddingModel {
 
   // rate limits
   public page_size: number = 10;  // external: notes
-  public page_cycle: number = 100;  // external: pages
+  public page_cycle: number = 20;  // external: pages (pause every ~200 notes on desktop for responsive cancellation)
   public wait_period: number = 1;  // external: sec
   public request_queue = [];  // internal rate limit
   public requests_per_second: number = null;  // internal rate limit
