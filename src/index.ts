@@ -53,6 +53,7 @@ interface PluginRuntime {
   pending_note_ids: Set<string>;
   update_abort_controller: AbortController | null;
   update_start_time: number | null;
+  model_deletion_abort_controller: AbortController | null;
   initial_sweep_completed: boolean;
   full_sweep_timer: ReturnType<typeof setInterval> | null;
   suppressModelSwitchRevert: boolean;
@@ -156,6 +157,7 @@ async function initialize_runtime_ui(): Promise<Partial<PluginRuntime>> {
     pending_note_ids: new Set<string>(),
     update_abort_controller: null,
     update_start_time: null,
+    model_deletion_abort_controller: null,
     initial_sweep_completed: false,
     full_sweep_timer: null,
     suppressModelSwitchRevert: false,
@@ -480,7 +482,7 @@ async function register_commands_and_menus(
     name: 'jarvis.notes.manage_models',
     label: 'Manage Jarvis note DB',
     execute: async () => {
-      await open_model_management_dialog(runtime.model_management_dialog, runtime.panel, runtime.settings);
+      await open_model_management_dialog(runtime.model_management_dialog, runtime.panel, runtime.settings, runtime);
     },
   });
 
@@ -774,7 +776,9 @@ async function register_workspace_listeners(
       await update_panel(runtime.panel, nearest, runtime.settings, capacityWarning);
     }
     if (message.name === 'abortUpdate') {
+      // Abort both database updates and model deletion operations
       runtime.update_abort_controller?.abort();
+      runtime.model_deletion_abort_controller?.abort();
     }
   });
 }

@@ -182,7 +182,8 @@ async function delete_model_data(
   modelId: string,
   noteIds: string[],
   panel: string,
-  settings: JarvisSettings
+  settings: JarvisSettings,
+  abortController: AbortController
 ): Promise<DeletionSummary> {
   const summary: DeletionSummary = {
     updatedNotes: 0,
@@ -195,6 +196,10 @@ async function delete_model_data(
   let processed = 0;
 
   for (const noteId of noteIds) {
+    // Check if aborted
+    if (abortController.signal.aborted) {
+      throw new Error('Model deletion cancelled');
+    }
     try {
       const meta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
       try {
@@ -246,7 +251,8 @@ async function delete_model_data(
 async function delete_all_model_data(
   items: ModelInventoryItem[],
   panel: string,
-  settings: JarvisSettings
+  settings: JarvisSettings,
+  abortController: AbortController
 ): Promise<DeletionSummary> {
   const summary: DeletionSummary = {
     updatedNotes: 0,
@@ -259,6 +265,10 @@ async function delete_all_model_data(
   await update_progress_bar(panel, 0, 1, settings, 'Scanning notes...');
   const allNoteIds = new Set<string>();
   for (const item of items) {
+    // Check if aborted during scanning
+    if (abortController.signal.aborted) {
+      throw new Error('Model deletion cancelled');
+    }
     const noteIds = await scan_note_ids_for_model(item.modelId);
     for (const noteId of noteIds) {
       allNoteIds.add(noteId);
@@ -270,6 +280,10 @@ async function delete_all_model_data(
 
   // Delete all userData from each note
   for (const noteId of allNoteIds) {
+    // Check if aborted
+    if (abortController.signal.aborted) {
+      throw new Error('Model deletion cancelled');
+    }
     try {
       const meta = await joplin.data.userDataGet<NoteEmbMeta>(ModelType.Note, noteId, EMB_META_KEY);
       try {
@@ -402,7 +416,8 @@ function build_dialog_html(items: ModelInventoryItem[], activeModelId: string, m
 export async function open_model_management_dialog(
   dialogHandle: string,
   panel: string,
-  settings: JarvisSettings
+  settings: JarvisSettings,
+  runtime: any
 ): Promise<void> {
   const enabled = await joplin.settings.value('notes_db_in_user_data');
   if (!enabled) {
@@ -468,21 +483,33 @@ export async function open_model_management_dialog(
         continue;
       }
 
-      const summary = await delete_model_data(selectedModelId, noteIds, panel, settings);
-      const parts = [`Removed model "${selectedModelId}".`];
-      if (summary.updatedNotes > 0) {
-        parts.push(`Updated ${summary.updatedNotes} notes.`);
+      // Create abort controller for this deletion operation
+      runtime.model_deletion_abort_controller = new AbortController();
+      try {
+        const summary = await delete_model_data(selectedModelId, noteIds, panel, settings, runtime.model_deletion_abort_controller);
+        const parts = [`Removed model "${selectedModelId}".`];
+        if (summary.updatedNotes > 0) {
+          parts.push(`Updated ${summary.updatedNotes} notes.`);
+        }
+        if (summary.removedMeta > 0) {
+          parts.push(`Cleared metadata on ${summary.removedMeta} notes.`);
+        }
+        if (summary.skippedNotes > 0) {
+          parts.push(`Skipped ${summary.skippedNotes} notes (no metadata).`);
+        }
+        if (summary.errors > 0) {
+          parts.push(`Encountered ${summary.errors} errors (see log).`);
+        }
+        message = parts.join(' ');
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('cancelled')) {
+          message = 'Deletion cancelled by user.';
+        } else {
+          throw error;
+        }
+      } finally {
+        runtime.model_deletion_abort_controller = null;
       }
-      if (summary.removedMeta > 0) {
-        parts.push(`Cleared metadata on ${summary.removedMeta} notes.`);
-      }
-      if (summary.skippedNotes > 0) {
-        parts.push(`Skipped ${summary.skippedNotes} notes (no metadata).`);
-      }
-      if (summary.errors > 0) {
-        parts.push(`Encountered ${summary.errors} errors (see log).`);
-      }
-      message = parts.join(' ');
       continue;
     }
 
@@ -499,15 +526,27 @@ export async function open_model_management_dialog(
         continue;
       }
 
-      const summary = await delete_all_model_data(items, panel, settings);
-      const parts = [`Removed all ${items.length} models.`];
-      if (summary.removedMeta > 0) {
-        parts.push(`Cleared metadata on ${summary.removedMeta} notes.`);
+      // Create abort controller for this deletion operation
+      runtime.model_deletion_abort_controller = new AbortController();
+      try {
+        const summary = await delete_all_model_data(items, panel, settings, runtime.model_deletion_abort_controller);
+        const parts = [`Removed all ${items.length} models.`];
+        if (summary.removedMeta > 0) {
+          parts.push(`Cleared metadata on ${summary.removedMeta} notes.`);
+        }
+        if (summary.errors > 0) {
+          parts.push(`Encountered ${summary.errors} errors (see log).`);
+        }
+        message = parts.join(' ');
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('cancelled')) {
+          message = 'Deletion cancelled by user.';
+        } else {
+          throw error;
+        }
+      } finally {
+        runtime.model_deletion_abort_controller = null;
       }
-      if (summary.errors > 0) {
-        parts.push(`Encountered ${summary.errors} errors (see log).`);
-      }
-      message = parts.join(' ');
       continue;
     }
 
