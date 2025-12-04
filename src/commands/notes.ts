@@ -282,6 +282,9 @@ export async function update_note_db(
         order_dir: 'DESC',
       });
       if (notes.items) {
+        // Track total notes discovered (not same as processed - some may be skipped)
+        total_notes += notes.items.length;
+
         const result = await process_batch_and_update_progress(
           notes.items, model, settings, abortController, force, catalogId, panel,
           () => ({
@@ -289,8 +292,7 @@ export async function update_note_db(
             total: Math.max(estimatedTotal, total_notes)  // Show max of estimate vs discovered
           }),
           (count) => {
-            processed_notes += count;
-            total_notes += count;  // Always track discovered total dynamically
+            processed_notes += count;  // Only increment successfully processed
           },
           shouldUpdatePanel,
         );
