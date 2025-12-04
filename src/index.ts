@@ -142,7 +142,7 @@ async function initialize_runtime_ui(): Promise<Partial<PluginRuntime>> {
 
   let delay_scroll = await joplin.settings.value('notes_scroll_delay');
   let delay_db_update = 60 * settings.notes_db_update_delay;
-  const abort_timeout = 10;  // minutes
+  const abort_timeout = 10;  // minutes (for logging/monitoring only, not used for lock logic)
 
   return {
     log,
@@ -201,8 +201,9 @@ async function initialize_models_and_db(runtime: PluginRuntime): Promise<void> {
  */
 function create_update_manager(runtime: PluginRuntime): UpdateManager {
   const is_update_in_progress = (): boolean => {
-    return runtime.update_abort_controller !== null &&
-      (runtime.update_start_time !== null && (Date.now() - runtime.update_start_time) < runtime.abort_timeout * 60 * 1000);
+    // Simple lock: if abort controller exists, update is in progress
+    // No timeout check - lock is released in finally block when update completes/errors/cancels
+    return runtime.update_abort_controller !== null;
   };
 
   const start_update = async (options: UpdateOptions = {}) => {
@@ -234,6 +235,7 @@ function create_update_manager(runtime: PluginRuntime): UpdateManager {
     try {
       await update_note_db(runtime.model_embed, runtime.panel, runtime.update_abort_controller, targetIds, force, incrementalSweep);
     } finally {
+      // Always release lock when update completes/errors/cancels
       runtime.update_abort_controller = null;
       runtime.update_start_time = null;
     }

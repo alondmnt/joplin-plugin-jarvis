@@ -18,6 +18,8 @@ export interface ReadEmbeddingsOptions {
   validationTracker?: ValidationTracker;
   // Optional progress callback: (processed: number, total: number, stage?: string) => Promise<void>
   onProgress?: (processed: number, total: number, stage?: string) => Promise<void>;
+  // Optional abort controller for cancellation support
+  abortController?: AbortController;
 }
 
 export interface NoteEmbeddingsResult {
@@ -41,7 +43,7 @@ export interface NoteEmbeddingsResult {
  * mismatch). Caller can then show dialog after search completes with human-readable diffs.
  */
 export async function read_user_data_embeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
-  const { store, modelId, noteIds, maxRows, onBlock, currentModel, currentSettings, validationTracker, onProgress } = options;
+  const { store, modelId, noteIds, maxRows, onBlock, currentModel, currentSettings, validationTracker, onProgress, abortController } = options;
   const results: NoteEmbeddingsResult[] = [];
   const decoder = new ShardDecoder();
   const cache = new ShardLRUCache(4);
@@ -59,6 +61,11 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
 
   for (let i = 0; i < noteIds.length; i++) {
     const noteId = noteIds[i];
+
+    // Check if aborted
+    if (abortController?.signal.aborted) {
+      throw new Error('Embedding read aborted');
+    }
 
     // Update progress periodically (every PROGRESS_INTERVAL notes, or on last note)
     if (onProgress && (i % PROGRESS_INTERVAL === 0 || i === noteIds.length - 1)) {

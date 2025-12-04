@@ -158,6 +158,7 @@ export class SimpleCorpusCache {
     onProgress?: (processed: number, total: number, stage?: string) => Promise<void>,
     model?: any,
     settings?: any,
+    abortController?: AbortController,
   ): Promise<void> {
     // Check dimension mismatch (model changed)
     if (this.isBuilt() && this.dim !== dim) {
@@ -169,13 +170,18 @@ export class SimpleCorpusCache {
       return;
     }
 
+    // Check if aborted before starting build
+    if (abortController?.signal.aborted) {
+      throw new Error('Cache build aborted');
+    }
+
     // Prevent concurrent builds (multiple rapid searches)
     if (this.buildPromise) {
       await this.buildPromise;
       return;
     }
 
-    this.buildPromise = this.build(store, modelId, noteIds, dim, onProgress);
+    this.buildPromise = this.build(store, modelId, noteIds, dim, onProgress, abortController);
     const actualNoteCount = await this.buildPromise;
     this.buildPromise = null;
 
@@ -237,88 +243,98 @@ export class SimpleCorpusCache {
     modelId: string,
     noteIds: string[],
     dim: number,
-    onProgress?: (processed: number, total: number, stage?: string) => Promise<void>
+    onProgress?: (processed: number, total: number, stage?: string) => Promise<void>,
+    abortController?: AbortController,
   ): Promise<number> {
     const startTime = Date.now();
     this.dim = dim;
 
     log.info(`[Cache] Scanning ${noteIds.length} candidates @ ${dim}-dim...`);
-    
+
+    // Check if aborted before starting expensive operation
+    if (abortController?.signal.aborted) {
+      throw new Error('Cache build aborted');
+    }
+
     // Read all embeddings from userData with progress updates
-    const results = await read_user_data_embeddings({
-      store,
-      modelId,
-      noteIds,  // All notes that have embeddings for this model (from candidateIds)
-      maxRows: undefined,  // No limit - load everything
-      currentModel: null,
-      currentSettings: null,
-      validationTracker: null,
-      onProgress,
-    });
-    
-    // Count valid blocks (only those with Q8 data)
-    let validBlocks = 0;
-    for (const result of results) {
-      for (const block of result.blocks) {
-        if (block.q8 && block.q8.values.length === dim) {
-          validBlocks++;
+    let results: any[] = [];
+    try {
+      results = await read_user_data_embeddings({
+        store,
+        modelId,
+        noteIds,  // All notes that have embeddings for this model (from candidateIds)
+        maxRows: undefined,  // No limit - load everything
+        currentModel: null,
+        currentSettings: null,
+        validationTracker: null,
+        onProgress,
+        abortController,
+      });
+
+      // Count valid blocks (only those with Q8 data)
+      let validBlocks = 0;
+      for (const result of results) {
+        for (const block of result.blocks) {
+          if (block.q8 && block.q8.values.length === dim) {
+            validBlocks++;
+          }
         }
       }
-    }
-    
-    if (validBlocks === 0) {
-      log.warn('[Cache] No valid blocks with Q8 data found, cache build aborted');
-      return 0;
-    }
-    
-    // Allocate shared buffers (only for valid blocks)
-    this.q8Buffer = new Int8Array(validBlocks * dim);
-    this.blocks = [];
 
-    // Fill buffers (progress already shown during loading)
-    let blockIdx = 0;
-    for (const result of results) {
-      for (const block of result.blocks) {
-        // Skip blocks without Q8 data (shouldn't happen in userData mode)
-        if (!block.q8 || block.q8.values.length !== dim) {
-          log.warn(`[Cache] Block ${block.id}:${block.line} missing Q8 data, skipping`);
-          continue;
-        }
-
-        // Copy Q8 vector to shared buffer
-        const qOffset = blockIdx * dim;
-        this.q8Buffer.set(block.q8.values, qOffset);
-
-        // Store metadata
-        this.blocks.push({
-          noteId: block.id,
-          noteHash: block.hash,
-          qOffset,
-          title: block.title,
-          lineNumber: block.line,
-          bodyStart: block.body_idx,
-          bodyLength: block.length,
-          headingLevel: block.level,
-        });
-
-        blockIdx++;
+      if (validBlocks === 0) {
+        log.warn('[Cache] No valid blocks with Q8 data found, cache build aborted');
+        return 0;
       }
+
+      // Allocate shared buffers (only for valid blocks)
+      this.q8Buffer = new Int8Array(validBlocks * dim);
+      this.blocks = [];
+
+      // Fill buffers (progress already shown during loading)
+      let blockIdx = 0;
+      for (const result of results) {
+        for (const block of result.blocks) {
+          // Skip blocks without Q8 data (shouldn't happen in userData mode)
+          if (!block.q8 || block.q8.values.length !== dim) {
+            log.warn(`[Cache] Block ${block.id}:${block.line} missing Q8 data, skipping`);
+            continue;
+          }
+
+          // Copy Q8 vector to shared buffer
+          const qOffset = blockIdx * dim;
+          this.q8Buffer.set(block.q8.values, qOffset);
+
+          // Store metadata
+          this.blocks.push({
+            noteId: block.id,
+            noteHash: block.hash,
+            qOffset,
+            title: block.title,
+            lineNumber: block.line,
+            bodyStart: block.body_idx,
+            bodyLength: block.length,
+            headingLevel: block.level,
+          });
+
+          blockIdx++;
+        }
+      }
+
+      // Calculate actual note count from results (before clearing)
+      const actualNoteCount = new Set(results.map(r => r.noteId)).size;
+
+      this.buildDurationMs = Date.now() - startTime;
+      const memoryMB = (this.q8Buffer.byteLength + this.blocks.length * BYTES_PER_BLOCK) / (1024 * 1024);
+
+      log.info(`[Cache] Built ${actualNoteCount} notes, ${this.blocks.length} blocks, ${memoryMB.toFixed(1)}MB (${this.buildDurationMs}ms)`);
+
+      return actualNoteCount;
+    } finally {
+      // Clear intermediate results to prevent memory leak (even if aborted/error)
+      // We've copied all needed data (Q8 vectors + metadata) to our buffers
+      // Now release the BlockEmbedding objects with their Float32 embeddings
+      clearObjectReferences(results);
     }
-    
-    // Calculate actual note count from results (before clearing)
-    const actualNoteCount = new Set(results.map(r => r.noteId)).size;
-
-    this.buildDurationMs = Date.now() - startTime;
-    const memoryMB = (this.q8Buffer.byteLength + this.blocks.length * BYTES_PER_BLOCK) / (1024 * 1024);
-
-    log.info(`[Cache] Built ${actualNoteCount} notes, ${this.blocks.length} blocks, ${memoryMB.toFixed(1)}MB (${this.buildDurationMs}ms)`);
-
-    // Clear intermediate results to prevent memory leak
-    // We've copied all needed data (Q8 vectors + metadata) to our buffers
-    // Now release the BlockEmbedding objects with their Float32 embeddings
-    clearObjectReferences(results);
-
-    return actualNoteCount;
   }
 
   /**

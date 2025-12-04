@@ -66,7 +66,7 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
 }
 
 export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, markup_language: number, current_title: string, query: string,
-    model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true, panel?: string, isUpdateInProgress: boolean=false):
+    model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true, panel?: string, isUpdateInProgress: boolean=false, abortController?: AbortController):
     Promise<NoteEmbedding[]> {
 
   let searchStartTime = 0;  // Will be set right before cache search starts
@@ -251,7 +251,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
               }
             } : undefined,
             model,
-            settings
+            settings,
+            abortController
           );
         }
       }
