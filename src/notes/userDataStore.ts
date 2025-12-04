@@ -216,12 +216,13 @@ export class UserDataEmbStore implements EmbStore {
     }
   }
 
-  async getShard(noteId: string, modelId: string, index: number): Promise<EmbShard | null> {
-    const meta = await this.getMeta(noteId);
-    if (!meta) {
+  async getShard(noteId: string, modelId: string, index: number, meta?: NoteEmbMeta | null): Promise<EmbShard | null> {
+    // Use provided meta if available, otherwise fetch it (avoids redundant API call)
+    const actualMeta = meta !== undefined ? meta : await this.getMeta(noteId);
+    if (!actualMeta) {
       return null;
     }
-    const modelMeta = meta.models[modelId];
+    const modelMeta = actualMeta.models[modelId];
     if (!modelMeta) {
       return null;
     }
