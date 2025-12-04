@@ -262,28 +262,10 @@ export async function update_note_db(
     let notes: any;
     let page = 0;
 
-    // Count all notes for accurate progress bar
-    do {
-      // Check abort signal before counting next page
-      if (abortController.signal.aborted) {
-        break;
-      }
+    // Use last known note count as initial estimate (avoids double-counting loop)
+    const stats = getModelStats(model.id);
+    const estimatedTotal = stats?.noteCount ?? 0;
 
-      page += 1;
-      notes = await joplin.data.get(['notes'], {
-        fields: ['id'],
-        page: page,
-        order_by: 'user_updated_time',
-        order_dir: 'DESC',
-      });
-      total_notes += notes.items.length;
-      const hasMore = notes.has_more;
-      clearApiResponse(notes);
-      if (!hasMore) break;
-    } while (true);
-    update_progress_bar(panel, 0, total_notes, settings, 'Computing embeddings');
-
-    page = 0;
     // Iterate over all notes
     do {
       // Check abort signal before processing next page
@@ -302,8 +284,14 @@ export async function update_note_db(
       if (notes.items) {
         const result = await process_batch_and_update_progress(
           notes.items, model, settings, abortController, force, catalogId, panel,
-          () => ({ processed: processed_notes, total: total_notes }),
-          (count) => { processed_notes += count; },
+          () => ({
+            processed: processed_notes,
+            total: Math.max(estimatedTotal, total_notes)  // Show max of estimate vs discovered
+          }),
+          (count) => {
+            processed_notes += count;
+            total_notes += count;  // Always track discovered total dynamically
+          },
           shouldUpdatePanel,
         );
         allSettingsMismatches.push(...result.settingsMismatches);
