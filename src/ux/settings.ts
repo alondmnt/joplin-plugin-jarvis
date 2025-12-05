@@ -9,6 +9,50 @@ export const context_cmd = 'Context:';
 export const notcontext_cmd = 'Not context:';
 export const title_separator = ' ::: ';
 
+export const GENERATION_SETTING_KEYS = new Set([
+  'openai_api_key',
+  'anthropic_api_key',
+  'hf_api_key',
+  'google_api_key',
+  'model',
+  'chat_system_message',
+  'chat_timeout',
+  'chat_openai_model_id',
+  'chat_openai_model_type',
+  'chat_openai_endpoint',
+  'max_tokens',
+  'memory_tokens',
+  'notes_context_tokens',
+  'temperature',
+  'top_p',
+  'frequency_penalty',
+  'presence_penalty',
+  'chat_hf_model_id',
+  'chat_hf_endpoint',
+  'chat_prefix',
+  'chat_suffix',
+]);
+
+export const EMBEDDING_SETTING_KEYS = new Set([
+  'openai_api_key',
+  'hf_api_key',
+  'google_api_key',
+  'notes_model',
+  'notes_db_in_user_data',
+  'notes_embed_title',
+  'notes_embed_path',
+  'notes_embed_heading',
+  'notes_embed_tags',
+  'notes_parallel_jobs',
+  'notes_max_tokens',
+  'notes_openai_model_id',
+  'notes_openai_endpoint',
+  'notes_hf_model_id',
+  'notes_hf_endpoint',
+  'notes_abort_on_error',
+  'notes_embed_timeout',
+]);
+
 export interface JarvisSettings {
   // APIs
   openai_api_key: string;
@@ -67,6 +111,15 @@ export interface JarvisSettings {
   notes_panel_user_style: string;
   notes_abort_on_error: boolean;
   notes_embed_timeout: number;
+  notes_db_in_user_data: boolean;
+  notes_debug_mode: boolean;
+  notes_device_profile: 'auto' | 'desktop' | 'mobile';
+  notes_device_profile_effective: 'desktop' | 'mobile';
+  notes_device_platform?: string;
+  notes_max_shard_bytes?: number;
+  notes_model_first_build_completed: Record<string, boolean>;
+  notes_model_last_sweep_time: Record<string, number>;  // Unix timestamp (ms) per model
+  notes_model_last_full_sweep_time: Record<string, number>;  // Unix timestamp (ms) of last full sweep per model
   // annotations
   annotate_preferred_language: string;
   annotate_title_flag: boolean;
@@ -214,6 +267,27 @@ export async function get_settings(): Promise<JarvisSettings> {
   const springer_api_key = await joplin.settings.value('springer_api_key');
   const pubmed_api_key = await joplin.settings.value('pubmed_api_key');
 
+  const rawProfileSetting = (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile');
+  const firstBuildCompleted = safe_parse_first_build_completed(await joplin.settings.value('notes_model_first_build_completed'));
+  const lastSweepTimes = safe_parse_last_sweep_time(await joplin.settings.value('notes_model_last_sweep_time'));
+  const lastFullSweepTimes = safe_parse_last_sweep_time(await joplin.settings.value('notes_model_last_full_sweep_time'));
+
+  // Detect platform from Joplin API (defaults to 'desktop' on error)
+  let detectedPlatform = 'desktop';
+  try {
+    const info = await joplin.versionInfo();
+    if (info && typeof (info as any).platform === 'string') {
+      detectedPlatform = (info as any).platform;
+    }
+  } catch {
+    // Keep default
+  }
+
+  // Resolve profile: 'auto' uses detected platform, otherwise use explicit setting
+  const effectiveProfile = rawProfileSetting === 'auto'
+    ? (detectedPlatform.toLowerCase() === 'mobile' ? 'mobile' : 'desktop')
+    : (rawProfileSetting === 'mobile' ? 'mobile' : 'desktop');
+
   const weight_relevance_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_relevance')) || 0);
   const weight_citations_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_citations')) || 0);
   const weight_fulltext_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_fulltext')) || 0);
@@ -282,6 +356,15 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
     notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
     notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
+    notes_db_in_user_data: await joplin.settings.value('notes_db_in_user_data'),
+    notes_debug_mode: await joplin.settings.value('notes_debug_mode'),
+    notes_device_profile: rawProfileSetting,
+    notes_device_profile_effective: effectiveProfile,
+    notes_device_platform: detectedPlatform,
+    notes_max_shard_bytes: await joplin.settings.value('notes_max_shard_bytes'),
+    notes_model_first_build_completed: firstBuildCompleted,
+    notes_model_last_sweep_time: lastSweepTimes,
+    notes_model_last_full_sweep_time: lastFullSweepTimes,
     // annotations
     annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
     annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
@@ -321,6 +404,18 @@ export async function get_settings(): Promise<JarvisSettings> {
 }
 
 export async function register_settings() {
+  // Detect platform to set platform-specific defaults
+  let detectedPlatform = 'desktop';
+  try {
+    const info = await joplin.versionInfo();
+    if (info && typeof (info as any).platform === 'string') {
+      detectedPlatform = (info as any).platform;
+    }
+  } catch {
+    // Keep default
+  }
+  const isMobilePlatform = detectedPlatform.toLowerCase() === 'mobile';
+
   await joplin.settings.registerSection('jarvis.chat', {
     label: 'Jarvis: Chat',
     iconName: 'fas fa-robot',
@@ -339,6 +434,48 @@ export async function register_settings() {
   });
 
   await joplin.settings.registerSettings({
+    'toolbar_show_chat': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.chat',
+      public: true,
+      label: 'Toolbar: Show Chat with Jarvis button',
+    },
+    'toolbar_show_notes_chat': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Toolbar: Show Chat with your notes button',
+    },
+    'toolbar_show_notes_find': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Toolbar: Show Find related notes button',
+    },
+    'toolbar_show_edit': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.chat',
+      public: true,
+      label: 'Toolbar: Show Edit with Jarvis button',
+    },
+    'toolbar_show_complete': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.annotate',
+      public: true,
+      label: 'Toolbar: Show Autocomplete with Jarvis button',
+    },
+    'toolbar_show_annotate': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.annotate',
+      public: true,
+      label: 'Toolbar: Show Annotate note button',
+    },
     'openai_api_key': {
       value: '',
       type: SettingItemType.String,
@@ -555,7 +692,7 @@ export async function register_settings() {
       }
     },
     'notes_parallel_jobs': {
-      value: 10,
+      value: isMobilePlatform ? 1 : 10,
       type: SettingItemType.Int,
       minimum: 1,
       maximum: 50,
@@ -563,7 +700,7 @@ export async function register_settings() {
       section: 'jarvis.notes',
       public: true,
       label: 'Notes: Parallel jobs',
-      description: 'The number of parallel jobs to use for calculating text embeddings. Default: 10',
+      description: `The number of parallel jobs to use for calculating text embeddings. Default: ${isMobilePlatform ? '1 (mobile)' : '10 (desktop)'}. Lower values prevent UI freezing on mobile devices.`,
     },
     'notes_abort_on_error': {
       value: true,
@@ -572,6 +709,24 @@ export async function register_settings() {
       public: true,
       label: 'Notes: Abort on error',
       description: 'If disabled, you may select to retry the operation following an error. Default: true',
+    },
+    'notes_db_in_user_data': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Store embeddings in note properties (experimental)',
+      description: 'Default: false (uses local SQLite, desktop only). When enabled, stores the search index inside your notes so it syncs across devices. Required for mobile app. May increase note size and sync time.',
+    },
+    'notes_debug_mode': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Enable debug mode (verbose logging and index validation)',
+      description: 'Shows detailed diagnostics for indexing and validates search quality. Useful for troubleshooting note properties mode, but may slow down searches. Default: false',
     },
     'notes_embed_timeout': {
       value: 120,
@@ -583,7 +738,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Notes: Embedding timeout (sec)',
-      description: 'The maximal time to wait for an embedding response in seconds. Set to 0 to disable. Default: 20',
+      description: 'The maximal time to wait for an embedding response in seconds. Set to 0 to disable. Default: 120',
     },
     'notes_embed_title': {
       value: true,
@@ -1106,8 +1261,237 @@ export async function register_settings() {
       advanced: true,
       label: 'Notes: User CSS for notes panel',
       description: 'Custom CSS to apply to the notes panel.',
-    }
+    },
+    
+    // Performance tuning settings (advanced users only)
+    'notes_device_profile': {
+      value: 'auto',
+      type: SettingItemType.String,
+      isEnum: true,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Device Profile',
+      description: 'Default: Auto (detects mobile vs desktop at runtime). Automatically tunes search performance for your device type. Only change if auto-detection fails or you want to force mobile-friendly settings on a slow desktop.',
+      options: {
+        'auto': 'Auto',
+        'desktop': 'Desktop',
+        'mobile': 'Mobile',
+      },
+    },
+    'notes_max_shard_bytes': {
+      value: 0,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 2000000,
+      step: 50000,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Storage: Maximum embedding size per note',
+      description: 'Applies to experimental synced database only. Default: 0 (automatic: 500,000 bytes ≈ 220 blocks for 1536-dim embeddings). Maximum storage space for embeddings in each note. Notes with more blocks are truncated. Prevents sync performance issues.',
+    },
+    
+    // Internal settings (do not modify)
+    'notes_model_first_build_completed': {
+      value: '{}',
+      type: SettingItemType.String,
+      section: 'jarvis.notes',
+      public: false,
+      advanced: true,
+      label: 'Notes: First build completion flags (internal)',
+      description: 'Internal map tracking per-model first full builds (fresh or migrated from SQLite). Do not modify.',
+    },
+    'notes_model_last_sweep_time': {
+      value: '{}',
+      type: SettingItemType.String,
+      section: 'jarvis.notes',
+      public: false,
+      advanced: true,
+      label: 'Notes: Last incremental sweep timestamps (internal)',
+      description: 'Internal map tracking per-model last successful incremental sweep (Unix timestamp ms). Do not modify.',
+    },
+    'notes_model_last_full_sweep_time': {
+      value: '{}',
+      type: SettingItemType.String,
+      section: 'jarvis.notes',
+      public: false,
+      advanced: true,
+      label: 'Notes: Last full sweep timestamps (internal)',
+      description: 'Internal map tracking per-model last successful full sweep (Unix timestamp ms). Used for sync staleness detection. Do not modify.',
+    },
   });
+}
+
+/**
+ * Safely parse the notes_model_first_build_completed setting from JSON.
+ * Validates that values are boolean flags and ensures type safety.
+ * Returns empty object on parse failure.
+ * 
+ * @param raw - Raw setting value (JSON string)
+ * @returns Map of model ID to completion flag (true if first build completed)
+ */
+function safe_parse_first_build_completed(raw: any): Record<string, boolean> {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, Boolean(value)]));
+    }
+    return {};
+  } catch (error) {
+    console.warn('Failed to parse notes_model_first_build_completed; resetting');
+    return {};
+  }
+}
+
+/**
+ * Safely parse the notes_model_last_sweep_time setting from JSON.
+ * Validates that values are numeric timestamps and filters out invalid entries.
+ * Returns empty object on parse failure.
+ * 
+ * @param raw - Raw setting value (JSON string)
+ * @returns Map of model ID to Unix timestamp (ms)
+ */
+function safe_parse_last_sweep_time(raw: any): Record<string, number> {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return Object.fromEntries(
+        Object.entries(parsed)
+          .map(([key, value]) => [key, Number(value)])
+          .filter(([_, value]) => !isNaN(value as number))
+      );
+    }
+    return {};
+  } catch (error) {
+    console.warn('Failed to parse notes_model_last_sweep_time; resetting');
+    return {};
+  }
+}
+
+export async function mark_model_first_build_completed(modelId: string): Promise<void> {
+  if (!modelId) {
+    return;
+  }
+  const raw = await joplin.settings.value('notes_model_first_build_completed');
+  const current = safe_parse_first_build_completed(raw);
+  if (current[modelId]) {
+    return;
+  }
+  current[modelId] = true;
+  await joplin.settings.setValue('notes_model_first_build_completed', JSON.stringify(current));
+  console.info('Jarvis: marked model first build completed', { modelId });
+}
+
+/**
+ * Clear the "first build completed" flag for a model.
+ * Called when deleting model data or when needing to force SQLite reload for migration.
+ */
+export async function clear_model_first_build_completed(modelId: string): Promise<void> {
+  if (!modelId) {
+    return;
+  }
+  const raw = await joplin.settings.value('notes_model_first_build_completed');
+  const current = safe_parse_first_build_completed(raw);
+  if (modelId in current) {
+    delete current[modelId];
+    await joplin.settings.setValue('notes_model_first_build_completed', JSON.stringify(current));
+    console.debug('Jarvis: cleared model first build completed', { modelId });
+  }
+}
+
+/**
+ * Get the timestamp (Unix ms) of the last successful incremental sweep for a model.
+ * Returns 0 if the model has never been swept (triggers full scan on first run).
+ * 
+ * @param modelId - The embedding model ID
+ * @returns Unix timestamp in milliseconds, or 0 if never swept
+ */
+export async function get_model_last_sweep_time(modelId: string): Promise<number> {
+  if (!modelId) {
+    return 0;
+  }
+  const raw = await joplin.settings.value('notes_model_last_sweep_time');
+  const times = safe_parse_last_sweep_time(raw);
+  return times[modelId] || 0;
+}
+
+/**
+ * Save the timestamp of a successful incremental sweep for a model.
+ * Used to track when the last sweep completed so future sweeps can use
+ * timestamp-based early termination (query notes updated since this time).
+ * 
+ * @param modelId - The embedding model ID
+ * @param timestamp - Unix timestamp in milliseconds
+ */
+export async function set_model_last_sweep_time(modelId: string, timestamp: number): Promise<void> {
+  if (!modelId) {
+    return;
+  }
+  const raw = await joplin.settings.value('notes_model_last_sweep_time');
+  const current = safe_parse_last_sweep_time(raw);
+  current[modelId] = timestamp;
+  await joplin.settings.setValue('notes_model_last_sweep_time', JSON.stringify(current));
+  console.debug('Jarvis: saved model last sweep time', { modelId, timestamp: new Date(timestamp).toISOString() });
+}
+
+/**
+ * Clear the last sweep time for a model (e.g., when model is deleted).
+ * This ensures the next sweep will be a full sweep, not incremental.
+ */
+export async function clear_model_last_sweep_time(modelId: string): Promise<void> {
+  if (!modelId) {
+    return;
+  }
+  const raw = await joplin.settings.value('notes_model_last_sweep_time');
+  const current = safe_parse_last_sweep_time(raw);
+  if (modelId in current) {
+    delete current[modelId];
+    await joplin.settings.setValue('notes_model_last_sweep_time', JSON.stringify(current));
+    console.debug('Jarvis: cleared model last sweep time', { modelId });
+  }
+}
+
+/**
+ * Get the timestamp (Unix ms) of the last full sweep for a model.
+ * Returns 0 if the model has never had a full sweep.
+ * Used for sync staleness detection with margin.
+ *
+ * @param modelId - The embedding model ID
+ * @returns Unix timestamp in milliseconds, or 0 if never swept
+ */
+export async function get_model_last_full_sweep_time(modelId: string): Promise<number> {
+  if (!modelId) {
+    return 0;
+  }
+  const raw = await joplin.settings.value('notes_model_last_full_sweep_time');
+  const times = safe_parse_last_sweep_time(raw);
+  return times[modelId] || 0;
+}
+
+/**
+ * Save the timestamp of a successful full sweep for a model.
+ * Used for sync staleness detection - if sync happened after (lastFullSweep + margin),
+ * force next sweep to be full instead of incremental.
+ *
+ * @param modelId - The embedding model ID
+ * @param timestamp - Unix timestamp in milliseconds
+ */
+export async function set_model_last_full_sweep_time(modelId: string, timestamp: number): Promise<void> {
+  if (!modelId) {
+    return;
+  }
+  const raw = await joplin.settings.value('notes_model_last_full_sweep_time');
+  const current = safe_parse_last_sweep_time(raw);
+  current[modelId] = timestamp;
+  await joplin.settings.setValue('notes_model_last_full_sweep_time', JSON.stringify(current));
+  console.debug('Jarvis: saved model last full sweep time', { modelId, timestamp: new Date(timestamp).toISOString() });
 }
 
 export async function set_folders(exclude: boolean, folder_id: string, settings: JarvisSettings) {

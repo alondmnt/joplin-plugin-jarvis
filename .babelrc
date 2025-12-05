@@ -3,7 +3,12 @@
     [
       "@babel/preset-env",
       {
-        "targets": "defaults"
+        "targets": {
+          "electron": "30"
+        },
+        "modules": false,
+        "useBuiltIns": false,
+        "exclude": ["transform-regenerator"]
       }
     ]
   ]

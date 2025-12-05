@@ -211,7 +211,13 @@ export async function get_all_tags(): Promise<Array<string>> {
     some_tags = await joplin.data.get(['tags'], { fields: ['title'], page: page });
 
     tags.push(...some_tags.items.map((tag: any) => tag.title));
-  } while(some_tags.has_more);
+    
+    const hasMore = some_tags.has_more;
+    // Clear API response to help GC
+    clearApiResponse(some_tags);
+    
+    if (!hasMore) break;
+  } while(true);
 
   return tags;
 }
@@ -376,4 +382,75 @@ function stripHtml(html: string): string {
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Aggressively clear object references to help GC release memory.
+ * Particularly useful after processing large note bodies or API results.
+ * 
+ * @param obj - Object, array, or primitive to clear
+ * @param visited - Internal tracking to prevent infinite recursion
+ * @returns null to allow convenient reassignment (e.g., `obj = clearRefs(obj)`)
+ */
+export function clearObjectReferences<T extends Record<string, any>>(
+  obj: T | null | undefined,
+  visited: WeakSet<object> = new WeakSet()
+): null {
+  // Skip nullish, non-objects, or already visited
+  if (!obj || typeof obj !== 'object') {
+    return null;
+  }
+  if (visited.has(obj)) {
+    return null;
+  }
+  visited.add(obj);
+
+  try {
+    if (Array.isArray(obj)) {
+      // Clear array elements (faster than delete for large arrays)
+      obj.length = 0;
+    } else if (obj instanceof Map) {
+      obj.clear();
+    } else if (obj instanceof Set) {
+      obj.clear();
+    } else {
+      // Clear own properties (not inherited)
+      const keys = Object.keys(obj);
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        try {
+          delete obj[key];
+        } catch {
+          // Ignore readonly/non-configurable properties
+        }
+      }
+    }
+  } catch (error) {
+    // Silently ignore errors - GC will eventually handle it
+  }
+  return null;
+}
+
+/**
+ * Clear API response objects that may hold large note bodies.
+ * Clears the items array and common pagination fields.
+ */
+export function clearApiResponse(response: any): null {
+  if (!response || typeof response !== 'object') {
+    return null;
+  }
+  
+  try {
+    // Clear items array if present
+    if (Array.isArray(response.items)) {
+      response.items.length = 0;
+    }
+    // Clear common fields
+    delete response.items;
+    delete response.has_more;
+  } catch {
+    // Ignore errors
+  }
+  
+  return null;
 }

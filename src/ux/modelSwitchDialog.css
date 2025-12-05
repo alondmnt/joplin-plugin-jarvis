@@ -1,0 +1,41 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  height: auto !important;
+  min-height: 0 !important;
+  display: inline-block;
+}
+
+#joplin-plugin-content {
+  display: inline-block !important;
+  width: fit-content;
+  max-width: 360px;
+  padding: 16px;
+  min-height: 0 !important;
+  box-sizing: border-box;
+}
+
+form[name="jarvisModelSwitch"] {
+  margin: 0;
+}
+
+#jarvis-model-switch {
+  width: fit-content;
+  min-width: 280px;
+  max-width: 360px;
+  line-height: 1.4;
+  font-family: Avenir, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#jarvis-model-switch h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+#jarvis-model-switch p {
+  margin: 0;
+}
+

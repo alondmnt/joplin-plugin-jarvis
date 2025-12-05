@@ -159,6 +159,7 @@ const baseConfig = {
 	mode: 'production',
 	target: 'node',
 	stats: 'errors-only',
+	// devtool: 'source-map',  // Disabled for production (adds 26MB to package)
 	module: {
 		rules: [
 			{
@@ -183,6 +184,10 @@ const baseConfig = {
 	},
 	optimization: {
 		minimize: true,
+		// Enable code splitting for dynamic imports (lazy loading)
+		// This allows TensorFlow to be loaded only when needed
+		usedExports: true,
+		sideEffects: false,
 	},
 };
 
@@ -195,10 +200,15 @@ const pluginConfig = Object.assign({}, baseConfig, {
 		// JSON files can also be required from scripts so we include this.
 		// https://github.com/joplin/plugin-bibtex/pull/2
 		extensions: ['.js', '.tsx', '.ts', '.json'],
+		fallback: {
+			"crypto": require.resolve("crypto-browserify"),
+		},
 	},
 	output: {
 		filename: 'index.js',
 		path: distDir,
+		// Configure chunk naming for dynamic imports
+		chunkFilename: '[name].chunk.js',
 	},
 	plugins: [
 		new CopyPlugin({
@@ -259,7 +269,10 @@ const extraScriptConfig = {
 		alias: {
 			api: path.resolve(__dirname, 'api'),
 		},
-		fallback: moduleFallback,
+		fallback: {
+			...moduleFallback,
+			"crypto": require.resolve("crypto-browserify"),
+		},
 		extensions: ['.js', '.tsx', '.ts', '.json'],
 	},
 

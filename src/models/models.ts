@@ -1,11 +1,96 @@
 import joplin from 'api';
-const fs = require('fs');
-import * as tf from '@tensorflow/tfjs';
-import * as use from '@tensorflow-models/universal-sentence-encoder';
+let nodeFs: typeof import('fs') | null = null;
+function requireNodeFs(): typeof import('fs') {
+  if (!nodeFs) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    nodeFs = require('fs');
+  }
+  return nodeFs;
+}
+// TensorFlow.js lazy loading - these are only needed for Universal Sentence Encoder
+// By not importing them at the top level, we avoid bundling ~5MB of TensorFlow code
+// into the main plugin bundle, dramatically reducing load time on mobile
+let tf: typeof import('@tensorflow/tfjs') | null = null;
+let use: typeof import('@tensorflow-models/universal-sentence-encoder') | null = null;
+async function loadTensorFlow(): Promise<typeof import('@tensorflow/tfjs')> {
+  if (!tf) {
+    // Suppress TensorFlow.js kernel registration warnings during backend setup
+    const originalWarn = console.warn;
+    console.warn = (...args) => {
+      if (args[0]?.includes?.('kernel') && args[0]?.includes?.('already registered')) {
+        return; // Suppress "kernel already registered" warnings
+      }
+      originalWarn.apply(console, args);
+    };
+    
+    tf = await import('@tensorflow/tfjs');
+    
+    // Try to use WebGPU for best GPU performance, fall back to WebGL
+    // WebGPU is faster but only available in newer Electron/Chrome versions
+    try {
+      await tf.setBackend('webgpu');
+      await tf.ready();
+      console.log('TensorFlow.js using WebGPU backend (GPU accelerated)');
+    } catch (e) {
+      try {
+        await tf.setBackend('webgl');
+        await tf.ready();
+        console.log('TensorFlow.js using WebGL backend (GPU accelerated)');
+      } catch (e2) {
+        // Fall back to CPU if neither WebGPU nor WebGL available
+        await tf.setBackend('cpu');
+        await tf.ready();
+        console.warn('TensorFlow.js using CPU backend (no GPU acceleration available)');
+      }
+    }
+    
+    // Restore original console.warn
+    console.warn = originalWarn;
+  }
+  return tf;
+}
+async function loadUSE(): Promise<typeof import('@tensorflow-models/universal-sentence-encoder')> {
+  if (!use) {
+    use = await import('@tensorflow-models/universal-sentence-encoder');
+  }
+  return use;
+}
+
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { encodingForModel } from 'js-tiktoken';
+// js-tiktoken removed - using estimation only (always was in practice)
+// Better token estimation that handles various text types more accurately than length/4
+// This is what we were using as fallback, now it's the only method
+function estimateTokens(text: string): number {
+  if (!text) return 0;
+  
+  // More sophisticated estimation based on empirical BPE tokenizer behavior:
+  // - ASCII/English: ~4 chars per token
+  // - Mixed case with punctuation: ~3.5 chars per token  
+  // - Unicode/CJK: ~2-3 chars per token
+  // - Code: ~3 chars per token
+  
+  const hasUnicode = /[^\x00-\x7F]/.test(text);
+  const hasCJK = /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]/.test(text);
+  const punctuationRatio = (text.match(/[.,:;!?(){}[\]"'`]/g) || []).length / text.length;
+  
+  let charsPerToken = 4.0;
+  
+  if (hasCJK) {
+    // CJK characters are typically 2-3 chars per token
+    charsPerToken = 2.5;
+  } else if (hasUnicode) {
+    // Other Unicode is typically 3-3.5 chars per token
+    charsPerToken = 3.2;
+  } else if (punctuationRatio > 0.1) {
+    // Heavy punctuation (like code) is ~3-3.5 chars per token
+    charsPerToken = 3.5;
+  }
+  
+  return Math.ceil(text.length / charsPerToken);
+}
+
 import { HfInference } from '@huggingface/inference'
-import { JarvisSettings } from '../ux/settings';
+import { JarvisSettings, clear_model_first_build_completed } from '../ux/settings';
 import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, ModelError } from '../utils';
 import * as openai from './openai';
 import * as google from './google';
@@ -187,7 +272,6 @@ function resolveAdapterKey(modelId: string): string | null {
   return bestMatch?.key ?? null;
 }
 
-tf.setBackend('webgl');
 const test_prompt = 'I am conducting a communitcation test. I need you to reply with a single word and absolutely nothing else: "Ack".';
 const dialogPreview = joplin.views.dialogs.create('joplin.preview.dialog');
 
@@ -305,6 +389,30 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
   if (!settings.notes_embed_heading) { model.version += 'h'; }
   if (!settings.notes_embed_tags) { model.version += 't'; }
 
+  if (model) {
+    const isMobile = settings.notes_device_platform === 'mobile';
+    model.allowFsCache = !isMobile;
+    let firstBuildCompleted = Boolean(settings.notes_model_first_build_completed?.[model?.id ?? '']);
+
+    // Clear firstBuildCompleted when userData is disabled (enables migration when re-enabled)
+    if (!settings.notes_db_in_user_data && firstBuildCompleted && model?.id) {
+      clear_model_first_build_completed(model.id);
+      firstBuildCompleted = false;
+    }
+
+    // Skip SQLite if: mobile OR (userData enabled AND first build completed)
+    // When userData is enabled but first build NOT completed, load SQLite for migration
+    model.disableDbLoad = isMobile || (settings.notes_db_in_user_data && firstBuildCompleted);
+    if (isMobile) {
+      console.info('Jarvis: skipping legacy SQLite load (mobile platform)', { modelId: model?.id });
+    } else if (settings.notes_db_in_user_data && firstBuildCompleted) {
+      console.info('Jarvis: skipping legacy SQLite load (migration completed)', { modelId: model?.id });
+    }
+    model.disableModelLoad = isMobile && !settings.notes_db_in_user_data;
+
+    console.info(`Jarvis: model load config - platform=${isMobile ? 'mobile' : 'desktop'}, firstBuild=${firstBuildCompleted}, disableDbLoad=${model.disableDbLoad}, disableModelLoad=${model.disableModelLoad}, experimental=${settings.notes_db_in_user_data}`);
+  }
+
   await model.initialize();
   return model
 }
@@ -314,6 +422,10 @@ export class TextEmbeddingModel {
   public embeddings: BlockEmbedding[] = [];  // in-memory
   public db: any = null;  // file system
   public embedding_version: number = 3;
+  public disableModelLoad = false;
+  public disableDbLoad = false;
+  public allowFsCache = true;
+  public initialized = false;
 
   // model
   public id: string = null;
@@ -322,15 +434,14 @@ export class TextEmbeddingModel {
   public max_block_size: number = null;
   public online: boolean = null;
   public model: any = null;
-  public tokenizer: any = encodingForModel('text-embedding-ada-002');
-  // we're using the above as a default BPE tokenizer just for counting tokens
+  // Using estimation-only for token counting (simpler, instant, good enough)
 
   // error handling
   public abort_on_error: boolean = true;
 
   // rate limits
   public page_size: number = 10;  // external: notes
-  public page_cycle: number = 100;  // external: pages
+  public page_cycle: number = 20;  // external: pages (pause every ~200 notes on desktop for responsive cancellation)
   public wait_period: number = 1;  // external: sec
   public request_queue = [];  // internal rate limit
   public requests_per_second: number = null;  // internal rate limit
@@ -441,8 +552,16 @@ export class TextEmbeddingModel {
 
   // parent method
   async initialize() {
-    await this._load_model();  // model-specific initialization
-    await this._load_db();  // post-model initialization
+    if (this.initialized) {
+      return;
+    }
+    if (!this.disableModelLoad) {
+      await this._load_model();  // model-specific initialization
+    }
+    if (!this.disableDbLoad) {
+      await this._load_db();  // post-model initialization
+    }
+    this.initialized = true;
   }
 
   // parent method with rate limiter
@@ -474,7 +593,55 @@ export class TextEmbeddingModel {
         embeddingPromise
             .then(result => {
                 const vector = result instanceof Float32Array ? result : new Float32Array(result);
+                
+                // DIAGNOSTIC: Check raw API response for invalid values
+                let invalidCount = 0;
+                const invalidIndices: number[] = [];
+                for (let i = 0; i < vector.length; i++) {
+                  if (!isFinite(vector[i])) {
+                    invalidCount++;
+                    if (invalidIndices.length < 10) { // Only log first 10 indices
+                      invalidIndices.push(i);
+                    }
+                  }
+                }
+                
+                if (invalidCount > 0) {
+                  const invalidPct = (invalidCount / vector.length) * 100;
+                  console.error(`Model ${this.id} API returned ${invalidCount} invalid values (${invalidPct.toFixed(1)}%) - indices: ${invalidIndices.slice(0, 5).join(', ')}`);
+                  
+                  // If more than 50% of values are invalid, this embedding is unusable
+                  if (invalidPct > 50) {
+                    throw new ModelError(`Model API returned too many invalid values (${invalidPct.toFixed(1)}% > 50%) - refusing to use corrupted embedding`);
+                  }
+                  
+                  // Sanitize for now but this should NOT happen
+                  for (let i = 0; i < vector.length; i++) {
+                    if (!isFinite(vector[i])) {
+                      vector[i] = 0;
+                    }
+                  }
+                  console.warn(`Sanitized invalid values to 0 - this indicates an API bug`);
+                }
+                
                 const normalized = this.l2Normalize(vector);
+                
+                // DIAGNOSTIC: Check after normalization
+                let postNormInvalid = 0;
+                for (let i = 0; i < normalized.length; i++) {
+                  if (!isFinite(normalized[i])) {
+                    postNormInvalid++;
+                    if (postNormInvalid === 1) {
+                      const norm = Math.sqrt(vector.reduce((sum, v) => sum + v*v, 0));
+                      console.error(`L2 normalization created NaN (input norm: ${norm.toFixed(6)})`);
+                    }
+                  }
+                }
+                
+                if (postNormInvalid > 0) {
+                  throw new ModelError(`L2 normalization produced ${postNormInvalid} invalid values - likely zero-norm vector`);
+                }
+                
                 abortSignal?.removeEventListener('abort', handleAbort);
                 resolve(normalized);
             })
@@ -487,7 +654,7 @@ export class TextEmbeddingModel {
 
   // estimate the number of tokens in the given text
   count_tokens(text: string): number {
-    return this.tokenizer.encode(text).length;
+    return estimateTokens(text);
   }
 
   // rate limiter
@@ -515,11 +682,20 @@ export class TextEmbeddingModel {
 
   // load embedding database
   async _load_db() {
-    if ( this.model == null ) { return; }
+    if (this.disableDbLoad) {
+      console.info('Jarvis: _load_db skipped (disableDbLoad=true)', { modelId: this.id });
+      return;
+    }
+    if ( this.model == null ) {
+      console.info('Jarvis: _load_db skipped (model is null)', { modelId: this.id });
+      return;
+    }
 
+    console.info('Jarvis: Loading legacy SQLite embeddings', { modelId: this.id });
     this.db = await connect_to_db(this);
     await init_db(this.db, this);
     this.embeddings = await clear_deleted_notes(await get_all_embeddings(this.db), this.db);
+    console.info(`Jarvis: Loaded ${this.embeddings.length} embeddings from legacy SQLite`, { modelId: this.id });
   }
 }
 
@@ -544,27 +720,34 @@ class USEEmbedding extends TextEmbeddingModel {
 
   async _load_model() {
     try {
+      // Lazy-load TensorFlow and USE only when this model is actually selected
+      console.log('Loading TensorFlow.js (this may take a moment on first use)...');
+      const [tfModule, useModule] = await Promise.all([loadTensorFlow(), loadUSE()]);
+      console.log('TensorFlow.js loaded successfully');
+      
       const data_dir = await joplin.plugins.dataDir();
       try {
-        this.model = await use.load({
+        this.model = await useModule.load({
           modelUrl: 'indexeddb://jarvisUSEModel',
           vocabUrl: data_dir + '/use_vocab.json'
         });
         console.log('USEEmbedding loaded from cache');
 
       } catch (e) {
-        this.model = await use.load();
+        this.model = await useModule.load();
         console.log('USEEmbedding loaded from web');
 
-        try {
-          this.model.model.save('indexeddb://jarvisUSEModel');
-          console.log('USEEmbedding saved to cache');
-          const vocabString = JSON.stringify(this.model.tokenizer.vocabulary);
-          fs.writeFileSync(data_dir + '/use_vocab.json', vocabString);
-          console.log('USEEmbedding vocabulary saved to cache');
-
-        } catch (e) {
-          console.log(`USEEmbedding failed to save to cache: ${e}`);
+        if (this.allowFsCache) {
+          try {
+            this.model.model.save('indexeddb://jarvisUSEModel');
+            console.log('USEEmbedding saved to cache');
+            const vocabString = JSON.stringify(this.model.tokenizer.vocabulary);
+            const fs = requireNodeFs();
+            fs.writeFileSync(data_dir + '/use_vocab.json', vocabString);
+            console.log('USEEmbedding vocabulary saved to cache');
+          } catch (e) {
+            console.log(`USEEmbedding failed to save to cache: ${e}`);
+          }
         }
       }
 
@@ -654,7 +837,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    let vec = new Float32Array();
+    let vec: Float32Array;
     try {
       vec = await this.query(text);
     } catch (e) {
@@ -868,8 +1051,7 @@ export class TextGenerationModel {
   public type: string = 'completion';  // this may be used to process the prompt differently
   public temperature: number = 0.5;
   public top_p: number = 1;
-  public tokenizer: any = encodingForModel('gpt-3.5-turbo');
-  // we're using the above as a default BPE tokenizer just for counting tokens
+  // Using estimation-only for token counting (simpler, instant, good enough)
 
   // chat
   public base_chat: Array<ChatEntry> = [];
@@ -966,7 +1148,7 @@ export class TextGenerationModel {
 
   // estimate the number of tokens in the given text
   count_tokens(text: string): number {
-    return this.tokenizer.encode(text).length;
+    return estimateTokens(text);
   }
 
   // rate limiter

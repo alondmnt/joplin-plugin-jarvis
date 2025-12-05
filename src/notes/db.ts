@@ -1,11 +1,27 @@
 import joplin from 'api';
 import { BlockEmbedding } from './embeddings';
-const sqlite3 = joplin.require('sqlite3');
-const fs = joplin.require('fs-extra');
+
+let sqlite3Module: any | null = null;
+let fsExtraModule: any | null = null;
+
+function requireSqlite(): any {
+  if (!sqlite3Module) {
+    sqlite3Module = joplin.require('sqlite3');
+  }
+  return sqlite3Module;
+}
+
+function requireFsExtra(): any {
+  if (!fsExtraModule) {
+    fsExtraModule = joplin.require('fs-extra');
+  }
+  return fsExtraModule;
+}
 
 // connect to the database
 export async function connect_to_db(model: any): Promise<any> {
   await migrate_db();  // migrate the database if necessary
+  const sqlite3 = requireSqlite();
   const plugin_dir = await joplin.plugins.dataDir();
   const db_fname = model.id.replace(/[/\\?%*:|"<>]/g, '_');
   const db = await new sqlite3.Database(plugin_dir + `/${db_fname}.sqlite`);
@@ -26,7 +42,7 @@ export async function connect_to_db(model: any): Promise<any> {
   if (choice === 0) {
     // OK (rebuild)
     db.close();
-    await fs.remove(plugin_dir + `/${db_fname}.sqlite`);
+    await requireFsExtra().remove(plugin_dir + `/${db_fname}.sqlite`);
     return await connect_to_db(model);
 
   } else if (choice === 1) {
@@ -183,8 +199,8 @@ export async function get_all_embeddings(db: any): Promise<BlockEmbedding[]> {
         } else {
           resolve(rows.map((row) => {
             // convert the embedding from a blob to a Float32Array
-            const buffer = Buffer.from(row.embedding);
-            const embedding = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / Float32Array.BYTES_PER_ELEMENT);
+            // row.embedding is already a Buffer, no need for Buffer.from()
+            const embedding = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / Float32Array.BYTES_PER_ELEMENT);
             return {
               id: row.note_id,
               hash: row.hash,
@@ -194,7 +210,7 @@ export async function get_all_embeddings(db: any): Promise<BlockEmbedding[]> {
               level: row.level,
               title: row.title,
               embedding: embedding,
-              similarity: 0,
+              // Note: similarity is intentionally omitted so it gets calculated during search
             };
           }));
         }
@@ -239,6 +255,9 @@ export async function insert_note(db: any, note_id: string, hash: string): Promi
 // if the hash changed, delete all the embeddings for that note and insert the new ones.
 // if the note has no embeddings, insert the new ones.
 export async function insert_note_embeddings(db: any, embeds: BlockEmbedding[], model: any): Promise<void> {
+  if (!db) {
+    return;
+  }
   const embeddings = embeds;
   // check that embeddings contain a single note_id
   if (embeddings.length === 0) {
@@ -266,7 +285,9 @@ export async function insert_note_embeddings(db: any, embeds: BlockEmbedding[], 
           // insert the new embeddings
           const stmt = db.prepare(`INSERT INTO embeddings (note_idx, line, body_idx, length, level, title, embedding, model_idx) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
           for (let embd of embeddings) {
-            stmt.run([new_row_id, embd.line, embd.body_idx, embd.length, embd.level, embd.title, Buffer.from(embd.embedding.buffer), model.db_idx]);
+            // Create Uint8Array view for SQLite blob
+            const blob = new Uint8Array(embd.embedding.buffer, embd.embedding.byteOffset, embd.embedding.byteLength);
+            stmt.run([new_row_id, embd.line, embd.body_idx, embd.length, embd.level, embd.title, blob, model.db_idx]);
           }
           stmt.finalize();
           resolve();
@@ -298,6 +319,9 @@ export async function get_note_status(db: any, note_id: string, hash: string): P
 
 // delete a note and its embeddings from the database.
 export async function delete_note_and_embeddings(db: any, note_id: string): Promise<void> {
+  if (!db) {
+    return;
+  }
   const note_status = await get_note_status(db, note_id, '');
   return new Promise((resolve, reject) => {
     db.serialize(() => {
@@ -320,6 +344,9 @@ export async function delete_note_and_embeddings(db: any, note_id: string): Prom
 
 export async function clear_deleted_notes(embeddings: BlockEmbedding[], db: any):
     Promise<BlockEmbedding[]> {
+  if (!db) {
+    return embeddings;
+  }
   // get all existing note ids
   let page = 0;
   let notes: any;
@@ -327,9 +354,19 @@ export async function clear_deleted_notes(embeddings: BlockEmbedding[], db: any)
   do {
     page += 1;
     try {
-      notes = await joplin.data.get(['notes'], { fields: ['id', 'deleted_time'], page: page });
+      notes = await joplin.data.get(['notes'], { 
+        fields: ['id', 'deleted_time'], 
+        page: page,
+        order_by: 'user_updated_time',
+        order_dir: 'DESC',
+      });
     } catch {
-      notes = await joplin.data.get(['notes'], { fields: ['id'], page: page });
+      notes = await joplin.data.get(['notes'], { 
+        fields: ['id'], 
+        page: page,
+        order_by: 'user_updated_time',
+        order_dir: 'DESC',
+      });
     }
     note_ids = note_ids.concat(notes.items
       .filter((note: any) => (note.deleted_time === null) || (note.deleted_time == 0))
@@ -355,6 +392,8 @@ export async function clear_deleted_notes(embeddings: BlockEmbedding[], db: any)
 
 // migrate the database to the latest version.
 async function migrate_db(): Promise<void> {
+  const fs = requireFsExtra();
+  const sqlite3 = requireSqlite();
   const plugin_dir = await joplin.plugins.dataDir();
   const db_path_old = plugin_dir + '/embeddings.sqlite';
   if (!fs.existsSync(db_path_old)) { return; }

@@ -3,7 +3,7 @@ import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks } from '../notes/embeddings';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
-import { split_by_tokens } from '../utils';
+import { split_by_tokens, clearApiResponse, clearObjectReferences } from '../utils';
 
 
 export async function chat_with_jarvis(model_gen: TextGenerationModel) {
@@ -73,7 +73,9 @@ export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<s
   });
   if (typeof prompt !== 'string') {
     // rich text editor
-    prompt = (await joplin.workspace.selectedNote()).body;
+    const note = await joplin.workspace.selectedNote();
+    prompt = note.body;
+    clearObjectReferences(note);
   }
 
   // remove chat commands
@@ -87,97 +89,108 @@ export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<s
 async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, settings: JarvisSettings):
     Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]}, NoteEmbedding[]]> {
   const note = await joplin.workspace.selectedNote();
-  const prompt = get_notes_prompt(await get_chat_prompt(model_gen), note, model_gen);
+  try {
+    const prompt = get_notes_prompt(await get_chat_prompt(model_gen), note, model_gen);
 
-  // filter embeddings based on prompt
-  let sub_embeds: BlockEmbedding[] = [];
-  if (prompt.notes.size > 0) {
-    sub_embeds.push(...model_embed.embeddings.filter((embd) => prompt.notes.has(embd.id)));
-  }
-  if (prompt.search) {
-    const search_res = await joplin.data.get(['search'], { query: prompt.search, field: ['id'] });
-    const search_ids = new Set(search_res.items.map((item) => item.id));
-    sub_embeds.push(...model_embed.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));
-  }
-  if (sub_embeds.length === 0) {
-    sub_embeds = model_embed.embeddings;
-  } else {
-    // rank notes by similarity but don't filter out any notes
-    settings.notes_min_similarity = 0;
-  }
-
-  // get embeddings
-  if (prompt.context && prompt.context.length > 0) {
-    // replace current note with user-defined context
-    note.body = prompt.context;
-  } else {
-    // use X last user prompt as context
-    const chat = model_gen._parse_chat(prompt.prompt)
-      .filter((msg) => msg.role === 'user');
-    if (chat.length > 0) {
-      note.body = chat.slice(-settings.notes_context_history).map((msg) => msg.content).join('\n');
+    // filter embeddings based on prompt
+    let sub_embeds: BlockEmbedding[] = [];
+    if (prompt.notes.size > 0) {
+      sub_embeds.push(...model_embed.embeddings.filter((embd) => prompt.notes.has(embd.id)));
     }
-  }
-  if (prompt.not_context.length > 0) {
-    // remove from context
-    for (const nc of prompt.not_context) {
-      note.body = note.body.replace(new RegExp(nc, 'g'), '');
-    }
-  }
-  const nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
-  if (nearest.length === 0) {
-    nearest.push({id: note.id, title: 'Chat context', embeddings: [], similarity: null});
-  }
-
-  // post-processing: attach additional blocks to the nearest ones
-  let attached: Set<string> = new Set();
-  let blocks: BlockEmbedding[] = [];
-  for (const embd of nearest[0].embeddings) {
-    // bid is a concatenation of note id and block line number (e.g. 'note_id:1234')
-    const bid = `${embd.id}:${embd.line}`;
-    if (attached.has(bid)) {
-      continue;
-    }
-    // TODO: rethink whether we should indeed skip the entire iteration
-
-    if (settings.notes_attach_prev > 0) {
-      const prev = await get_prev_blocks(embd, model_embed.embeddings, settings.notes_attach_prev);
-      // push in reverse order
-      for (let i = prev.length - 1; i >= 0; i--) {
-        const bid = `${prev[i].id}:${prev[i].line}`;
-        if (attached.has(bid)) { continue; }
-        attached.add(bid);
-        blocks.push(prev[i]);
+    if (prompt.search) {
+      let search_res: any = null;
+      try {
+        search_res = await joplin.data.get(['search'], { query: prompt.search, field: ['id'] });
+        const search_ids = new Set(search_res.items.map((item) => item.id));
+        sub_embeds.push(...model_embed.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));
+        clearApiResponse(search_res);
+      } catch (error) {
+        clearApiResponse(search_res);
+        throw error;
       }
     }
-
-    // current block
-    attached.add(bid);
-    blocks.push(embd);
-
-    if (settings.notes_attach_next > 0) {
-      const next = await get_next_blocks(embd, model_embed.embeddings, settings.notes_attach_next);
-      for (let i = 0; i < next.length; i++) {
-        const bid = `${next[i].id}:${next[i].line}`;
-        if (attached.has(bid)) { continue; }
-        attached.add(bid);
-        blocks.push(next[i]);
-      }
+    if (sub_embeds.length === 0) {
+      sub_embeds = model_embed.embeddings;
+    } else {
+      // rank notes by similarity but don't filter out any notes
+      settings.notes_min_similarity = 0;
     }
 
-    if (settings.notes_attach_nearest > 0) {
-      const nearest = await get_nearest_blocks(embd, model_embed.embeddings, settings, settings.notes_attach_nearest);
-      for (let i = 0; i < nearest.length; i++) {
-        const bid = `${nearest[i].id}:${nearest[i].line}`;
-        if (attached.has(bid)) { continue; }
-        attached.add(bid);
-        blocks.push(nearest[i]);
+    // get embeddings
+    if (prompt.context && prompt.context.length > 0) {
+      // replace current note with user-defined context
+      note.body = prompt.context;
+    } else {
+      // use X last user prompt as context
+      const chat = model_gen._parse_chat(prompt.prompt)
+        .filter((msg) => msg.role === 'user');
+      if (chat.length > 0) {
+        note.body = chat.slice(-settings.notes_context_history).map((msg) => msg.content).join('\n');
       }
     }
+    if (prompt.not_context.length > 0) {
+      // remove from context
+      for (const nc of prompt.not_context) {
+        note.body = note.body.replace(new RegExp(nc, 'g'), '');
+      }
+    }
+    const nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
+    if (nearest.length === 0) {
+      nearest.push({id: note.id, title: 'Chat context', embeddings: [], similarity: null});
+    }
+
+    // post-processing: attach additional blocks to the nearest ones
+    let attached: Set<string> = new Set();
+    let blocks: BlockEmbedding[] = [];
+    for (const embd of nearest[0].embeddings) {
+      // bid is a concatenation of note id and block line number (e.g. 'note_id:1234')
+      const bid = `${embd.id}:${embd.line}`;
+      if (attached.has(bid)) {
+        continue;
+      }
+      // TODO: rethink whether we should indeed skip the entire iteration
+
+      if (settings.notes_attach_prev > 0) {
+        const prev = await get_prev_blocks(embd, model_embed.embeddings, settings.notes_attach_prev);
+        // push in reverse order
+        for (let i = prev.length - 1; i >= 0; i--) {
+          const bid = `${prev[i].id}:${prev[i].line}`;
+          if (attached.has(bid)) { continue; }
+          attached.add(bid);
+          blocks.push(prev[i]);
+        }
+      }
+
+      // current block
+      attached.add(bid);
+      blocks.push(embd);
+
+      if (settings.notes_attach_next > 0) {
+        const next = await get_next_blocks(embd, model_embed.embeddings, settings.notes_attach_next);
+        for (let i = 0; i < next.length; i++) {
+          const bid = `${next[i].id}:${next[i].line}`;
+          if (attached.has(bid)) { continue; }
+          attached.add(bid);
+          blocks.push(next[i]);
+        }
+      }
+
+      if (settings.notes_attach_nearest > 0) {
+        const nearest = await get_nearest_blocks(embd, model_embed.embeddings, settings, settings.notes_attach_nearest);
+        for (let i = 0; i < nearest.length; i++) {
+          const bid = `${nearest[i].id}:${nearest[i].line}`;
+          if (attached.has(bid)) { continue; }
+          attached.add(bid);
+          blocks.push(nearest[i]);
+        }
+      }
+    }
+    nearest[0].embeddings = blocks;
+
+    return [prompt, nearest];
+  } finally {
+    clearObjectReferences(note);
   }
-  nearest[0].embeddings = blocks;
-
-  return [prompt, nearest];
 }
 
 function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationModel):
@@ -311,13 +324,16 @@ export async function replace_selection(text: string) {
   ];
   if (!phrases.includes(text)) {
     const note = await joplin.workspace.selectedNote();
+    try {
+      let newBody = note.body
+      for (const phrase of phrases) {
+        newBody = newBody.replace(phrase, '');
+      }
 
-    let newBody = note.body
-    for (const phrase of phrases) {
-      newBody = newBody.replace(phrase, '');
+      await joplin.commands.execute('editor.setText', newBody);
+      await joplin.data.put(['notes', note.id], null, { body: newBody });
+    } finally {
+      clearObjectReferences(note);
     }
-
-    await joplin.commands.execute('editor.setText', newBody);
-    await joplin.data.put(['notes', note.id], null, { body: newBody });
   }
 }
