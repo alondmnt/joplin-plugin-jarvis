@@ -252,7 +252,7 @@ async function update_note(note: any,
         if (!needsBackfill && userDataMeta && modelMeta && modelMeta.shards > 0) {
           let first: any = null;
           try {
-            first = await userDataStore.getShard(note.id, model.id, 0);
+            first = await userDataStore.getShard(note.id, model.id, 0, userDataMeta);  // Pass meta to avoid redundant getMeta()
             if (!first) {
               // Metadata exists but shard is missing/corrupt - needs backfill
               shardMissing = true;
@@ -336,7 +336,7 @@ async function update_note(note: any,
           if (modelMeta.shards > 0) {
             let first: any = null;
             try {
-              first = await userDataStore.getShard(note.id, model.id, 0);
+              first = await userDataStore.getShard(note.id, model.id, 0, userDataMeta);  // Pass meta to avoid redundant getMeta()
 
               // Check abort after potentially slow shard fetch (improves cancel responsiveness)
               if (abortSignal.aborted) {

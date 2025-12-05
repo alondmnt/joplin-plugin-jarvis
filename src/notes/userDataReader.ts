@@ -96,7 +96,7 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
     // Single-shard constraint: always fetch shard 0 (one shard per note per model)
     const cacheKey = `${noteId}:${modelId}:${modelMeta.epoch}:0`;
     let cached = cache.get(cacheKey);
-    const shard = await store.getShard(noteId, modelId, 0);
+    const shard = await store.getShard(noteId, modelId, 0, meta);  // Pass meta to avoid redundant getMeta()
     if (!shard || shard.epoch !== modelMeta.epoch) {
       continue;
     }
