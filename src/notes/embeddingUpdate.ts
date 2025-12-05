@@ -17,7 +17,7 @@ import { prepare_user_data_embeddings } from './userDataIndexer';
 import { extract_embedding_settings_for_validation, settings_equal } from './validator';
 import { append_ocr_text_to_body, should_exclude_note, get_excluded_note_ids_by_tags, clear_excluded_note_ids_cache } from './noteHelpers';
 import type { BlockEmbedding } from './embeddings';
-import { calc_note_embeddings, calc_hash, userDataStore } from './embeddings';
+import { calc_note_embeddings, calc_hash, userDataStore, preprocess_note_for_hashing } from './embeddings';
 import { delete_note_and_embeddings, insert_note_embeddings } from './db';
 import { update_cache_for_note } from './embeddingCache';
 import { htmlToText } from '../utils';
@@ -179,17 +179,8 @@ async function update_note(note: any,
     return { embeddings: [] };
   }
 
-  // convert HTML to Markdown if needed (must happen before hash calculation)
-  if (note.markup_language === 2) {
-    try {
-      note.body = await htmlToText(note.body);
-    } catch (error) {
-      log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error);
-      // Continue with original HTML content
-    }
-  }
-
-  await append_ocr_text_to_body(note);
+  // Preprocess note body (HTML conversion + OCR appending)
+  note.body = await preprocess_note_for_hashing(note);
 
   const hash = calc_hash(note.body);
   const old_embd = model.embeddings.filter((embd: BlockEmbedding) => embd.id === note.id);

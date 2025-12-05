@@ -19,7 +19,7 @@ import { get_excluded_note_ids_by_tags, should_exclude_note } from './noteHelper
 import { calc_mean_embedding, calc_mean_embedding_float32, calc_links_embedding, calc_similarity } from './embeddingHelpers';
 import { ensure_model_error, promptEmbeddingError, MAX_EMBEDDING_RETRIES } from './embeddingUpdate';
 import type { BlockEmbedding, NoteEmbedding } from './embeddings';
-import { calc_note_embeddings, calc_hash, corpusCaches, userDataStore } from './embeddings';
+import { calc_note_embeddings, calc_hash, corpusCaches, userDataStore, preprocess_note_for_hashing } from './embeddings';
 
 const log = getLogger();
 
@@ -80,19 +80,27 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }
   }
 
-  // convert HTML to Markdown if needed (must happen before hash calculation)
-  if (markup_language === 2) {
-    try {
-      query = await htmlToText(query);
-    } catch (error) {
-      log.warn('Failed to convert HTML to Markdown for query', error);
-    }
-  }
+  // Preprocess query text (HTML conversion + OCR appending) to match database path
+  query = await preprocess_note_for_hashing({
+    id: current_id,
+    body: query,
+    title: current_title,
+    markup_language: markup_language
+  });
+
   // check if to re-calculate embedding of the query
   let query_embeddings = combinedEmbeddings.filter(embd => embd.id === current_id);
   const hasCachedQueryEmbedding = query_embeddings.length > 0;
-  if ((query_embeddings.length == 0) || (query_embeddings[0].hash !== calc_hash(query))) {
+  const queryHash = calc_hash(query);
+  const hashMismatch = hasCachedQueryEmbedding && query_embeddings[0].hash !== queryHash;
+
+  if ((query_embeddings.length == 0) || hashMismatch) {
     // re-calculate embedding of the query
+    if (hashMismatch) {
+      log.info(`[Jarvis] Fresh embedding computed for note ${current_id} (hash mismatch)`);
+    } else {
+      log.debug(`[Jarvis] Fresh embedding computed for note ${current_id} (not in cache)`);
+    }
     let note_tags: string[];
     let tagsResponse: any = null;
     try {
@@ -139,7 +147,10 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         throw error;
       }
     }
+  } else if (hasCachedQueryEmbedding) {
+    log.info(`[Jarvis] Reusing cached embedding for note ${current_id} (hash match)`);
   }
+
   if (query_embeddings.length === 0) {
     return [];
   }

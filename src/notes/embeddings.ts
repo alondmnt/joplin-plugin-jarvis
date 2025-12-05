@@ -46,6 +46,39 @@ export interface NoteEmbedding {
 }
 
 /**
+ * Preprocess note body for hash calculation and embedding generation.
+ * Ensures consistent preprocessing across search and database paths.
+ *
+ * Steps performed:
+ * 1. Convert HTML to Markdown if needed (markup_language === 2)
+ * 2. Append OCR text if available
+ *
+ * @param note - Note object with id, body, title, markup_language
+ * @returns Preprocessed body text ready for hashing
+ */
+export async function preprocess_note_for_hashing(note: {
+  id: string;
+  body: string;
+  title?: string;
+  markup_language: number;
+}): Promise<string> {
+  // Convert HTML to Markdown if needed
+  if (note.markup_language === 2) {
+    try {
+      note.body = await htmlToText(note.body);
+    } catch (error) {
+      log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error);
+      // Continue with original content
+    }
+  }
+
+  // Append OCR text if available
+  await append_ocr_text_to_body(note);
+
+  return note.body;
+}
+
+/**
  * Calculate embeddings for a note while preserving the legacy normalization pipeline.
  *
  * Normalization steps (must remain stable to keep hash compatibility):
@@ -63,17 +96,8 @@ export async function calc_note_embeddings(
     abortSignal: AbortSignal,
     kind: EmbeddingKind = 'doc'
 ): Promise<BlockEmbedding[]> {
-  // convert HTML to Markdown if needed (safety check for direct calls)
-  if (note.markup_language === 2 && note.body.includes('<')) {
-    try {
-      note.body = await htmlToText(note.body);
-    } catch (error) {
-      log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error);
-      // Continue with original HTML content
-    }
-  }
-
-  await append_ocr_text_to_body(note);
+  // Preprocess note body (HTML conversion + OCR appending)
+  note.body = await preprocess_note_for_hashing(note);
 
   const hash = calc_hash(note.body);
   note.body = convert_newlines(note.body);
