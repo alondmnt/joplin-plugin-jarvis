@@ -189,17 +189,17 @@ export async function compute_final_model_metadata(
 /**
  * Compare two model metadata objects to see if they meaningfully differ.
  * Ignores updatedAt timestamp since that always changes.
- * For count stats (rowCount), requires at least 15% change to be considered different.
+ * For count stats (rowCount), requires at least 10% change to be considered different.
  *
  * @param a - First metadata object
  * @param b - Second metadata object
- * @param countChangeThreshold - Minimum percentage change (0-1) required for count stats (default 0.15 = 15%)
+ * @param countChangeThreshold - Minimum percentage change (0-1) required for count stats (default 0.10 = 10%)
  * @returns true if metadata has meaningfully changed, false otherwise
  */
 export function model_metadata_changed(
   a: CatalogModelMetadata | null,
   b: CatalogModelMetadata | null,
-  countChangeThreshold: number = 0.15,
+  countChangeThreshold: number = 0.10,
 ): boolean {
   if (!a || !b) {
     return true; // If either is missing, consider it changed

@@ -11,7 +11,7 @@
  *
  * The catalog note metadata (CatalogModelMetadata) is still used for:
  * - Model management dialog display
- * - Cross-device sync (with 15% threshold to reduce conflicts)
+ * - Cross-device sync (with 10% threshold to reduce conflicts)
  */
 
 export interface ModelStats {

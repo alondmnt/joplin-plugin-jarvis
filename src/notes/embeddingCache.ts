@@ -192,7 +192,7 @@ export class SimpleCorpusCache {
 
       // Update catalog metadata lazily (not during sweep, but after first search)
       // This replaces the removed post-sweep metadata count
-      // Only update if significant change (>=15% threshold, same as current behavior)
+      // Only update if significant change (>=10% threshold)
       if (model && settings) {
         let currentMetadata: any = null;
         let newMetadata: any = null;
@@ -217,7 +217,7 @@ export class SimpleCorpusCache {
                 noteCount: newMetadata.noteCount,
               });
             } else if (newMetadata) {
-              log.debug('Catalog metadata unchanged (<15% change), skipping update', {
+              log.debug('Catalog metadata unchanged (<10% change), skipping update', {
                 modelId,
                 rowCount: newMetadata.rowCount,
                 oldRowCount: currentMetadata?.rowCount,
