@@ -9,6 +9,7 @@ import { EmbeddingSettings } from '../notes/userDataStore';
 import type { JarvisSettings } from '../ux/settings';
 import { getModelStats } from '../notes/modelStats';
 import { checkCapacityWarning, SimpleCorpusCache } from '../notes/embeddingCache';
+import { read_model_metadata } from '../notes/catalogMetadataStore';
 
 /**
  * Safety margin for incremental sweeps to catch notes that sync late.
@@ -263,8 +264,13 @@ export async function update_note_db(
     let page = 0;
 
     // Use last known note count as initial estimate (avoids double-counting loop)
+    // Try in-memory stats first, fall back to catalog metadata (persists across restarts)
     const stats = getModelStats(model.id);
-    const estimatedTotal = stats?.noteCount ?? 0;
+    let estimatedTotal = stats?.noteCount ?? 0;
+    if (estimatedTotal === 0 && catalogId) {
+      const catalogMeta = await read_model_metadata(catalogId, model.id);
+      estimatedTotal = catalogMeta?.noteCount ?? 0;
+    }
 
     // Iterate over all notes
     do {
@@ -282,14 +288,13 @@ export async function update_note_db(
         order_dir: 'DESC',
       });
       if (notes.items) {
-        // Track total notes discovered (not same as processed - some may be skipped)
-        total_notes += notes.items.length;
-
+        // Track only notes with embeddings (not all notes fetched)
+        // Use max(estimate, processed) so denominator grows if we exceed the estimate
         const result = await process_batch_and_update_progress(
           notes.items, model, settings, abortController, force, catalogId, panel,
           () => ({
             processed: processed_notes,
-            total: Math.max(estimatedTotal, total_notes)  // Show max of estimate vs discovered
+            total: Math.max(estimatedTotal, processed_notes)  // Both represent notes with embeddings
           }),
           (count) => {
             processed_notes += count;  // Only increment successfully processed
@@ -314,10 +319,7 @@ export async function update_note_db(
       if (!hasMoreNotes) break;
     } while (true);
     
-    console.info(`Jarvis: full sweep completed - ${processed_notes}/${total_notes} notes processed successfully`);
-    if (processed_notes < total_notes) {
-      console.warn(`Jarvis: ${total_notes - processed_notes} notes were skipped or failed during update`);
-    }
+    console.info(`Jarvis: full sweep completed - ${processed_notes} notes with embeddings processed`);
   }
   
   // Update last sweep timestamp after successful completion of any full sweep
