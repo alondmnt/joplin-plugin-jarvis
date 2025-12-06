@@ -558,7 +558,11 @@ export async function update_embeddings(
     }
   }
 
-  const processedCount = successfulNotes.length;
+  // Count notes with embeddings (new/updated) OR unchanged notes (validated with hash match)
+  // This excludes only excluded/deleted notes that return empty embeddings without skippedUnchanged flag
+  const processedCount = successfulNotes.filter(item =>
+    item.embeddings.length > 0 || skippedUnchangedNotes.includes(item.note.id)
+  ).length;
 
   if (successfulNotes.length === 0) {
     return { settingsMismatches, totalRows: 0, dim: 0, processedCount: 0 };
