@@ -20,6 +20,7 @@ import { calc_mean_embedding, calc_mean_embedding_float32, calc_links_embedding,
 import { ensure_model_error, promptEmbeddingError, MAX_EMBEDDING_RETRIES } from './embeddingUpdate';
 import type { BlockEmbedding, NoteEmbedding } from './embeddings';
 import { calc_note_embeddings, calc_hash, corpusCaches, userDataStore, preprocess_note_for_hashing } from './embeddings';
+import { read_user_data_embeddings } from './userDataReader';
 
 const log = getLogger();
 
@@ -87,6 +88,23 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     title: current_title,
     markup_language: markup_language
   });
+
+  // In userData mode, try to load query embedding from userData first
+  if (settings.notes_db_in_user_data) {
+    try {
+      const queryResults = await read_user_data_embeddings({
+        store: userDataStore,
+        modelId: model.id,
+        noteIds: [current_id],
+      });
+      if (queryResults.length > 0 && queryResults[0].blocks.length > 0) {
+        combinedEmbeddings = combinedEmbeddings.concat(queryResults[0].blocks);
+        log.debug(`[Jarvis] Loaded ${queryResults[0].blocks.length} query embedding blocks from userData`);
+      }
+    } catch (error) {
+      log.debug(`[Jarvis] No userData embedding found for query note ${current_id}`, error);
+    }
+  }
 
   // check if to re-calculate embedding of the query
   let query_embeddings = combinedEmbeddings.filter(embd => embd.id === current_id);
