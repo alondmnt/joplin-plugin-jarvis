@@ -259,13 +259,13 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
             Array.from(candidateIds),
             queryDim,
             (panel && settings) ? async (loaded, total, stage) => {
-              // Show progress starting from excluded notes count
-              // Progress: (excludedCount + loaded) / totalNotes
+              // Show progress for notes with embeddings only (consistent with sweep progress)
+              // Progress: loaded / total (both represent notes with embeddings, excluding excluded notes)
               if (loaded % 10 === 0 || loaded === total) {
                 await update_progress_bar(
                   panel,
-                  excludedCount + loaded,
-                  totalNotes,
+                  loaded,
+                  total,
                   settings,
                   stage || 'Building cache'
                 );
