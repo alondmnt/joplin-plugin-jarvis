@@ -114,11 +114,6 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
 
   if ((query_embeddings.length == 0) || hashMismatch) {
     // re-calculate embedding of the query
-    if (hashMismatch) {
-      log.info(`[Jarvis] Fresh embedding computed for note ${current_id} (hash mismatch)`);
-    } else {
-      log.debug(`[Jarvis] Fresh embedding computed for note ${current_id} (not in cache)`);
-    }
     let note_tags: string[];
     let tagsResponse: any = null;
     try {
@@ -157,7 +152,6 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         }
 
         if (action === 'skip' && hasCachedQueryEmbedding) {
-          log.warn(`Using cached embedding for note ${current_id}: ${error.message}`, (error as any).cause ?? error);
           break;
         }
 
@@ -165,8 +159,6 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         throw error;
       }
     }
-  } else if (hasCachedQueryEmbedding) {
-    log.info(`[Jarvis] Reusing cached embedding for note ${current_id} (hash match)`);
   }
 
   if (query_embeddings.length === 0) {
