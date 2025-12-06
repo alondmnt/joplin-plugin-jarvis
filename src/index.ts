@@ -27,9 +27,8 @@ import { open_model_management_dialog } from './ux/modelManagement';
 import { getModelStats } from './notes/modelStats';
 import { checkCapacityWarning } from './notes/embeddingCache';
 
-const STARTUP_DELAY_SECONDS = 5;
+const STARTUP_DELAY_SECONDS = 1;
 const PANEL_DEBOUNCE_SECONDS = 1;
-const REFRESH_ATTEMPT_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface UpdateOptions {
   force?: boolean;
