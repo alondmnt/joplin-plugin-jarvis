@@ -468,6 +468,7 @@ export async function update_embeddings(
   settingsMismatches: Array<{ noteId: string; currentSettings: EmbeddingSettings; storedSettings: EmbeddingSettings }>;
   totalRows: number;
   dim: number;
+  processedCount: number;
 }> {
   // Fetch excluded note IDs once for entire batch (with pagination)
   const excludedByTag = await get_excluded_note_ids_by_tags();
@@ -557,8 +558,10 @@ export async function update_embeddings(
     }
   }
 
+  const processedCount = successfulNotes.length;
+
   if (successfulNotes.length === 0) {
-    return { settingsMismatches, totalRows: 0, dim: 0 };
+    return { settingsMismatches, totalRows: 0, dim: 0, processedCount: 0 };
   }
 
   // Only populate model.embeddings when userData index is disabled (legacy mode)
@@ -580,7 +583,7 @@ export async function update_embeddings(
     }
     clearObjectReferences(successfulNotes);
 
-    return { settingsMismatches, totalRows: mergedEmbeddings.length, dim };
+    return { settingsMismatches, totalRows: mergedEmbeddings.length, dim, processedCount };
   }
 
   // Count total embedding rows without creating temporary array (memory efficient)
@@ -600,7 +603,7 @@ export async function update_embeddings(
   // Clear excluded note IDs cache after batch
   clear_excluded_note_ids_cache();
 
-  return { settingsMismatches, totalRows, dim };
+  return { settingsMismatches, totalRows, dim, processedCount };
 }
 
 // function to remove all embeddings of the given notes from an array of embeddings in-place

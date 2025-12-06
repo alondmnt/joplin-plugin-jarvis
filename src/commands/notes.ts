@@ -488,9 +488,9 @@ async function process_batch_and_update_progress(
   // Track actually processed notes (after filtering but before skipping)
   const actuallyProcessed = filteredBatch.length;
 
-  // Report progress based on original batch size (includes excluded notes)
-  // This ensures progress bar advances correctly even when notes are excluded
-  onProcessed(batch.length);
+  // Report progress based on actual processed count (excludes excluded/deleted notes)
+  // This ensures progress bar numerator matches the denominator (notes with embeddings)
+  onProcessed(result.processedCount);
   if (shouldUpdatePanel) {
     const { processed, total } = getProgress();
     update_progress_bar(panel, processed, total, settings, 'Computing embeddings');
