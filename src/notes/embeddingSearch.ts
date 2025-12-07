@@ -21,6 +21,7 @@ import { ensure_model_error, promptEmbeddingError, MAX_EMBEDDING_RETRIES } from 
 import type { BlockEmbedding, NoteEmbedding } from './embeddings';
 import { calc_note_embeddings, calc_hash, corpusCaches, userDataStore, preprocess_note_for_hashing } from './embeddings';
 import { read_user_data_embeddings } from './userDataReader';
+import type { UserDataEmbStore } from './userDataStore';
 
 const log = getLogger();
 
@@ -64,6 +65,96 @@ function resolve_search_tuning(settings: JarvisSettings): SearchTuning {
     candidateLimit,
     parentTargetSize,
   };
+}
+
+/**
+ * Fetch all note IDs from database and filter using exclusion rules.
+ *
+ * @param settings - Settings containing exclusion rules
+ * @param current_id - Query note ID to ensure inclusion
+ * @returns Set of note IDs that passed filtering (for embedding loading)
+ */
+async function get_candidate_note_ids(
+  settings: JarvisSettings,
+  current_id: string,
+): Promise<Set<string>> {
+  const excludedByTag = await get_excluded_note_ids_by_tags();
+  const allNoteIds = new Set<string>();
+  let page = 1;
+
+  while (true) {
+    const response = await joplin.data.get(['notes'], {
+      fields: ['id', 'parent_id', 'deleted_time', 'is_conflict'],
+      page,
+      limit: 100,
+      order_by: 'user_updated_time',
+      order_dir: 'DESC',
+    });
+
+    for (const note of response.items) {
+      // Fast exclusion checks (no API calls - data already in response)
+      const result = should_exclude_note(
+        note,
+        [],  // No tags array needed (using reverse-lookup instead)
+        settings,
+        { checkDeleted: true, checkTags: true, excludedByTag }
+      );
+
+      if (!result.excluded) {
+        allNoteIds.add(note.id);
+      }
+    }
+
+    const hasMore = response.has_more;
+    const itemCount = response.items?.length || 0;
+    clearApiResponse(response);
+
+    // Stop if no items OR has_more is explicitly false
+    if (itemCount === 0 || hasMore === false) break;
+    page++;
+  }
+
+  // Add current note (ensure it's included even if filtered)
+  allNoteIds.add(current_id);
+
+  return allNoteIds;
+}
+
+/**
+ * Debug validation: Compare cache search quality against brute-force baseline.
+ * Only runs when notes_debug_mode is enabled.
+ *
+ * @param cache - Built cache to validate
+ * @param settings - Settings (needs notes_debug_mode flag)
+ * @param model - Model for validation
+ * @param queryVector - Query embedding (Float32Array)
+ * @param userDataStore - Store for loading embeddings
+ * @param current_id - Query note ID
+ */
+async function validate_cache_quality_if_debug(
+  cache: SimpleCorpusCache,
+  settings: JarvisSettings,
+  model: TextEmbeddingModel,
+  queryVector: Float32Array,
+  userDataStore: UserDataEmbStore,
+  current_id: string,
+): Promise<void> {
+  if (!settings.notes_debug_mode) {
+    return; // Skip validation in production
+  }
+
+  // Reuse get_candidate_note_ids() - no duplication!
+  const candidateIds = await get_candidate_note_ids(settings, current_id);
+
+  const { validate_and_report } = await import('./cacheValidator');
+  await validate_and_report(
+    cache,
+    userDataStore,
+    model.id,
+    Array.from(candidateIds),
+    queryVector,
+    { precision: 0.95, recall: 0.95, debugMode: true }
+  );
 }
 
 export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, markup_language: number, current_title: string, query: string,
@@ -194,58 +285,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         } else {
           // Normal search-triggered build (only if no update running)
 
-          // Phase 1: Fetch all notes and filter with reverse-lookup (no progress updates yet)
-          const excludedByTag = await get_excluded_note_ids_by_tags();
-          const allNoteIds = new Set<string>();
-          let totalNotes = 0;
-          let excludedCount = 0;
-          let page = 1;
-
-          while (true) {
-            const response = await joplin.data.get(['notes'], {
-              fields: ['id', 'parent_id', 'deleted_time', 'is_conflict'],
-              page,
-              limit: 100,
-              order_by: 'user_updated_time',
-              order_dir: 'DESC',
-            });
-
-            for (const note of response.items) {
-              totalNotes++;
-
-              // Fast exclusion checks (no API calls - data already in response)
-              const result = should_exclude_note(
-                note,
-                [],  // No tags array needed (using reverse-lookup instead)
-                settings,
-                { checkDeleted: true, checkTags: true, excludedByTag }
-              );
-
-              if (result.excluded) {
-                excludedCount++;
-              } else {
-                allNoteIds.add(note.id);
-              }
-            }
-
-            const hasMore = response.has_more;
-            const itemCount = response.items?.length || 0;
-            clearApiResponse(response);
-
-            // Continue if we got items AND has_more is true
-            // Stop if no items OR has_more is explicitly false
-            if (itemCount === 0 || hasMore === false) break;
-            page++;
-          }
-
-          // Add current note (ensure it's included even if filtered)
-          allNoteIds.add(current_id);
-          const candidateIds = allNoteIds;
-
-          if (cache.getDim() !== 0 && cache.getDim() !== queryDim) {
-            log.warn(`[Cache] Dimension mismatch (cached=${cache.getDim()}, query=${queryDim}), invalidating`);
-            cache.invalidate();
-          }
+          // Fetch candidate notes (non-excluded notes with embeddings)
+          const candidateIds = await get_candidate_note_ids(settings, current_id);
 
           if (settings.notes_debug_mode) {
             const estimatedBlocks = candidateIds.size * 10;
@@ -315,54 +356,15 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         }
       }
 
-      if (settings.notes_debug_mode) {
-        // TEMPORARY: Validate cache precision/recall against brute-force baseline
-        // Fetch note IDs only for validation (expensive, but only in debug mode)
-        // Use inline filtering for consistency (same as cache build above)
-        const excludedByTag = await get_excluded_note_ids_by_tags();
-        const validationNoteIds = new Set<string>();
-        let page = 1;
-
-        while (true) {
-          const response = await joplin.data.get(['notes'], {
-            fields: ['id', 'parent_id', 'deleted_time', 'is_conflict'],
-            page,
-            limit: 100,
-            order_by: 'user_updated_time',
-            order_dir: 'DESC',
-          });
-
-          for (const note of response.items) {
-            const result = should_exclude_note(
-              note,
-              [],
-              settings,
-              { checkDeleted: true, checkTags: true, excludedByTag }
-            );
-
-            if (!result.excluded) {
-              validationNoteIds.add(note.id);
-            }
-          }
-
-          const hasMore = response.has_more;
-          const itemCount = response.items?.length || 0;
-          clearApiResponse(response);
-
-          if (itemCount === 0 || hasMore === false) break;
-          page++;
-        }
-
-        const { validate_and_report } = await import('./cacheValidator');
-        await validate_and_report(
-          cache,
-          userDataStore,
-          model.id,
-          Array.from(validationNoteIds),
-          rep_embedding,
-          { precision: 0.95, recall: 0.95, debugMode: true }
-        );
-      }
+      // Validate cache quality (debug mode only)
+      await validate_cache_quality_if_debug(
+        cache,
+        settings,
+        model,
+        rep_embedding,
+        userDataStore,
+        current_id
+      );
 
       // Replace legacy blocks with cache results
       const replaceIds = new Set(cacheResults.map(r => r.noteId));
