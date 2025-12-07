@@ -272,14 +272,24 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         corpusCaches.set(model.id, cache);
       }
 
-      // Check if cache needs rebuilding (dimension mismatch or not built)
-      let needsBuild = !cache.isBuilt() || cache.getDim() !== queryDim;
+      // Check if cache needs rebuilding (dimension mismatch or not fully built)
+      // Use isFullyBuilt() to distinguish "fully built via ensureBuilt()" from "incrementally building during sweep"
+      let needsBuild = !cache.isFullyBuilt() || cache.getDim() !== queryDim;
 
       if (needsBuild) {
-        // Don't build cache during updates - wait for sweep to finish
-        // Panel shows "Update in progress" anyway, and will auto-refresh when sweep completes
-        if (isUpdateInProgress) {
-          log.info('[Cache] Update in progress, waiting for cache to be built by sweep...');
+        // Only skip building if:
+        // 1. Update is in progress (sweep running), AND
+        // 2. Cache is completely empty (no blocks yet)
+        // This handles full sweeps that will build the cache themselves.
+        //
+        // If cache has partial data (incremental sweep), we build now because:
+        // - Incremental sweeps don't show progress indicators
+        // - Incremental sweeps only update changed notes, not full cache
+        // - User expects immediate complete results with progress bar
+        const skipBuildDueToUpdate = isUpdateInProgress && !cache.isBuilt();
+
+        if (skipBuildDueToUpdate) {
+          log.info('[Cache] Full sweep in progress, waiting for cache to be built by sweep...');
           // Return empty results - panel will update when sweep completes
           combinedEmbeddings = [];
         } else {
@@ -302,15 +312,14 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
             (panel && settings) ? async (loaded, total, stage) => {
               // Show progress for notes with embeddings only (consistent with sweep progress)
               // Progress: loaded / total (both represent notes with embeddings, excluding excluded notes)
-              if (loaded % 10 === 0 || loaded === total) {
-                await update_progress_bar(
-                  panel,
-                  loaded,
-                  total,
-                  settings,
-                  stage || 'Building cache'
-                );
-              }
+              // Note: userDataReader already filters to every 10 notes, so we show all updates here
+              await update_progress_bar(
+                panel,
+                loaded,
+                total,
+                settings,
+                stage || 'Building cache'
+              );
             } : undefined,
             model,
             settings,

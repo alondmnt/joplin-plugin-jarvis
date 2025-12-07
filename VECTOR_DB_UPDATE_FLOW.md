@@ -150,29 +150,37 @@ graph TD
 
 ```mermaid
 graph TD
-    A[User Searches] --> B{Cache Exists?}
-    B -->|No| C[Build Cache]
-    B -->|Yes| D{Cache Valid?<br/>Dim Matches?}
-    D -->|No| E[Rebuild Cache]
-    D -->|Yes| F[Use Existing Cache]
+    A[User Searches] --> B{Cache Fully Built?}
+    B -->|No| C{Update In Progress?}
+    B -->|Yes| D{Dim Matches?}
 
-    C --> G[Fetch All Notes<br/>Paginated]
-    G --> H[Tag Reverse-Lookup<br/>4 API calls]
-    H --> I[Filter Candidates<br/>In-Memory]
-    I --> J[Try Load Shards<br/>Graceful Failures]
-    J --> K[Store Q8 in RAM]
-    K --> L[Set Model Stats<br/>Actual Count]
-    L --> M[Search in RAM]
+    C -->|Yes, Empty Cache| E[Return Empty<br/>Wait for Sweep]
+    C -->|Yes, Partial Cache| F[Build Full Cache Now]
+    C -->|No| F
 
-    E --> G
-    F --> M
+    D -->|No| F[Build Full Cache Now]
+    D -->|Yes| G[Use Existing Cache]
 
-    M --> N[Return Results<br/>10-50ms]
+    F --> H[Fetch All Notes<br/>Paginated]
+    H --> I[Tag Reverse-Lookup<br/>4 API calls]
+    I --> J[Filter Candidates<br/>In-Memory]
+    J --> K[Try Load Shards<br/>Graceful Failures]
+    K --> L[Store Q8 in RAM]
+    L --> M[Set Model Stats<br/>Actual Count]
+    M --> N[Mark as Fully Built]
+    N --> O[Search in RAM]
+
+    E --> P[Empty Results]
+    G --> O
+    O --> Q[Return Results<br/>10-50ms]
 ```
 
 **Cache Build Process (Two Phases):**
 
-Only builds cache when needed (first search or dimension change).
+Builds cache when needed:
+- **First search** (cache empty or not fully built)
+- **Dimension change** (model switched)
+- **Partial cache during incremental sweep** (NEW: ensures complete results immediately)
 
 **Phase 1: Fetch and Filter (silent - fast)**
 1. Fetch exclusion tags once via reverse-lookup
@@ -211,7 +219,9 @@ Only builds cache when needed (first search or dimension change).
 - ✅ **Total notes denominator**: Progress bar always shows X/1062 (matches full sweep UX)
 
 **What happens:**
-- **First search:** Cache built (2-5 seconds on desktop, 5-15 seconds on mobile)
+- **First search (cache empty):** Cache built with progress bar (2-5 seconds on desktop, 5-15 seconds on mobile)
+- **Search during full sweep (cache empty):** Returns empty results, sweep builds cache incrementally
+- **Search during incremental sweep (partial cache):** **NEW** - Builds full cache immediately with progress bar (5-15 seconds on mobile)
 - **Subsequent searches:** Pure RAM search (10-50ms)
 - **Progress indicator:** Phase 1 silent (fast), Phase 2 shows X/totalNotes progress every 10 embeddings loaded
 
@@ -305,6 +315,43 @@ graph TD
 
 ---
 
+## Cache State Tracking
+
+**NEW (v0.11.1+):** The cache now distinguishes between two states:
+
+### Partial Cache (Incrementally Building)
+- **How it happens:** Incremental sweeps add recently modified notes one-by-one
+- **Characteristics:**
+  - Has dimension set
+  - Contains some blocks (e.g., 5-10 notes)
+  - Flag `_builtViaEnsureBuilt = false`
+- **Search behavior:** Triggers full cache build with progress bar
+
+### Fully Built Cache
+- **How it happens:** Search calls `ensureBuilt()` to load all notes at once
+- **Characteristics:**
+  - Has complete corpus
+  - Contains all notes with embeddings
+  - Flag `_builtViaEnsureBuilt = true`
+- **Search behavior:** Uses existing cache (10-50ms)
+
+**Why this matters:**
+
+Before this change (mobile startup issue):
+1. Incremental sweep adds 5 notes → Cache appears "built"
+2. User searches → Uses incomplete cache
+3. Shows 5 results instead of 10 (confusing UX)
+
+After this change:
+1. Incremental sweep adds 5 notes → Cache is "partially built"
+2. User searches → Detects incomplete cache
+3. **Builds full cache with progress bar** (5-15 seconds)
+4. Shows complete 10 results immediately
+
+**Race condition protection:** If `ensureBuilt()` is running, `updateNote()` waits for it to complete to avoid buffer corruption.
+
+---
+
 ## Cache Invalidation Rules
 
 The RAM cache is invalidated (cleared) in these cases:
@@ -390,7 +437,7 @@ graph TD
 | **Startup** | Once | Only if first time | Only if full | Not built | Only if full |
 | **Periodic (Timer)** | Every N min | Once per 12h | Once per 12h | Incrementally updated | Yes (all processed notes) |
 | **Note Edit** | Per save | No | No | Incrementally updated | No |
-| **Search** | On demand | No | No | Built if needed | No |
+| **Search** | On demand | No | No | **Full build if empty/partial/dim-mismatch** | No |
 | **Manual Update** | User action | Yes | Yes | Incrementally updated | Yes (all notes) |
 
 ---
@@ -402,8 +449,14 @@ graph TD
 - More than 12 hours since last full sweep
 
 **When to build cache:**
-- Cache not built yet, OR
-- Dimension mismatch (model changed)
+- Cache not fully built yet (`_builtViaEnsureBuilt = false`), OR
+- Dimension mismatch (model changed), OR
+- Cache has partial data from incremental sweep
+
+**When to skip cache build during search:**
+- Update in progress (sweep running), AND
+- Cache is completely empty (no blocks yet)
+- This allows full sweeps to build cache incrementally without blocking searches
 
 **When to update catalog metadata:**
 - Full sweeps only (not incremental sweeps)

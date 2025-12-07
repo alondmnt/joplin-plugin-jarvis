@@ -147,6 +147,9 @@ export class SimpleCorpusCache {
   private buildPromise: Promise<number> | null = null;
   private buildDurationMs: number = 0;
 
+  // Track whether cache was fully built via ensureBuilt() (not just incrementally during sweep)
+  private _builtViaEnsureBuilt: boolean = false;
+
   /**
    * Ensure cache is built (handles concurrent calls).
    */
@@ -166,7 +169,9 @@ export class SimpleCorpusCache {
       this.invalidate();
     }
 
-    if (this.isBuilt()) {
+    // Return early only if cache was fully built via ensureBuilt()
+    // Don't return if cache only has partial data from incremental sweep updates
+    if (this.isFullyBuilt()) {
       return;
     }
 
@@ -184,6 +189,7 @@ export class SimpleCorpusCache {
     this.buildPromise = this.build(store, modelId, noteIds, dim, onProgress, abortController);
     const actualNoteCount = await this.buildPromise;
     this.buildPromise = null;
+    this._builtViaEnsureBuilt = true;  // Mark cache as fully built
 
     // Update in-memory stats with accurate values from cache build
     if (this.isBuilt()) {
@@ -287,8 +293,9 @@ export class SimpleCorpusCache {
       }
 
       // Allocate shared buffers (only for valid blocks)
-      this.q8Buffer = new Int8Array(validBlocks * dim);
-      this.blocks = [];
+      // Use local variables to avoid race conditions with invalidate()
+      const q8Buffer = new Int8Array(validBlocks * dim);
+      const blocks: BlockMetadata[] = [];
 
       // Fill buffers (progress already shown during loading)
       let blockIdx = 0;
@@ -302,10 +309,10 @@ export class SimpleCorpusCache {
 
           // Copy Q8 vector to shared buffer
           const qOffset = blockIdx * dim;
-          this.q8Buffer.set(block.q8.values, qOffset);
+          q8Buffer.set(block.q8.values, qOffset);
 
           // Store metadata
-          this.blocks.push({
+          blocks.push({
             noteId: block.id,
             noteHash: block.hash,
             qOffset,
@@ -319,6 +326,10 @@ export class SimpleCorpusCache {
           blockIdx++;
         }
       }
+
+      // Atomically assign buffers to instance (prevents partial state if invalidated during build)
+      this.q8Buffer = q8Buffer;
+      this.blocks = blocks;
 
       // Calculate actual note count from results (before clearing)
       const actualNoteCount = new Set(results.map(r => r.noteId)).size;
@@ -402,6 +413,7 @@ export class SimpleCorpusCache {
     this.dim = 0;
     this.buildPromise = null;
     this.buildDurationMs = 0;
+    this._builtViaEnsureBuilt = false;
 
     if (wasBuilt) {
       log.debug('[Cache] Invalidated');
@@ -433,6 +445,14 @@ export class SimpleCorpusCache {
     noteHash: string,
     debugMode: boolean = false
   ): Promise<void> {
+    // Wait for concurrent full build to complete before updating
+    // This prevents race conditions where updateNote() modifies buffers while build() is filling them
+    if (this.buildPromise) {
+      await this.buildPromise;
+      // After full build completes, this incremental update is redundant (note already included)
+      return;
+    }
+
     // Initialize cache from first note if empty
     if (!this.isBuilt() && this.dim === 0) {
       // Read this note's embeddings to discover dimension
@@ -637,6 +657,14 @@ export class SimpleCorpusCache {
    */
   isBuilt(): boolean {
     return this.q8Buffer !== null && this.blocks.length > 0;
+  }
+
+  /**
+   * Check if cache was fully built via ensureBuilt() (not just incrementally during sweep).
+   * Use this for search operations to avoid using incomplete cache.
+   */
+  isFullyBuilt(): boolean {
+    return this._builtViaEnsureBuilt && this.isBuilt();
   }
 
   /**
