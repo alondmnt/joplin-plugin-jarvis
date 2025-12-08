@@ -17,7 +17,11 @@ export interface ReadEmbeddingsOptions {
   currentSettings?: EmbeddingSettings;
   validationTracker?: ValidationTracker;
   // Optional progress callback: (processed: number, total: number, stage?: string) => Promise<void>
+  // Semantics: [notes with embeddings loaded] / [estimated total notes with embeddings]
   onProgress?: (processed: number, total: number, stage?: string) => Promise<void>;
+  // Optional estimated total notes with embeddings (for accurate progress denominator)
+  // If not provided, falls back to noteIds.length (candidates)
+  estimatedNotesWithEmbeddings?: number;
   // Optional abort controller for cancellation support
   abortController?: AbortController;
 }
@@ -43,7 +47,7 @@ export interface NoteEmbeddingsResult {
  * mismatch). Caller can then show dialog after search completes with human-readable diffs.
  */
 export async function read_user_data_embeddings(options: ReadEmbeddingsOptions): Promise<NoteEmbeddingsResult[]> {
-  const { store, modelId, noteIds, maxRows, onBlock, currentModel, currentSettings, validationTracker, onProgress, abortController } = options;
+  const { store, modelId, noteIds, maxRows, onBlock, currentModel, currentSettings, validationTracker, onProgress, estimatedNotesWithEmbeddings, abortController } = options;
   const results: NoteEmbeddingsResult[] = [];
   const decoder = new ShardDecoder();
   const cache = new ShardLRUCache(4);
@@ -55,9 +59,11 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
   const notesMetaForValidation: Array<{ noteId: string; meta: NoteEmbMeta; modelId: string }> = [];
   const shouldValidate = currentModel && currentSettings && validationTracker;
 
-  const totalNotes = noteIds.length;
+  // Progress denominator: use estimated total if provided, else fall back to noteIds.length
+  const progressTotal = estimatedNotesWithEmbeddings ?? noteIds.length;
   // Update progress every 10 notes (or every 50 for very large sets)
-  const PROGRESS_INTERVAL = totalNotes > 500 ? 50 : 10;
+  const PROGRESS_INTERVAL = progressTotal > 500 ? 50 : 10;
+  let notesWithEmbeddings = 0;  // Track actual notes loaded (for accurate progress numerator)
 
   for (let i = 0; i < noteIds.length; i++) {
     const noteId = noteIds[i];
@@ -67,10 +73,6 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
       throw new Error('Embedding read aborted');
     }
 
-    // Update progress periodically (every PROGRESS_INTERVAL notes, or on last note)
-    if (onProgress && (i % PROGRESS_INTERVAL === 0 || i === noteIds.length - 1)) {
-      await onProgress(i + 1, totalNotes, 'Loading embeddings...');
-    }
     if (remaining <= 0) {
       break;
     }
@@ -183,6 +185,16 @@ export async function read_user_data_embeddings(options: ReadEmbeddingsOptions):
         hash: modelMeta.contentHash,
         blocks,
       });
+      notesWithEmbeddings += 1;
+    } else if (useCallback && rowsRead > 0) {
+      // In callback mode, count note if any rows were processed
+      notesWithEmbeddings += 1;
+    }
+
+    // Report progress: [notes with embeddings loaded] / [estimated total notes with embeddings]
+    // Use Math.max so denominator grows if we exceed the estimate (consistent with DB update progress)
+    if (onProgress && notesWithEmbeddings % PROGRESS_INTERVAL === 0) {
+      await onProgress(notesWithEmbeddings, Math.max(notesWithEmbeddings, progressTotal));
     }
 
     if (stopAll) {

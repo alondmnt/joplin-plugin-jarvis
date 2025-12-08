@@ -263,6 +263,30 @@ export class SimpleCorpusCache {
     }
 
     // Read all embeddings from userData with progress updates
+    // estimatedNotesWithEmbeddings: match DB update fallback chain for consistent UX
+    // 1. Try in-memory stats first
+    // 2. Fall back to catalog metadata (persists across restarts)
+    // 3. Fall back to noteIds.length (candidates - upper bound)
+    const { getModelStats } = await import('./modelStats');
+    const modelStats = getModelStats(modelId);
+    let estimatedNotesWithEmbeddings = modelStats?.noteCount ?? 0;
+    if (estimatedNotesWithEmbeddings === 0) {
+      try {
+        const { get_catalog_note_id } = await import('./catalog');
+        const { read_model_metadata } = await import('./catalogMetadataStore');
+        const catalogId = await get_catalog_note_id();
+        if (catalogId) {
+          const catalogMeta = await read_model_metadata(catalogId, modelId);
+          estimatedNotesWithEmbeddings = catalogMeta?.noteCount ?? 0;
+        }
+      } catch {
+        // Ignore errors reading catalog metadata
+      }
+    }
+    if (estimatedNotesWithEmbeddings === 0) {
+      estimatedNotesWithEmbeddings = noteIds.length;
+    }
+
     let results: any[] = [];
     try {
       results = await read_user_data_embeddings({
@@ -274,6 +298,7 @@ export class SimpleCorpusCache {
         currentSettings: null,
         validationTracker: null,
         onProgress,
+        estimatedNotesWithEmbeddings,
         abortController,
       });
 
