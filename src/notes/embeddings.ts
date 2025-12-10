@@ -177,6 +177,19 @@ function split_block_to_max_size(block: string,
   }
 }
 
+function truncate_to_max_tokens(text: string, model: TextEmbeddingModel, max_size: number): string {
+  const tokens = model.count_tokens(text);
+  if (tokens <= max_size) {
+    return text;
+  }
+  // Estimate chars per token and truncate
+  const suffix = ' [truncated]';
+  const suffix_tokens = model.count_tokens(suffix);
+  const ratio = text.length / tokens;
+  const target_chars = Math.floor((max_size - suffix_tokens) * ratio * 0.95); // 5% buffer for estimation error
+  return text.substring(0, target_chars) + suffix;
+}
+
 function split_code_block_by_lines(block: string,
     model: TextEmbeddingModel, max_size: number): string[] {
   const lines = block.split('\n');
@@ -191,8 +204,9 @@ function split_code_block_by_lines(block: string,
       current_size += tokens;
     } else {
       blocks.push(current_block);
-      current_block = line + '\n';
-      current_size = tokens;
+      const truncated_line = truncate_to_max_tokens(line, model, max_size);
+      current_block = truncated_line + '\n';
+      current_size = model.count_tokens(truncated_line);
     }
   }
 
@@ -225,8 +239,9 @@ function split_text_block_by_sentences_and_newlines(block: string,
       current_size += tokens;
     } else {
       blocks.push(current_block);
-      current_block = segment;
-      current_size = tokens;
+      const truncated_segment = truncate_to_max_tokens(segment, model, max_size);
+      current_block = truncated_segment;
+      current_size = model.count_tokens(truncated_segment);
     }
   };
 
