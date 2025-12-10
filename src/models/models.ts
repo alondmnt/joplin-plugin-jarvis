@@ -1631,23 +1631,14 @@ export class NoOpEmbedding extends TextEmbeddingModel {
     super();
     this.id = 'none';
     this.version = 'none-1.0';
-    this.max_block_size = 512;
     this.online = false;
     this.model = null;  // null so existing guards (model === null) work
-    this.requests_per_second = 1000;
+    this.disableModelLoad = true;
     this.disableDbLoad = true;
   }
 
-  async _load_model() {
-    console.log('NoOpEmbedding: Model disabled');
-  }
-
   // Override to skip the null check in parent class
-  async embed(_text: string, _kind: EmbeddingKind = 'doc', _abortSignal?: AbortSignal): Promise<Float32Array> {
-    return new Float32Array(1);
-  }
-
-  async _calc_embedding(_text: string, _context: EmbedContext): Promise<Float32Array> {
+  async embed(): Promise<Float32Array> {
     return new Float32Array(1);
   }
 }
