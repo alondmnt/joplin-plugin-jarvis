@@ -680,6 +680,7 @@ export async function register_settings() {
       label: 'Notes: Semantic similarity model',
       description: 'The model to use for calculating text embeddings. Default: (offline) Universal Sentence Encoder [English]',
       options: {
+        'none': 'None (disable embedding features)',
         'Universal Sentence Encoder': '(offline) Universal Sentence Encoder [English]',
         'openai-custom': '(online/offline) OpenAI or compatible: custom model',
         'ollama': '(offline) Ollama',

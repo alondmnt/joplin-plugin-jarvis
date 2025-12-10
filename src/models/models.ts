@@ -313,7 +313,10 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
   let model: TextEmbeddingModel = null;
   console.log(`load_embedding_model: ${settings.notes_model}`);
 
-  if (settings.notes_model === 'Universal Sentence Encoder') {
+  if (settings.notes_model === 'none') {
+    model = new NoOpEmbedding();
+
+  } else if (settings.notes_model === 'Universal Sentence Encoder') {
     model = new USEEmbedding(
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
@@ -1620,5 +1623,31 @@ export class NoOpGeneration extends TextGenerationModel {
 
   async _complete(prompt: string): Promise<string> {
     return 'Generation disabled. Select a chat model in Jarvis settings to get responses.';
+  }
+}
+
+export class NoOpEmbedding extends TextEmbeddingModel {
+  constructor() {
+    super();
+    this.id = 'none';
+    this.version = 'none-1.0';
+    this.max_block_size = 512;
+    this.online = false;
+    this.model = null;  // null so existing guards (model === null) work
+    this.requests_per_second = 1000;
+    this.disableDbLoad = true;
+  }
+
+  async _load_model() {
+    console.log('NoOpEmbedding: Model disabled');
+  }
+
+  // Override to skip the null check in parent class
+  async embed(_text: string, _kind: EmbeddingKind = 'doc', _abortSignal?: AbortSignal): Promise<Float32Array> {
+    return new Float32Array(1);
+  }
+
+  async _calc_embedding(_text: string, _context: EmbedContext): Promise<Float32Array> {
+    return new Float32Array(1);
   }
 }

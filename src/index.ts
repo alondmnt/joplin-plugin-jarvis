@@ -829,7 +829,7 @@ async function register_settings_handler(
         clear_corpus_cache(oldModelId);
       }
 
-      if (runtime.settings.notes_db_in_user_data && newModelId) {
+      if (runtime.settings.notes_db_in_user_data && newModelId && newModelId !== 'none') {
         // Skip coverage check if migration from SQLite may be pending
         // (firstBuildCompleted is false AND model was used before, indicated by lastSweepTime > 0)
         const firstBuildCompleted = Boolean(runtime.settings.notes_model_first_build_completed?.[newModelId]);
