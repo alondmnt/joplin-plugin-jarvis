@@ -9,8 +9,14 @@ export interface CapacityWarning {
 
 export async function register_panel(panel: string, settings: JarvisSettings, model: any) {
   let model_str = '';
-  if (model.model === null && model.id) {
-    // Real model failed to load (not just a stub during startup)
+  if (model.id === 'none') {
+    // User chose to disable embeddings
+    model_str = 'Embedding features disabled. Select a model in settings to enable.';
+  } else if (model.disableModelLoad && model.model === null) {
+    // Mobile with userData disabled
+    model_str = 'Embeddings unavailable on mobile. Enable "Store in note properties" in settings.';
+  } else if (model.model === null && model.id) {
+    // Real model failed to load
     model_str = 'Model could not be loaded.';
     if (model.online === false) {
       model_str += ` Note that ${model.id} runs completely locally, but requires network access in order to load the model.`;
