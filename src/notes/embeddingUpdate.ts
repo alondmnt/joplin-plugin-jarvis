@@ -164,15 +164,19 @@ async function update_note(note: any,
     }
     delete_note_and_embeddings(model.db, note.id);
 
-    // Delete all userData embeddings (for all models)
     if (settings.notes_db_in_user_data) {
-      try {
-        await userDataStore.gcOld(note.id, '', '');
-      } catch (error) {
-        log.warn(`Failed to delete userData for excluded note ${note.id}`, error);
+      // Only delete userData for tag/conflict exclusions, not folder exclusions.
+      // Folder exclusion is a device-specific setting that isn't synced, so we
+      // shouldn't delete synced userData embeddings — just filter them from search.
+      if (exclusionResult.reason !== 'folder') {
+        try {
+          await userDataStore.gcOld(note.id, '', '');
+        } catch (error) {
+          log.warn(`Failed to delete userData for excluded note ${note.id}`, error);
+        }
       }
 
-      // Incrementally update cache (remove blocks for deleted note)
+      // Always update cache (filters from search regardless of exclusion reason)
       await update_cache_for_note(userDataStore, model.id, note.id, '', settings.notes_debug_mode, true);
     }
 
