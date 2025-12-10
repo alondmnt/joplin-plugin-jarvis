@@ -574,7 +574,10 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
   // Skip search for excluded notes on automatic triggers (respect user's exclusion intent).
   // Explicit triggers (e.g., toggle panel command) bypass this check.
   if (!explicit) {
-    const exclusionResult = should_exclude_note(note, null, settings,
+    const tagsResponse = await joplin.data.get(['notes', note.id, 'tags'], { fields: ['title'] });
+    const noteTags = tagsResponse.items?.map((t: any) => t.title) || [];
+    clearApiResponse(tagsResponse);
+    const exclusionResult = should_exclude_note(note, noteTags, settings,
       { checkDeleted: true, checkTags: true });
     if (exclusionResult.excluded) {
       await update_panel(panel, [], settings, null,
