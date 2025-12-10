@@ -151,32 +151,40 @@ export interface JarvisSettings {
 };
 
 export const model_max_tokens: { [model: string] : number; } = {
+  // OpenAI reasoning models
   'o4-mini': 100000,
   'o4': 100000,
   'o3-mini': 100000,
   'o3': 100000,
   'o1-mini': 100000,
   'o1': 100000,
+  // OpenAI GPT-5 (current)
   'gpt-5-nano': 128000,
   'gpt-5-mini': 128000,
+  'gpt-5.1': 128000,
+  // OpenAI legacy
   'gpt-5': 128000,
   'gpt-4.1-nano': 32768,
   'gpt-4.1-mini': 32768,
   'gpt-4.1': 32768,
-  'gpt-4.5': 16384,
   'gpt-4o-mini': 16384,
   'gpt-4o': 16384,
   'gpt-4-turbo': 16384,
-  'gpt-4-32k': 32768,
   'gpt-4': 8192,
   'gpt-3.5-turbo': 16384,
-  'gpt-3.5-turbo-instruct': 4096,
+  // Google Gemini 2.5 (current)
   'gemini-2.5-flash-lite': 65536,
   'gemini-2.5-flash': 65536,
   'gemini-2.5-pro': 65536,
+  // Google Gemini legacy
   'gemini-2.0-flash-lite': 8192,
   'gemini-2.0-flash': 8192,
   'gemini-2.0-pro': 8192,
+  // Anthropic Claude 4.5 (current)
+  'claude-opus-4-5': 64000,
+  'claude-sonnet-4-5': 64000,
+  'claude-haiku-4-5': 64000,
+  // Anthropic Claude legacy
   'claude-opus-4-1': 32000,
   'claude-opus-4-0': 32000,
   'claude-sonnet-4-0': 64000,
@@ -519,12 +527,12 @@ export async function register_settings() {
       options: {
         'none': 'None (disable generation features)',
         'openai-custom': 'OpenAI-compatible custom model (e.g., Ollama, Claude)',
-        'gpt-5-nano':'OpenAI: gpt-5-nano (in:400K, out:32K, cheapest reasoning)',
-        'gpt-5-mini':'OpenAI: gpt-5-mini (in:400K, out:32K)',
-        'gpt-5': 'OpenAI: gpt-5 (in:400K, out:32K, strongest reasoning)',
-        'claude-3-5-haiku-latest': 'Anthropic: claude-3-5-haiku (in:200K, out:8K, cheapest)',
-        'claude-sonnet-4-0': 'Anthropic: claude-sonnet-4-0 (in:200K, out:64K)',
-        'claude-opus-4-1': 'Anthropic: claude-opus-4-1 (in:200K, out:32K, strongest)',
+        'gpt-5-nano':'OpenAI: gpt-5-nano (in:400K, out:128K, cheapest reasoning)',
+        'gpt-5-mini':'OpenAI: gpt-5-mini (in:400K, out:128K)',
+        'gpt-5.1': 'OpenAI: gpt-5.1 (in:400K, out:128K, strongest reasoning)',
+        'claude-haiku-4-5': 'Anthropic: claude-haiku-4.5 (in:200K, out:64K, cheapest)',
+        'claude-sonnet-4-5': 'Anthropic: claude-sonnet-4.5 (in:200K, out:64K)',
+        'claude-opus-4-5': 'Anthropic: claude-opus-4.5 (in:200K, out:64K, strongest)',
         'gemini-2.5-flash-lite': 'Google AI: gemini-2.5-flash-lite (in:1M, out:64K)',
         'gemini-2.5-flash': 'Google AI: gemini-2.5-flash (in:1M, out:64K)',
         'gemini-2.5-pro': 'Google AI: gemini-2.5-pro (in:1M, out:64K)',

@@ -1506,8 +1506,8 @@ export class AnthropicGeneration extends OpenAIGeneration {
       return;
     }
     this.model = this.id;  // anything other than null
-    if (this.id.includes('opus')) {
-      // Opus cannot accept both temperature and top_p
+    if (this.id.includes('opus') || this.id.includes('4-5')) {
+      // Claude 4.5 models and Opus cannot accept both temperature and top_p
       this.top_p = null;
     }
 
