@@ -25,7 +25,8 @@ export async function update_panel(
   panel: string,
   nearest: NoteEmbedding[],
   settings: JarvisSettings,
-  capacityWarning?: CapacityWarning | null
+  capacityWarning?: CapacityWarning | null,
+  message?: string
 ) {
   // TODO: collapse according to settings
   let search_box = '<p align="center"><input class="jarvis-semantic-query" type="search" id="jarvis-search" placeholder="Semantic search..."></p>';
@@ -36,6 +37,11 @@ export async function update_panel(
     ? `<p class="jarvis-capacity-warning">Library at ${capacityWarning.percentage}%. Exclude folders in settings.</p>`
     : '';
 
+  // Optional message (e.g., for excluded notes)
+  const messageHtml = message
+    ? `<p class="jarvis-panel-message">${message}</p>`
+    : '';
+
   await joplin.views.panels.setHtml(panel, `
   <html>
   <style>
@@ -44,6 +50,7 @@ export async function update_panel(
   <div class="container">
     <p class="jarvis-semantic-title">${settings.notes_panel_title}</p>
     ${search_box}
+    ${messageHtml}
     ${(await Promise.all(nearest)).map((n) => `
     <details ${n.title === "Chat context" ? "open" : ""}>
       <summary class="jarvis-semantic-note">

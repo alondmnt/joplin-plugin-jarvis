@@ -10,6 +10,7 @@ import type { JarvisSettings } from '../ux/settings';
 import { getModelStats } from '../notes/modelStats';
 import { checkCapacityWarning, SimpleCorpusCache } from '../notes/embeddingCache';
 import { read_model_metadata } from '../notes/catalogMetadataStore';
+import { should_exclude_note } from '../notes/noteHelpers';
 
 /**
  * Safety margin for incremental sweeps to catch notes that sync late.
@@ -558,7 +559,7 @@ function formatSettingsDiff(current: EmbeddingSettings, stored: EmbeddingSetting
   return diffs;
 }
 
-export async function find_notes(model: TextEmbeddingModel, panel: string) {
+export async function find_notes(model: TextEmbeddingModel, panel: string, explicit: boolean = false) {
   if (!(await joplin.views.panels.visible(panel))) {
     return;
   }
@@ -569,6 +570,19 @@ export async function find_notes(model: TextEmbeddingModel, panel: string) {
   if (!note) {
     return;
   }
+
+  // Skip search for excluded notes on automatic triggers (respect user's exclusion intent).
+  // Explicit triggers (e.g., toggle panel command) bypass this check.
+  if (!explicit) {
+    const exclusionResult = should_exclude_note(note, null, settings,
+      { checkDeleted: true, checkTags: true });
+    if (exclusionResult.excluded) {
+      await update_panel(panel, [], settings, null,
+        "Note excluded. Run 'Find related notes' to search anyway.");
+      return;
+    }
+  }
+
   let selected = '';
   try {
     selected = await joplin.commands.execute('selectedText');
