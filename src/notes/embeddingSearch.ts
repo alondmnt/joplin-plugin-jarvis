@@ -190,10 +190,9 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       });
       if (queryResults.length > 0 && queryResults[0].blocks.length > 0) {
         combinedEmbeddings = combinedEmbeddings.concat(queryResults[0].blocks);
-        log.debug(`[Jarvis] Loaded ${queryResults[0].blocks.length} query embedding blocks from userData`);
       }
     } catch (error) {
-      log.debug(`[Jarvis] No userData embedding found for query note ${current_id}`, error);
+      // No userData embedding found for query note
     }
   }
 
