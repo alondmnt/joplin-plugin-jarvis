@@ -366,7 +366,7 @@ async function register_content_scripts(): Promise<void> {
 async function register_commands_and_menus(
   runtime: PluginRuntime,
   updates: UpdateManager,
-  find_notes_debounce: (model: TextEmbeddingModel, panel: string) => void,
+  find_notes_debounce: (model: TextEmbeddingModel, panel: string, explicit?: boolean) => void,
 ): Promise<void> {
   await joplin.commands.register({
     name: 'jarvis.ask',
@@ -493,7 +493,7 @@ async function register_commands_and_menus(
       if (runtime.model_embed.model === null) {
         await runtime.model_embed.initialize();
       }
-      find_notes_debounce(runtime.model_embed, runtime.panel);
+      find_notes_debounce(runtime.model_embed, runtime.panel, true);
     },
   });
 
@@ -508,7 +508,7 @@ async function register_commands_and_menus(
         if (runtime.model_embed.model === null) {
           await runtime.model_embed.initialize();
         }
-        find_notes_debounce(runtime.model_embed, runtime.panel);
+        find_notes_debounce(runtime.model_embed, runtime.panel, true);
       }
     },
   });
@@ -643,7 +643,7 @@ async function register_commands_and_menus(
 async function register_workspace_listeners(
   runtime: PluginRuntime,
   updates: UpdateManager,
-  find_notes_debounce: (model: TextEmbeddingModel, panel: string) => void,
+  find_notes_debounce: (model: TextEmbeddingModel, panel: string, explicit?: boolean) => void,
 ): Promise<void> {
   const flush_note_changes = async (options: { silent?: boolean } = {}) => {
     if (runtime.pending_note_ids.size === 0) {
@@ -788,7 +788,7 @@ async function register_workspace_listeners(
 async function register_settings_handler(
   runtime: PluginRuntime,
   updates: UpdateManager,
-  find_notes_debounce: (model: TextEmbeddingModel, panel: string) => void,
+  find_notes_debounce: (model: TextEmbeddingModel, panel: string, explicit?: boolean) => void,
 ): Promise<void> {
   await joplin.settings.onChange(async (event) => {
     const previousSettings = runtime.settings;
