@@ -1,7 +1,7 @@
 import joplin from "api";
 import { JarvisSettings, search_prompts } from '../ux/settings';
 import { TextGenerationModel } from "../models/models";
-import { split_by_tokens, with_timeout, ModelError } from "../utils";
+import { split_by_tokens, with_timeout, ModelError, truncateErrorForDialog } from "../utils";
 import { runPubmedQuery, getPubmedFullText } from './pubmed';
 import { PaperInfo, SearchParams } from './types';
 
@@ -422,8 +422,10 @@ async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInf
       throw error;  // Propagate cancellation
     }
     // For other errors, show dialog and potentially retry
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Paper summarization error: ${errorMessage}`);
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Error: ${error}\nPress OK to retry, Cancel to abort.`);
+      `Error: ${truncateErrorForDialog(errorMessage)}\nPress OK to retry, Cancel to abort.`);
     if (errorHandler === 1) {  // Cancel button pressed
       throw new ModelError('Paper summarization cancelled by user');
     }

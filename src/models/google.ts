@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { GenerativeModel } from '@google/generative-ai';
-import { ModelError } from '../utils';
+import { ModelError, truncateErrorForDialog } from '../utils';
 import type { EmbedContext } from './models';
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
@@ -31,8 +31,9 @@ export async function query_chat(model: GenerativeModel, prompt: Array<{role: st
 
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    console.error(`Gemini chat error: ${message}`);
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error: ${message}\nPress OK to retry.`
+      `Gemini Error: ${truncateErrorForDialog(message)}\nPress OK to retry.`
       );
 
     // cancel button
@@ -55,8 +56,9 @@ export async function query_completion(model: GenerativeModel, prompt: string, t
 
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    console.error(`Gemini completion error: ${message}`);
     const errorHandler = await joplin.views.dialogs.showMessageBox(
-      `Gemini Error: ${message}\nPress OK to retry.`
+      `Gemini Error: ${truncateErrorForDialog(message)}\nPress OK to retry.`
       );
 
     // cancel button

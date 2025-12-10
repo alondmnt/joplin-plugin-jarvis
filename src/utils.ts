@@ -247,6 +247,21 @@ export class ModelError extends Error {
 }
 
 /**
+ * Truncate long error messages for display in dialogs.
+ * Shows the first N chars, "....", and the last N chars.
+ * Full message should be logged separately.
+ */
+export function truncateErrorForDialog(message: string, maxChars: number = 200): string {
+  if (!message || message.length <= maxChars) {
+    return message;
+  }
+  const halfLen = Math.floor((maxChars - 4) / 2);  // 4 chars for "...."
+  const start = message.slice(0, halfLen);
+  const end = message.slice(-halfLen);
+  return `${start}....${end}`;
+}
+
+/**
  * Convert messy HTML -> normalized "Markdown-lite" that you use for BOTH embeddings and LLM context.
  * Deterministic, compact, and keeps helpful structure (headings, lists, code, TSV tables).
  */

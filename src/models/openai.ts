@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { ModelError } from '../utils';
+import { ModelError, truncateErrorForDialog } from '../utils';
 import type { EmbedContext } from './models';
 
 // get the next response for a chat formatted *input prompt* from a *chat model*
@@ -62,9 +62,10 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
     error_message = normalizeErrorMessage(error);
   }
 
-  // display error message
+  // display error message (truncated for dialog, full message logged)
+  console.error(`OpenAI chat error: ${error_message}`);
   const errorHandler = await joplin.views.dialogs.showMessageBox(
-    `Error: ${error_message}\nPress OK to retry.`
+    `Error: ${truncateErrorForDialog(error_message)}\nPress OK to retry.`
     );
 
   // cancel button
@@ -158,8 +159,10 @@ export async function query_completion(prompt: string, api_key: string,
     error_message = normalizeErrorMessage(error);
   }
 
+  // display error message (truncated for dialog, full message logged)
+  console.error(`OpenAI completion error: ${error_message}`);
   const errorHandler = await joplin.views.dialogs.showMessageBox(
-    `Error: ${error_message}\nPress OK to retry.`
+    `Error: ${truncateErrorForDialog(error_message)}\nPress OK to retry.`
     );
 
   // cancel button

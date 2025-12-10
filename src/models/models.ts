@@ -91,7 +91,7 @@ function estimateTokens(text: string): number {
 
 import { HfInference } from '@huggingface/inference'
 import { JarvisSettings, clear_model_first_build_completed } from '../ux/settings';
-import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, ModelError } from '../utils';
+import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, ModelError, truncateErrorForDialog } from '../utils';
 import * as openai from './openai';
 import * as google from './google';
 import * as ollama from './ollama';
@@ -758,7 +758,7 @@ class USEEmbedding extends TextEmbeddingModel {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`USEEmbedding failed to load: ${errorMessage}`);
       await joplin.views.dialogs.showMessageBox(
-        `Error: USEEmbedding failed to load. ${errorMessage}`
+        `Error: USEEmbedding failed to load. ${truncateErrorForDialog(errorMessage)}`
       );
       this.model = null;
     }
@@ -829,7 +829,7 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`HuggingFaceEmbedding failed to load: ${errorMessage}`);
       await joplin.views.dialogs.showMessageBox(
-        `Error: Hugging Face embedding model failed to load. ${errorMessage}`
+        `Error: Hugging Face embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
       );
       this.model = null;
     }
@@ -925,7 +925,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`OpenAIEmbedding failed to load: ${errorMessage}`);
       await joplin.views.dialogs.showMessageBox(
-        `Error: OpenAI embedding model failed to load. ${errorMessage}`
+        `Error: OpenAI embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
       );
       this.model = null;
     }
@@ -942,7 +942,7 @@ class OpenAIEmbedding extends TextEmbeddingModel {
 
 class GeminiEmbedding extends TextEmbeddingModel {
   private api_key: string = null;
-  
+
   constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, timeout_secs: number, endpoint: string=null) {
     super();
     this.id = id;
@@ -977,7 +977,7 @@ class GeminiEmbedding extends TextEmbeddingModel {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`GeminiEmbedding failed to load: ${errorMessage}`);
       await joplin.views.dialogs.showMessageBox(
-        `Error: Gemini embedding model failed to load. ${errorMessage}`
+        `Error: Gemini embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
       );
       this.model = null;
     }
@@ -1025,7 +1025,7 @@ class OllamaEmbedding extends TextEmbeddingModel {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`OllamaEmbedding failed to load: ${errorMessage}`);
       await joplin.views.dialogs.showMessageBox(
-        `Error: Ollama embedding model failed to load. ${errorMessage}`
+        `Error: Ollama embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
       );
       this.model = null;
     }
@@ -1356,7 +1356,7 @@ export class HuggingFaceGeneration extends TextGenerationModel {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`HuggingFaceGeneration failed to load: ${errorMessage}`);
       await joplin.views.dialogs.showMessageBox(
-        `Error: Hugging Face generation model failed to load. ${errorMessage}`
+        `Error: Hugging Face generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
       );
       this.model = null;
     }
@@ -1375,12 +1375,14 @@ export class HuggingFaceGeneration extends TextGenerationModel {
       return result['generated_text'].replace(prompt, '');
 
     } catch (e) {
-      // display error message
+      // display error message (truncated for dialog, full message logged)
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`HuggingFaceGeneration error: ${errorMessage}`);
       const errorHandler = await joplin.views.dialogs.showMessageBox(
-        `Error in HuggingFaceGeneration: ${e}\nPress OK to retry.`);
+        `Error in HuggingFaceGeneration: ${truncateErrorForDialog(errorMessage)}\nPress OK to retry.`);
       // cancel button
       if (errorHandler === 1) {
-        throw new ModelError(`HuggingFaceGeneration failed: ${e.message}`);
+        throw new ModelError(`HuggingFaceGeneration failed: ${errorMessage}`);
       }
       // retry
       return this._complete(prompt);
@@ -1458,7 +1460,7 @@ export class OpenAIGeneration extends TextGenerationModel {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`OpenAIGeneration failed to load: ${errorMessage}`);
       await joplin.views.dialogs.showMessageBox(
-        `Error: OpenAI generation model failed to load. ${errorMessage}`
+        `Error: OpenAI generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
       );
       this.model = null;
     }
@@ -1515,7 +1517,7 @@ export class AnthropicGeneration extends OpenAIGeneration {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`AnthropicGeneration failed to load: ${errorMessage}`);
       await joplin.views.dialogs.showMessageBox(
-        `Error: Anthropic generation model failed to load. ${errorMessage}`
+        `Error: Anthropic generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
       );
       this.model = null;
     }
@@ -1576,7 +1578,7 @@ export class GeminiGeneration extends TextGenerationModel {
         const errorMessage = e instanceof Error ? e.message : String(e);
         console.error(`GeminiGeneration failed to load: ${errorMessage}`);
         await joplin.views.dialogs.showMessageBox(
-          `Error: Gemini generation model failed to load. ${errorMessage}`
+          `Error: Gemini generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
         );
         this.model = null;
     }
