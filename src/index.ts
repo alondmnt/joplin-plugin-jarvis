@@ -70,7 +70,8 @@ joplin.plugins.register({
     const partialRuntime = await initialize_runtime_ui();
     
     // Create stub models for Phase 2 (will be replaced in Phase 3)
-    const stub_embed = { model: null, initialized: false } as any;
+    // Include no-op initialize() to handle early event handler calls before Phase 3 completes
+    const stub_embed = { model: null, initialized: false, initialize: async () => {} } as any;
     const stub_gen = { model: null, initialized: false } as any;
     
     // Create panel with stub model - panel must exist before registering commands
