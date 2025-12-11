@@ -93,7 +93,7 @@ graph TD
 - ✅ Catalog metadata (rowCount, noteCount, dim)
 - ✅ lastFullSweepTime timestamp
 - ✅ RAM cache (incrementally updated for all processed notes)
-- ✅ Exclusion cleanup (removes embeddings for newly excluded notes)
+- ✅ Exclusion cleanup (tag/conflict exclusions remove embeddings; folder exclusions preserve them)
 
 **Incremental Sweep (rest of the time):**
 - ✅ UserData embeddings (recently changed notes only)
@@ -383,13 +383,11 @@ graph TD
 - ✅ Note deletions (blocks removed incrementally)
 - ✅ Sync operations (cache kept fresh via incremental sweeps)
 
-**Note about exclusion tags:**
-- Adding/removing `jarvis-exclude` tag does NOT invalidate cache
-- **If cache rebuilt:** New exclusions picked up immediately during Phase 1 filtering
-- **If note processed by sweep:** Embeddings removed from userData and cache incrementally
-- **If cache not rebuilt AND note not processed by sweep:** Excluded note may remain in search results until:
-  - Next cache rebuild (triggered by dimension change, excluded folder change, model switch), OR
-  - Next full sweep (every 12 hours) processes the note
+**Note about exclusions:**
+- Adding/removing exclusions does NOT invalidate cache
+- **Tag/conflict exclusions:** userData embeddings deleted, cache updated
+- **Folder exclusions:** userData embeddings **preserved** (device-specific setting, not synced), cache still filters them from search
+- **If cache not rebuilt AND note not processed by sweep:** Excluded note may remain in search results until next cache rebuild or full sweep
 
 ---
 
