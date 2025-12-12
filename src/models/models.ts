@@ -116,6 +116,16 @@ export interface EmbedContext {
   originalText: string;
 }
 
+/**
+ * Platform configuration context passed to embedding models.
+ * Models use this to configure their behavior based on platform and settings.
+ */
+interface EmbeddingPlatformContext {
+  isMobile: boolean;
+  dbInUserData: boolean;
+  firstBuildCompleted: boolean;
+}
+
 interface PreparedEmbedding {
   payload: string;
   context: EmbedContext;
@@ -392,30 +402,24 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
   if (!settings.notes_embed_heading) { model.version += 'h'; }
   if (!settings.notes_embed_tags) { model.version += 't'; }
 
-  // Skip platform-specific config for NoOpEmbedding (it manages its own flags)
-  if (model && !(model instanceof NoOpEmbedding)) {
-    const isMobile = settings.notes_device_platform === 'mobile';
-    model.allowFsCache = !isMobile;
-    let firstBuildCompleted = Boolean(settings.notes_model_first_build_completed?.[model?.id ?? '']);
+  // Build platform context for model configuration
+  const isMobile = settings.notes_device_platform === 'mobile';
+  let firstBuildCompleted = Boolean(settings.notes_model_first_build_completed?.[model?.id ?? '']);
 
-    // Clear firstBuildCompleted when userData is disabled (enables migration when re-enabled)
-    if (!settings.notes_db_in_user_data && firstBuildCompleted && model?.id) {
-      clear_model_first_build_completed(model.id);
-      firstBuildCompleted = false;
-    }
-
-    // Skip SQLite if: mobile OR (userData enabled AND first build completed)
-    // When userData is enabled but first build NOT completed, load SQLite for migration
-    model.disableDbLoad = isMobile || (settings.notes_db_in_user_data && firstBuildCompleted);
-    if (isMobile) {
-      console.info('Jarvis: skipping legacy SQLite load (mobile platform)', { modelId: model?.id });
-    } else if (settings.notes_db_in_user_data && firstBuildCompleted) {
-      console.info('Jarvis: skipping legacy SQLite load (migration completed)', { modelId: model?.id });
-    }
-    model.disableModelLoad = isMobile && !settings.notes_db_in_user_data;
-
-    console.info(`Jarvis: model load config - platform=${isMobile ? 'mobile' : 'desktop'}, firstBuild=${firstBuildCompleted}, disableDbLoad=${model.disableDbLoad}, disableModelLoad=${model.disableModelLoad}, experimental=${settings.notes_db_in_user_data}`);
+  // Clear firstBuildCompleted when userData is disabled (enables migration when re-enabled)
+  if (!settings.notes_db_in_user_data && firstBuildCompleted && model?.id) {
+    clear_model_first_build_completed(model.id);
+    firstBuildCompleted = false;
   }
+
+  const platformContext: EmbeddingPlatformContext = {
+    isMobile,
+    dbInUserData: settings.notes_db_in_user_data,
+    firstBuildCompleted,
+  };
+
+  // Let the model configure itself based on platform context
+  model.configurePlatform(platformContext);
 
   await model.initialize();
   return model
@@ -458,6 +462,23 @@ export class TextEmbeddingModel {
   protected defaultQueryPrefix = 'Query: ';
 
   constructor() {
+  }
+
+  /**
+   * Configure platform-specific behavior based on context.
+   * Called by factory before initialize(). Subclasses can override to customize.
+   *
+   * Default implementation:
+   * - disableModelLoad: true on mobile without userData
+   * - disableDbLoad: true on mobile OR after migration completed
+   * - allowFsCache: true on desktop, false on mobile
+   */
+  public configurePlatform(context: EmbeddingPlatformContext): void {
+    this.disableModelLoad = context.isMobile && !context.dbInUserData;
+    this.disableDbLoad = context.isMobile || (context.dbInUserData && context.firstBuildCompleted);
+    this.allowFsCache = !context.isMobile;
+
+    console.info(`Jarvis: model platform config - platform=${context.isMobile ? 'mobile' : 'desktop'}, firstBuild=${context.firstBuildCompleted}, disableDbLoad=${this.disableDbLoad}, disableModelLoad=${this.disableModelLoad}, dbInUserData=${context.dbInUserData}`);
   }
 
   protected configureAdapter(modelId: string | null | undefined): void {
@@ -1640,6 +1661,11 @@ export class NoOpEmbedding extends TextEmbeddingModel {
     this.model = null;  // null so existing guards (model === null) work
     this.disableModelLoad = true;
     this.disableDbLoad = true;
+  }
+
+  // NoOpEmbedding ignores platform context - flags are already set in constructor
+  public configurePlatform(_context: EmbeddingPlatformContext): void {
+    // Do nothing - NoOpEmbedding always skips model and db loading
   }
 
   // Override to skip the null check in parent class
