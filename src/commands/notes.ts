@@ -659,6 +659,8 @@ Jarvis builds a semantic database of your notes for similarity search and AI cha
 
 To use on mobile, enable "Store in note properties" in Settings → Jarvis → Related Notes (experimental).
 
+Other features (chat, prompts) work without this.
+
 Tip: Build the database on PC first (enable note properties DB), sync it to mobile, finally enable the setting on mobile.`
     );
     await joplin.settings.setValue('jarvis.releaseNotes', RELEASE_NOTES.version);
@@ -680,6 +682,8 @@ Jarvis builds a semantic database of your notes for similarity search and AI cha
 ${calc_msg}, then ${storageMethod}. When chatting, only relevant excerpts are sent to your AI model. The database never leaves your device.
 
 Initial indexing: ${indexTime} for ~500 notes.
+
+Other features (chat, prompts) work without this.
 
 OK = build now (background)
 Cancel = build later (Tools → Jarvis menu)`
