@@ -26,7 +26,7 @@ import {
 import { open_model_management_dialog } from './ux/modelManagement';
 import { getModelStats } from './notes/modelStats';
 import { checkCapacityWarning } from './notes/embeddingCache';
-import { RELEASE_NOTES } from './release';
+import { RELEASE_NOTES } from './ux/release';
 
 const STARTUP_DELAY_SECONDS = 1;
 const PANEL_DEBOUNCE_SECONDS = 1;

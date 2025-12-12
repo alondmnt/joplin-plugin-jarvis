@@ -11,7 +11,7 @@ import { getModelStats } from '../notes/modelStats';
 import { checkCapacityWarning, SimpleCorpusCache } from '../notes/embeddingCache';
 import { read_model_metadata } from '../notes/catalogMetadataStore';
 import { should_exclude_note } from '../notes/noteHelpers';
-import { RELEASE_NOTES } from '../release';
+import { RELEASE_NOTES } from '../ux/release';
 
 /**
  * Safety margin for incremental sweeps to catch notes that sync late.
