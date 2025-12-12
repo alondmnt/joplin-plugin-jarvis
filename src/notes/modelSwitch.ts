@@ -86,9 +86,8 @@ export function coverage_ratio_to_percent(ratio: number): number {
  */
 export function build_model_switch_dialog_html(stats: ModelCoverageStats, modelId: string): string {
   const percent = coverage_ratio_to_percent(stats.coverageRatio);
-  const thresholdPercent = coverage_ratio_to_percent(LOW_COVERAGE_THRESHOLD);
   const headline = `Low coverage for ${modelId}`;
-  const summary = `Only ~${percent}% of notes (${stats.estimatedNotesWithModel}/${stats.totalNotes}) currently have embeddings. Switching without populating may return fewer results until coverage exceeds ${thresholdPercent}%.`;
+  const summary = `Only ~${percent}% of notes (${stats.estimatedNotesWithModel}/${stats.totalNotes}) currently have embeddings. Search results will be limited until embeddings are generated for more notes.`;
 
   return `
     <form name="jarvisModelSwitch">
