@@ -26,6 +26,7 @@ import {
 import { open_model_management_dialog } from './ux/modelManagement';
 import { getModelStats } from './notes/modelStats';
 import { checkCapacityWarning } from './notes/embeddingCache';
+import { RELEASE_NOTES } from './release';
 
 const STARTUP_DELAY_SECONDS = 1;
 const PANEL_DEBOUNCE_SECONDS = 1;
@@ -646,6 +647,9 @@ async function register_workspace_listeners(
   updates: UpdateManager,
   find_notes_debounce: (model: TextEmbeddingModel, panel: string, explicit?: boolean) => void,
 ): Promise<void> {
+  // Cache release notes version to avoid reading settings on every note selection
+  let lastSeenReleaseVersion = await joplin.settings.value('jarvis.releaseNotes') as string;
+
   const flush_note_changes = async (options: { silent?: boolean } = {}) => {
     if (runtime.pending_note_ids.size === 0) {
       return;
@@ -672,6 +676,13 @@ async function register_workspace_listeners(
   };
 
   await joplin.workspace.onNoteSelectionChange(async () => {
+    // Check for release notes display (once per version)
+    if (lastSeenReleaseVersion !== RELEASE_NOTES.version) {
+      lastSeenReleaseVersion = RELEASE_NOTES.version;
+      await joplin.settings.setValue('jarvis.releaseNotes', RELEASE_NOTES.version);
+      await joplin.views.dialogs.showMessageBox(RELEASE_NOTES.notes);
+    }
+
     if (runtime.model_embed.model === null) {
       await runtime.model_embed.initialize();
     }

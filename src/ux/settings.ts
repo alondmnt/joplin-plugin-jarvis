@@ -1329,6 +1329,15 @@ export async function register_settings() {
       label: 'Notes: Last full sweep timestamps (internal)',
       description: 'Internal map tracking per-model last successful full sweep (Unix timestamp ms). Used for sync staleness detection. Do not modify.',
     },
+    'jarvis.releaseNotes': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis.notes',
+      public: false,
+      advanced: true,
+      label: 'Release notes version (internal)',
+      description: 'Last seen release notes version. Do not modify.',
+    },
   });
 }
 
