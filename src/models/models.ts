@@ -392,7 +392,8 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
   if (!settings.notes_embed_heading) { model.version += 'h'; }
   if (!settings.notes_embed_tags) { model.version += 't'; }
 
-  if (model) {
+  // Skip platform-specific config for NoOpEmbedding (it manages its own flags)
+  if (model && !(model instanceof NoOpEmbedding)) {
     const isMobile = settings.notes_device_platform === 'mobile';
     model.allowFsCache = !isMobile;
     let firstBuildCompleted = Boolean(settings.notes_model_first_build_completed?.[model?.id ?? '']);
@@ -555,7 +556,9 @@ export class TextEmbeddingModel {
 
   // parent method
   async initialize() {
-    if (this.initialized) {
+    // Allow retry if model loading was attempted but failed (not intentionally disabled)
+    const modelLoadFailed = this.model === null && !this.disableModelLoad;
+    if (this.initialized && !modelLoadFailed) {
       return;
     }
     if (!this.disableModelLoad) {
