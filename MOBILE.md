@@ -27,7 +27,7 @@ Enabling "Store in note properties" stores embeddings inside your notes instead:
 If you have an existing desktop database, migration is faster:
 
 0. **Recommended**: Backup your Joplin database (Tools → Create backup).
-1. **Desktop**: Enable "Store in note properties" in Settings → Jarvis → Related Notes
+1. **Desktop**: Enable "Store in note properties" in Settings → Jarvis → Related Notes → Advanced
 2. **Desktop**: Rebuild the database (Tools → Jarvis → Update Jarvis note DB)
 3. **Sync**: Wait for sync to complete
 4. **Mobile**: Sync on mobile device
@@ -37,6 +37,6 @@ Building on desktop is significantly faster than mobile.
 
 ### Mobile Only
 
-1. Enable "Store in note properties" in Settings → Jarvis → Related Notes
+1. Enable "Store in note properties" in Settings → Jarvis → Related Notes → Advanced
 2. Build the database (Tools → Jarvis → Update Jarvis note DB)
 3. Wait for indexing to complete (slower on mobile)
