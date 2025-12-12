@@ -11,6 +11,7 @@ import { getModelStats } from '../notes/modelStats';
 import { checkCapacityWarning, SimpleCorpusCache } from '../notes/embeddingCache';
 import { read_model_metadata } from '../notes/catalogMetadataStore';
 import { should_exclude_note } from '../notes/noteHelpers';
+import { RELEASE_NOTES } from '../release';
 
 /**
  * Safety margin for incremental sweeps to catch notes that sync late.
@@ -622,10 +623,16 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
 }
 
 export async function skip_db_init_dialog(model: TextEmbeddingModel): Promise<boolean> {
+  // Check if user has already seen welcome or release notes (not a new user)
+  const seenReleaseNotes = await joplin.settings.value('jarvis.releaseNotes');
+  if (seenReleaseNotes) {
+    return false;
+  }
+
   // Check if database has been initialized before:
   // 1. Legacy approach: embeddings loaded in memory
-  if (model.embeddings.length > 0) { 
-    return false; 
+  if (model.embeddings.length > 0) {
+    return false;
   }
 
   // 2. New approach: catalog note exists (works on both desktop and mobile)
@@ -641,38 +648,46 @@ export async function skip_db_init_dialog(model: TextEmbeddingModel): Promise<bo
 
   // No database found - show welcome dialog
   const settings = await get_settings();
-  const storageMethod = settings.notes_db_in_user_data 
-    ? 'stored as note attachments in your Joplin database (experimental)'
-    : 'stored in a local SQLite database file';
-  
-  let calc_msg = `Embeddings are calculated locally (offline) by running ${model.id}`;
-  let compute = 'PC';
-  if (model.online) {
-    calc_msg = `Embeddings are calculated remotely (online) by sending requests to ${model.id}`;
-    compute = 'connection';
+  const isMobile = settings.notes_device_platform === 'mobile';
+
+  // Mobile without userData cannot build database - show different message
+  if (isMobile && !settings.notes_db_in_user_data) {
+    await joplin.views.dialogs.showMessageBox(
+      `Welcome to Jarvis Note Search!
+
+Jarvis builds a semantic database of your notes for similarity search and AI chat.
+
+To use on mobile, enable "Store in note properties" in Settings → Jarvis → Related Notes (experimental).
+
+Tip: Build the database on PC first (enable note properties DB), sync it to mobile, finally enable the setting on mobile.`
+    );
+    await joplin.settings.setValue('jarvis.releaseNotes', RELEASE_NOTES.version);
+    return true; // Skip DB init
   }
 
-  return (await joplin.views.dialogs.showMessageBox(
+  const storageMethod = settings.notes_db_in_user_data
+    ? 'stored as note attachments in your Joplin database (experimental)'
+    : 'stored in a local SQLite database file';
+
+  const calc_msg = `Embeddings are calculated ${model.online ? 'remotely (online)' : 'locally (offline)'} by ${model.id}`;
+  const indexTime = model.online ? '10-60 minutes' : '5-30 minutes';
+
+  const result = await joplin.views.dialogs.showMessageBox(
     `Welcome to Jarvis Note Search!
 
-Jarvis can build a searchable database of your notes to help you:
-  • Find similar notes based on meaning, not just keywords
-  • Chat with your notes using AI that understands your content
+Jarvis builds a semantic database of your notes for similarity search and AI chat.
 
-HOW IT WORKS:
-${calc_msg}, then ${storageMethod}. All data stays under your control.
+${calc_msg}, then ${storageMethod}. When chatting, only relevant excerpts are sent to your AI model. The database never leaves your device.
 
-PRIVACY:
-When you chat with your notes, only relevant excerpts are sent to your chosen AI model. The database itself never leaves your device.
+Initial indexing: ${indexTime} for ~500 notes.
 
-SETUP TIME:
-Initial indexing takes ${compute === 'PC' ? '5-30 minutes' : '10-60 minutes'} for ~500 notes, depending on your ${compute}.
+OK = build now (background)
+Cancel = build later (Tools → Jarvis menu)`
+  );
 
-───────────────────────────────
+  // Mark as seen (prevents welcome from showing again, and release notes for this version)
+  await joplin.settings.setValue('jarvis.releaseNotes', RELEASE_NOTES.version);
 
-Press OK to build the database now in the background.
-Press Cancel to postpone (you can start anytime from Tools → Jarvis → Update Jarvis note DB).
-
-Tip: You can disable automatic updates by setting 'Database update period' to 0 in settings.`
-    ) == 1);
+  // Return true (skip init) if Cancel was pressed
+  return result === 1;
 }
