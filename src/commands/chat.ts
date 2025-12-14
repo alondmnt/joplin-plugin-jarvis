@@ -3,7 +3,7 @@ import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks } from '../notes/embeddings';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
-import { split_by_tokens, clearApiResponse, clearObjectReferences } from '../utils';
+import { split_by_tokens, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
 
 
 export async function chat_with_jarvis(model_gen: TextGenerationModel) {
@@ -78,8 +78,8 @@ export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<s
     clearObjectReferences(note);
   }
 
-  // remove chat commands
-  prompt = prompt.replace(cmd_block_pattern, '');
+  // remove jarvis blocks (summary, links, command blocks)
+  prompt = stripJarvisBlocks(prompt);
   // get last tokens
   prompt = split_by_tokens([prompt], model_gen, model_gen.memory_tokens, 'last')[0].join(' ');
 
@@ -197,7 +197,7 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
     {prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]} {
   // get global commands
   const commands = get_global_commands(note.body);
-  note.body = note.body.replace(cmd_block_pattern, '');
+  note.body = stripJarvisBlocks(note.body);
 
   // (previous responses) strip lines that start with {ref_notes_prefix}
   prompt = prompt.replace(new RegExp('^' + ref_notes_prefix + '.*$', 'gm'), '');

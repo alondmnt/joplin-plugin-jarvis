@@ -454,7 +454,7 @@ export function clearApiResponse(response: any): null {
   if (!response || typeof response !== 'object') {
     return null;
   }
-  
+
   try {
     // Clear items array if present
     if (Array.isArray(response.items)) {
@@ -466,6 +466,23 @@ export function clearApiResponse(response: any): null {
   } catch {
     // Ignore errors
   }
-  
+
   return null;
+}
+
+// Module-level regex patterns (created once, reused on every call)
+// Following existing pattern in chat.ts:61
+const jarvisSummaryPattern = /<!-- jarvis-summary-start -->[\s\S]*?<!-- jarvis-summary-end -->/g;
+const jarvisLinksPattern = /<!-- jarvis-links-start -->[\s\S]*?<!-- jarvis-links-end -->/g;
+const jarvisCmdPattern = /```jarvis[\s\S]*?```/gm;
+
+/**
+ * Strip all Jarvis-generated blocks from text.
+ * Removes: summary blocks, links blocks, and jarvis command blocks.
+ */
+export function stripJarvisBlocks(text: string): string {
+  return text
+    .replace(jarvisSummaryPattern, '')
+    .replace(jarvisLinksPattern, '')
+    .replace(jarvisCmdPattern, '');
 }

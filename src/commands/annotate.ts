@@ -2,7 +2,7 @@ import joplin from 'api';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { find_nearest_notes } from '../notes/embeddings';
 import { JarvisSettings } from '../ux/settings';
-import { get_all_tags, split_by_tokens, clearApiResponse, clearObjectReferences } from '../utils';
+import { get_all_tags, split_by_tokens, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
 
 
 export async function annotate_title(model_gen: TextGenerationModel,
@@ -18,7 +18,7 @@ export async function annotate_title(model_gen: TextGenerationModel,
   try {
     if (text.length === 0) {
       const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.title) - 30;
-      text = split_by_tokens([note.body], model_gen, text_tokens, 'first')[0].join(' ');
+      text = split_by_tokens([stripJarvisBlocks(note.body)], model_gen, text_tokens, 'first')[0].join(' ');
     }
     // get the first number or date in the current title
     let title = note.title.match(/^[\d-/.]+/);
@@ -51,7 +51,7 @@ export async function annotate_summary(model_gen: TextGenerationModel,
     const find_summary = new RegExp(`${summary_start}[\\s\\S]*?${summary_end}`);
 
     const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.summary) - 80;
-    const text = split_by_tokens([note.body.replace(find_summary, '')], model_gen, text_tokens, 'first')[0].join(' ');
+    const text = split_by_tokens([stripJarvisBlocks(note.body)], model_gen, text_tokens, 'first')[0].join(' ');
 
     const prompt = `Note content\n===\n${text}\n===\n\nInstruction\n===\n${settings.prompts.summary.replace('{preferred_language}', settings.annotate_preferred_language)}\n===\n\nNote summary\n===\n`;
 
@@ -84,7 +84,7 @@ export async function annotate_links(model_embed: TextEmbeddingModel, settings: 
 
   try {
     // semantic search
-    const nearest = await find_nearest_notes(model_embed.embeddings, note.id, note.markup_language, note.title, note.body, model_embed, settings);
+    const nearest = await find_nearest_notes(model_embed.embeddings, note.id, note.markup_language, note.title, stripJarvisBlocks(note.body), model_embed, settings);
 
     // generate links
     const links = nearest.map(n => `[${n.title}](:/${n.id})`).join('\n');
@@ -137,7 +137,7 @@ export async function annotate_tags(model_gen: TextGenerationModel, model_embed:
       }
 
       // semantic search
-      const nearest = await find_nearest_notes(model_embed.embeddings, note.id, note.markup_language, note.title, note.body, model_embed, settings);
+      const nearest = await find_nearest_notes(model_embed.embeddings, note.id, note.markup_language, note.title, stripJarvisBlocks(note.body), model_embed, settings);
       // generate examples
       let notes: string[] = [];
       for (const n of nearest) {

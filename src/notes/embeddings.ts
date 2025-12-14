@@ -5,7 +5,7 @@ import { UserDataEmbStore } from './userDataStore';
 import { globalValidationTracker } from './validator';
 import { getLogger } from '../utils/logger';
 import { TextEmbeddingModel, TextGenerationModel, EmbeddingKind } from '../models/models';
-import { search_keywords, htmlToText, clearObjectReferences } from '../utils';
+import { search_keywords, htmlToText, clearObjectReferences, stripJarvisBlocks } from '../utils';
 import { QuantizedRowView } from './q8';
 import { append_ocr_text_to_body } from './noteHelpers';
 // Re-exported from other modules (preserved for backward compatibility)
@@ -52,6 +52,7 @@ export interface NoteEmbedding {
  * Steps performed:
  * 1. Convert HTML to Markdown if needed (markup_language === 2)
  * 2. Append OCR text if available
+ * 3. Strip Jarvis-generated blocks (summary, links, command blocks)
  *
  * @param note - Note object with id, body, title, markup_language
  * @returns Preprocessed body text ready for hashing
@@ -74,6 +75,9 @@ export async function preprocess_note_for_hashing(note: {
 
   // Append OCR text if available
   await append_ocr_text_to_body(note);
+
+  // Strip Jarvis-generated blocks (summary, links, command blocks)
+  note.body = stripJarvisBlocks(note.body);
 
   return note.body;
 }
