@@ -1,6 +1,6 @@
 # Mobile Setup
 
-Jarvis is fully supported on mobile. Most features work immediately; the notes database requires synced storage.
+Jarvis is fully supported on mobile. Most features work immediately; the notes database requires opting in to the latest note properties database.
 
 ## Contents
 
