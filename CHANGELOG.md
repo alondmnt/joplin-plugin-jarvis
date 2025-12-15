@@ -1,9 +1,42 @@
+# [v0.12.0](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.12.0)
+*Released on 2025-12-15T06:17:36Z*
+
+- added: **mobile support** (#62)
+  - all code migrated, and most commands accessible on mobile / web
+  - new database based on note properties [setup guide](https://github.com/alondmnt/joplin-plugin-jarvis/blob/master/MOBILE.md)
+    - syncs between devices and backed up with notes
+    - more memory efficient with in-memory cache and Q8 quantization
+  - device profile setting with platform-aware tuning
+- added: model management dialog
+  - manage your embedding models: view stats, delete, or switch models
+- added: setting: 'None' embedding model option
+  - disable embedding features (similar to the existing 'None' chat model option)
+- added: setting: toolbar button visibility
+  - most commands are now accessible from the toolbar
+  - configure which Jarvis toolbar buttons to display (chat, notes, find, edit, autocomplete, annotate)
+- added: release notes dialog
+- improved: upgraded models list
+  - gpt-5.2
+  - claude-4.5
+- improved: memory management
+- improved: decrease package size and plugin loading speed
+- improved: truncate long error messages from APIs
+- improved: truncate long lines in text blocks during chunking
+- improved: strip Jarvis-generated blocks from context in annotations, chat, auto-complete, and embeddings
+- improved: skip related notes search for excluded notes
+- improved: preserve embeddings for notes in excluded folders
+- improved: progress display with stage messages during database updates
+
+**Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.11.0...v0.12.0
+
+---
+
 # [v0.11.0](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.11.0)
 *Released on 2025-10-09T08:51:56Z*
 
-- added: OCR text indexing
+- added: OCR text indexing (FR #57)
     - you can now chat with your note attachments too
-- added: doc/query conditioning (embeddings v3)
+- added: doc/query conditioning (embeddings v3) (FR #52)
     - this is expected to improve semantic search
     - you will be prompted to rebuild your Jarvis database
 - added: keep response text selected for accept/reject/regenerate
@@ -18,7 +51,7 @@
 - improved: embeddings error handling: report note ID / title, retry / skip note
 - improved: openai error message handling
 - improved: research: paper ranking with new settings
-- improved: research: prompts and otuput
+- improved: research: prompts and output
 - improved: decrease default temperature setting
 - fixed: claude-opus support
 - fixed: claude max_tokens setting
