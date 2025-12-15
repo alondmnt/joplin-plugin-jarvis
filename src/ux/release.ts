@@ -1,15 +1,14 @@
 export const RELEASE_NOTES = {
-  version: 'v0.11.0',
-  notes: `v0.11.0:
-- added: OCR text indexing (chat with note attachments)
-- added: doc/query conditioning (embeddings v3) - improves semantic search
-- added: research: pubmed database paper search
-- added: settings: autocomplete prompt, embeddings timeout
-- improved: upgraded models (gpt-5, claude 4.1, gemini 2.5)
-- improved: html note processing, error handling
-- fixed: claude-opus support, max_tokens setting
-
-Note: You will be prompted to rebuild your Jarvis database.
+  version: 'v0.12.0',
+  notes: `v0.12.0:
+- added: mobile support, device profiles
+- added: new synced database (backed up with notes, memory efficient)
+- added: model management dialog
+- added: settings: 'None' embedding model, toolbar button visibility
+- improved: upgraded models (gpt-5.2, claude-4.5)
+- improved: memory management, package size, loading speed
+- improved: strip Jarvis-generated blocks from context
+- improved: skip search for excluded notes
 
 Full changelog: https://github.com/alondmnt/joplin-plugin-jarvis/releases
 `,
