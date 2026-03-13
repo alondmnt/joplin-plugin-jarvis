@@ -696,8 +696,8 @@ export async function register_settings() {
         'text-embedding-3-small': '(online) OpenAI: text-embedding-3-small [Multilingual]',
         'text-embedding-3-large': '(online) OpenAI: text-embedding-3-large [Multilingual]',
         'text-embedding-ada-002': '(online) OpenAI: text-embedding-ada-002 [Multilingual]',
-        'gemini-text-embedding-004': '(online) Google AI: text-embedding-004 [Multilingual]',
-        'gemini-embedding-001': '(online) Google AI: embedding-001 [Multilingual]',
+        'gemini-embedding-001': '(online) Google AI: gemini-embedding-001 [Multilingual]',
+        'gemini-embedding-2-preview': '(online) Google AI: gemini-embedding-2-preview [Multimodal]',
         'Hugging Face': '(online) Hugging Face [Multilingual]',
       }
     },

@@ -56,7 +56,7 @@ async function loadUSE(): Promise<typeof import('@tensorflow-models/universal-se
   return use;
 }
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 // js-tiktoken removed - using estimation only (always was in practice)
 // Better token estimation that handles various text types more accurately than length/4
 // This is what we were using as fallback, now it's the only method
@@ -377,7 +377,7 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
 
   } else if (settings.notes_model.startsWith('gemini')) {
     model = new GeminiEmbedding(
-      settings.notes_model.split('-').slice(1).join('-'),
+      settings.notes_model,
       settings.notes_max_tokens,
       settings.notes_parallel_jobs,
       settings.notes_abort_on_error,
@@ -991,8 +991,7 @@ class GeminiEmbedding extends TextEmbeddingModel {
       this.model = null;
       return;
     }
-    const genAI = new GoogleGenerativeAI(this.api_key);
-    this.model = genAI.getGenerativeModel({ model: this.id });
+    this.model = new GoogleGenAI({apiKey: this.api_key});
     console.log(this.id);
 
     try {
@@ -1012,7 +1011,7 @@ class GeminiEmbedding extends TextEmbeddingModel {
       throw new Error('Model not initialized');
     }
 
-    return google.query_embedding(text, this.model,this.abort_on_error, context);
+    return google.query_embedding(text, this.model, this.id, this.abort_on_error, context);
   }
 }
 
@@ -1589,11 +1588,7 @@ export class GeminiGeneration extends TextGenerationModel {
       return;
     }
 
-    const genAI = new GoogleGenerativeAI(this.api_key);
-    this.model = genAI.getGenerativeModel({
-      model: this.id,
-      systemInstruction: this.base_chat[0].content,
-    });
+    this.model = new GoogleGenAI({apiKey: this.api_key});
     console.log(this.id);
 
     try {
@@ -1610,12 +1605,12 @@ export class GeminiGeneration extends TextGenerationModel {
 
   async _chat(prompt: ChatEntry[]): Promise<string> {
     return google.query_chat(
-      this.model, prompt, this.temperature, this.top_p);
+      this.model, this.id, prompt, this.temperature, this.top_p);
   }
 
   async _complete(prompt: string): Promise<string> {
     return google.query_completion(
-      this.model, prompt, this.temperature, this.top_p);
+      this.model, this.id, prompt, this.temperature, this.top_p);
   }
 }
 
