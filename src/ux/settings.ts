@@ -161,8 +161,10 @@ export const model_max_tokens: { [model: string] : number; } = {
   // OpenAI GPT-5 (current)
   'gpt-5-nano': 128000,
   'gpt-5-mini': 128000,
-  'gpt-5.2': 128000,
+  'gpt-5.4': 128000,
   // OpenAI legacy
+  'gpt-5.3': 128000,
+  'gpt-5.2': 128000,
   'gpt-5.1': 128000,
   'gpt-5': 128000,
   'gpt-4.1-nano': 32768,
@@ -532,7 +534,7 @@ export async function register_settings() {
         'openai-custom': 'OpenAI-compatible custom model (e.g., Ollama, Claude)',
         'gpt-5-nano':'OpenAI: gpt-5-nano (in:400K, out:128K, cheapest reasoning)',
         'gpt-5-mini':'OpenAI: gpt-5-mini (in:400K, out:128K)',
-        'gpt-5.2': 'OpenAI: gpt-5.2 (in:400K, out:128K, strongest reasoning)',
+        'gpt-5.4': 'OpenAI: gpt-5.4 (in:400K, out:128K, strongest reasoning)',
         'claude-haiku-4-5': 'Anthropic: claude-haiku-4.5 (in:200K, out:64K, cheapest)',
         'claude-sonnet-4-6': 'Anthropic: claude-sonnet-4.6 (in:200K, out:64K)',
         'claude-opus-4-6': 'Anthropic: claude-opus-4.6 (in:200K, out:64K, strongest)',
