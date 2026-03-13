@@ -289,6 +289,16 @@ const createArchiveConfig = {
 		path: publishDir,
 	},
 	target: 'node',
+	module: {
+		rules: [
+			// Ignore non-JS assets pulled in via dynamic require() contexts
+			// (code splitting produces require("./"+chunk) which webpack expands to all dist/ files)
+			{
+				test: /\.(css|csv|py)$/,
+				type: 'asset/source',
+			},
+		],
+	},
 	plugins: [new WebpackOnBuildPlugin(onBuildCompleted)],
 	resolve: {
 		fallback: {
