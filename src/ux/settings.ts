@@ -181,11 +181,13 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gemini-2.0-flash-lite': 8192,
   'gemini-2.0-flash': 8192,
   'gemini-2.0-pro': 8192,
-  // Anthropic Claude 4.5 (current)
+  // Anthropic Claude 4.6 (current)
+  'claude-opus-4-6': 64000,
+  'claude-sonnet-4-6': 64000,
+  // Anthropic Claude legacy
   'claude-opus-4-5': 64000,
   'claude-sonnet-4-5': 64000,
   'claude-haiku-4-5': 64000,
-  // Anthropic Claude legacy
   'claude-opus-4-1': 32000,
   'claude-opus-4-0': 32000,
   'claude-sonnet-4-0': 64000,
@@ -532,8 +534,8 @@ export async function register_settings() {
         'gpt-5-mini':'OpenAI: gpt-5-mini (in:400K, out:128K)',
         'gpt-5.2': 'OpenAI: gpt-5.2 (in:400K, out:128K, strongest reasoning)',
         'claude-haiku-4-5': 'Anthropic: claude-haiku-4.5 (in:200K, out:64K, cheapest)',
-        'claude-sonnet-4-5': 'Anthropic: claude-sonnet-4.5 (in:200K, out:64K)',
-        'claude-opus-4-5': 'Anthropic: claude-opus-4.5 (in:200K, out:64K, strongest)',
+        'claude-sonnet-4-6': 'Anthropic: claude-sonnet-4.6 (in:200K, out:64K)',
+        'claude-opus-4-6': 'Anthropic: claude-opus-4.6 (in:200K, out:64K, strongest)',
         'gemini-2.5-flash-lite': 'Google AI: gemini-2.5-flash-lite (in:1M, out:64K)',
         'gemini-2.5-flash': 'Google AI: gemini-2.5-flash (in:1M, out:64K)',
         'gemini-2.5-pro': 'Google AI: gemini-2.5-pro (in:1M, out:64K)',
