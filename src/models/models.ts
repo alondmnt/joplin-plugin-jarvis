@@ -282,6 +282,7 @@ function resolveAdapterKey(modelId: string): string | null {
   return bestMatch?.key ?? null;
 }
 
+const COMM_TEST_ON_LOAD = false;  // disable to speed up startup and avoid wasting API calls (#65)
 const test_prompt = 'I am conducting a communitcation test. I need you to reply with a single word and absolutely nothing else: "Ack".';
 const dialogPreview = joplin.views.dialogs.create('joplin.preview.dialog');
 
@@ -847,15 +848,17 @@ class HuggingFaceEmbedding extends TextEmbeddingModel {
       this.model = this.model.endpoint(this.endpoint);
     }
 
-    try {
-      const vec = await this.embed(test_prompt);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      console.error(`HuggingFaceEmbedding failed to load: ${errorMessage}`);
-      await joplin.views.dialogs.showMessageBox(
-        `Error: Hugging Face embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
-      );
-      this.model = null;
+    if (COMM_TEST_ON_LOAD) {
+      try {
+        const vec = await this.embed(test_prompt);
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error(`HuggingFaceEmbedding failed to load: ${errorMessage}`);
+        await joplin.views.dialogs.showMessageBox(
+          `Error: Hugging Face embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
+        );
+        this.model = null;
+      }
     }
   }
 
@@ -943,15 +946,17 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     this.model = this.id;  // anything other than null
     console.log(this.id);
 
-    try {
-      const vec = await this.embed(test_prompt);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      console.error(`OpenAIEmbedding failed to load: ${errorMessage}`);
-      await joplin.views.dialogs.showMessageBox(
-        `Error: OpenAI embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
-      );
-      this.model = null;
+    if (COMM_TEST_ON_LOAD) {
+      try {
+        const vec = await this.embed(test_prompt);
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error(`OpenAIEmbedding failed to load: ${errorMessage}`);
+        await joplin.views.dialogs.showMessageBox(
+          `Error: OpenAI embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
+        );
+        this.model = null;
+      }
     }
   }
 
@@ -994,15 +999,17 @@ class GeminiEmbedding extends TextEmbeddingModel {
     this.model = new GoogleGenAI({apiKey: this.api_key});
     console.log(this.id);
 
-    try {
-      const vec = await this.embed(test_prompt);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      console.error(`GeminiEmbedding failed to load: ${errorMessage}`);
-      await joplin.views.dialogs.showMessageBox(
-        `Error: Gemini embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
-      );
-      this.model = null;
+    if (COMM_TEST_ON_LOAD) {
+      try {
+        const vec = await this.embed(test_prompt);
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error(`GeminiEmbedding failed to load: ${errorMessage}`);
+        await joplin.views.dialogs.showMessageBox(
+          `Error: Gemini embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
+        );
+        this.model = null;
+      }
     }
   }
 
@@ -1042,15 +1049,17 @@ class OllamaEmbedding extends TextEmbeddingModel {
     this.model = this.id;  // anything other than null
     console.log(this.id);
 
-    try {
-      const vec = await this.embed(test_prompt);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      console.error(`OllamaEmbedding failed to load: ${errorMessage}`);
-      await joplin.views.dialogs.showMessageBox(
-        `Error: Ollama embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
-      );
-      this.model = null;
+    if (COMM_TEST_ON_LOAD) {
+      try {
+        const vec = await this.embed(test_prompt);
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error(`OllamaEmbedding failed to load: ${errorMessage}`);
+        await joplin.views.dialogs.showMessageBox(
+          `Error: Ollama embedding model failed to load. ${truncateErrorForDialog(errorMessage)}`
+        );
+        this.model = null;
+      }
     }
   }
 
@@ -1373,15 +1382,17 @@ export class HuggingFaceGeneration extends TextGenerationModel {
       this.model = this.model.endpoint(this.endpoint);
     }
 
-    try {
-      const response = await this.complete(test_prompt);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      console.error(`HuggingFaceGeneration failed to load: ${errorMessage}`);
-      await joplin.views.dialogs.showMessageBox(
-        `Error: Hugging Face generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
-      );
-      this.model = null;
+    if (COMM_TEST_ON_LOAD) {
+      try {
+        const response = await this.complete(test_prompt);
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error(`HuggingFaceGeneration failed to load: ${errorMessage}`);
+        await joplin.views.dialogs.showMessageBox(
+          `Error: Hugging Face generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
+        );
+        this.model = null;
+      }
     }
   }
 
@@ -1477,15 +1488,17 @@ export class OpenAIGeneration extends TextGenerationModel {
     }
     this.model = this.id;  // anything other than null
 
-    try {
-      const vec = await this.complete(test_prompt);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      console.error(`OpenAIGeneration failed to load: ${errorMessage}`);
-      await joplin.views.dialogs.showMessageBox(
-        `Error: OpenAI generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
-      );
-      this.model = null;
+    if (COMM_TEST_ON_LOAD) {
+      try {
+        const vec = await this.complete(test_prompt);
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error(`OpenAIGeneration failed to load: ${errorMessage}`);
+        await joplin.views.dialogs.showMessageBox(
+          `Error: OpenAI generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
+        );
+        this.model = null;
+      }
     }
   }
 
@@ -1534,15 +1547,17 @@ export class AnthropicGeneration extends OpenAIGeneration {
       this.top_p = null;
     }
 
-    try {
-      const response = await this.complete(test_prompt);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      console.error(`AnthropicGeneration failed to load: ${errorMessage}`);
-      await joplin.views.dialogs.showMessageBox(
-        `Error: Anthropic generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
-      );
-      this.model = null;
+    if (COMM_TEST_ON_LOAD) {
+      try {
+        const response = await this.complete(test_prompt);
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error(`AnthropicGeneration failed to load: ${errorMessage}`);
+        await joplin.views.dialogs.showMessageBox(
+          `Error: Anthropic generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
+        );
+        this.model = null;
+      }
     }
   }
 
@@ -1591,15 +1606,17 @@ export class GeminiGeneration extends TextGenerationModel {
     this.model = new GoogleGenAI({apiKey: this.api_key});
     console.log(this.id);
 
-    try {
-      const vec = await this._complete(test_prompt);
-    } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : String(e);
-        console.error(`GeminiGeneration failed to load: ${errorMessage}`);
-        await joplin.views.dialogs.showMessageBox(
-          `Error: Gemini generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
-        );
-        this.model = null;
+    if (COMM_TEST_ON_LOAD) {
+      try {
+        const vec = await this._complete(test_prompt);
+      } catch (e) {
+          const errorMessage = e instanceof Error ? e.message : String(e);
+          console.error(`GeminiGeneration failed to load: ${errorMessage}`);
+          await joplin.views.dialogs.showMessageBox(
+            `Error: Gemini generation model failed to load. ${truncateErrorForDialog(errorMessage)}`
+          );
+          this.model = null;
+      }
     }
   }
 
