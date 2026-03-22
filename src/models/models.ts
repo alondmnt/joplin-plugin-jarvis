@@ -95,6 +95,7 @@ import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, Mod
 import * as openai from './openai';
 import * as google from './google';
 import * as ollama from './ollama';
+import * as microsoft from './microsoft';
 import { BlockEmbedding } from '../notes/embeddings';  // maybe move definition to this file
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from '../notes/db';
 
@@ -311,6 +312,9 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
   } else if (settings.model.startsWith('gemini')) {
     model = new GeminiGeneration(settings);
 
+  }
+  else if (settings.model === 'microsoft-custom') {
+    model = new MicrosoftGeneration(settings);
   } else {
     console.error(`Unknown model: ${settings.model}`);
     return model;
@@ -393,7 +397,17 @@ export async function load_embedding_model(settings: JarvisSettings): Promise<Te
       settings.notes_embed_timeout,
       settings.notes_openai_endpoint);
 
-  } else {
+  }
+  else if (settings.notes_model === 'microsoft-custom') {
+    model = new MicrosoftEmbedding(
+      settings.notes_microsoft_model_id,
+      settings.notes_max_tokens,
+      settings.notes_parallel_jobs,
+      settings.notes_abort_on_error,
+      settings.notes_embed_timeout,
+      settings.notes_microsoft_endpoint);
+  }
+  else {
     console.error(`Unknown model: ${settings.notes_model}`);
     return model;
   }
@@ -1022,6 +1036,43 @@ class GeminiEmbedding extends TextEmbeddingModel {
   }
 }
 
+class MicrosoftEmbedding extends TextEmbeddingModel {
+  private api_key: string = null;
+  private endpoint: string = null;
+
+  constructor(id: string, max_tokens: number, jobs: number, abort_on_error: boolean, timeout_secs: number, endpoint: string = null) {
+    super();
+    this.id = id;
+    this.version = '1';
+    this.max_block_size = max_tokens;
+    this.endpoint = endpoint;
+    this.online = true;
+    this.page_size = jobs;
+    this.abort_on_error = abort_on_error;
+    this.embed_timeout = (timeout_secs > 0) ? timeout_secs * 1000 : 0;
+
+    this.request_queue = [];
+    this.requests_per_second = 50;
+    this.last_request_time = 0;
+    this.configureAdapter(this.id);
+  }
+
+  async _load_model() {
+    this.api_key = await joplin.settings.value('microsoft_api_key');
+    if (!this.api_key) {
+      joplin.views.dialogs.showMessageBox('Please specify a valid Microsoft API key in the settings');
+      this.model = null;
+      return;
+    }
+    this.model = this.id;
+  }
+
+  async _calc_embedding(text: string, context: EmbedContext): Promise<Float32Array> {
+    if (!this.model) throw new Error('Model not initialized');
+    return microsoft.query_embedding(text, this.id, this.api_key, this.abort_on_error, this.endpoint, context);
+  }
+}
+
 class OllamaEmbedding extends TextEmbeddingModel {
   private endpoint: string = null;
   private api_key: string = null;
@@ -1421,6 +1472,73 @@ export class HuggingFaceGeneration extends TextGenerationModel {
       // retry
       return this._complete(prompt);
     }
+  }
+}
+
+export class MicrosoftGeneration extends TextGenerationModel {
+  protected api_key: string = null;
+  protected endpoint: string = null;
+
+  public temperature: number = 0.5;
+  public top_p: number = 1;
+  public frequency_penalty: number = 0;
+  public presence_penalty: number = 0;
+
+  constructor(settings: JarvisSettings) {
+    const model_id = settings.chat_microsoft_model_id;
+    const type = 'chat';
+
+    super(
+      model_id,
+      settings.max_tokens,
+      type,
+      settings.memory_tokens,
+      settings.notes_context_tokens,
+      settings.chat_suffix,
+      settings.chat_prefix,
+      settings.chat_timeout
+    );
+
+    this.base_chat = [{ role: 'system', content: settings.chat_system_message }];
+    this.endpoint = settings.chat_microsoft_endpoint?.length > 0
+      ? settings.chat_microsoft_endpoint
+      : null;
+
+    this.temperature = settings.temperature;
+    this.top_p = settings.top_p;
+    this.frequency_penalty = settings.frequency_penalty;
+    this.presence_penalty = settings.presence_penalty;
+
+    this.requests_per_second = 10;
+    this.last_request_time = 0;
+  }
+
+  async _load_model() {
+    this.api_key = await joplin.settings.value('microsoft_api_key');
+    if (!this.api_key) {
+      joplin.views.dialogs.showMessageBox('Please specify a valid Microsoft API key in the settings');
+      this.model = null;
+      return;
+    }
+    this.model = this.id;
+  }
+
+  async _chat(prompt: ChatEntry[]): Promise<string> {
+    return microsoft.query_chat(
+      prompt,
+      this.api_key,
+      this.id,
+      undefined,
+      this.temperature,
+      this.top_p,
+      this.frequency_penalty,
+      this.presence_penalty,
+      this.endpoint
+    );
+  }
+
+  async _complete(prompt: string): Promise<string> {
+    return this._chat([...this.base_chat, { role: 'user', content: prompt }]);
   }
 }
 

@@ -31,6 +31,9 @@ export const GENERATION_SETTING_KEYS = new Set([
   'chat_hf_endpoint',
   'chat_prefix',
   'chat_suffix',
+  'microsoft_api_key',
+  'chat_microsoft_model_id',
+  'chat_microsoft_endpoint',
 ]);
 
 export const EMBEDDING_SETTING_KEYS = new Set([
@@ -51,6 +54,9 @@ export const EMBEDDING_SETTING_KEYS = new Set([
   'notes_hf_endpoint',
   'notes_abort_on_error',
   'notes_embed_timeout',
+  'microsoft_api_key',
+  'notes_microsoft_model_id',
+  'notes_microsoft_endpoint',
 ]);
 
 export interface JarvisSettings {
@@ -148,6 +154,12 @@ export interface JarvisSettings {
   // chat
   chat_prefix: string;
   chat_suffix: string;
+  // microsoft
+  microsoft_api_key: string;
+  chat_microsoft_model_id: string;
+  chat_microsoft_endpoint: string;
+  notes_microsoft_model_id: string;
+  notes_microsoft_endpoint: string;
 };
 
 export const model_max_tokens: { [model: string] : number; } = {
@@ -266,6 +278,14 @@ export async function get_settings(): Promise<JarvisSettings> {
     model_id = model_id.replace(/-preview$/, '');  // remove the preview suffix
     model_id = model_id.replace(/-exp$/, '');  // remove the exp suffix
   }
+  if (model_id == 'microsoft-custom') {
+    model_id = await joplin.settings.value('chat_microsoft_model_id');
+    model_id = model_id.replace(/-\d{4}.*$/, '');
+    model_id = model_id.replace(/-\d{2}-\d{2}.*$/, '');
+    model_id = model_id.replace(/-latest$/, '');
+    model_id = model_id.replace(/-preview$/, '');
+    model_id = model_id.replace(/-exp$/, '');
+  }
   // if model is in model_max_tokens, use its value, otherwise use the settings value
   let max_tokens = model_max_tokens[model_id] || await joplin.settings.value('max_tokens');
   let memory_tokens = await joplin.settings.value('memory_tokens');
@@ -279,6 +299,7 @@ export async function get_settings(): Promise<JarvisSettings> {
   const scopus_api_key = await joplin.settings.value('scopus_api_key');
   const springer_api_key = await joplin.settings.value('springer_api_key');
   const pubmed_api_key = await joplin.settings.value('pubmed_api_key');
+  const microsoft_api_key = await joplin.settings.value('microsoft_api_key');
 
   const rawProfileSetting = (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile');
   const firstBuildCompleted = safe_parse_first_build_completed(await joplin.settings.value('notes_model_first_build_completed'));
@@ -317,7 +338,13 @@ export async function get_settings(): Promise<JarvisSettings> {
     scopus_api_key,
     springer_api_key,
     pubmed_api_key,
+    microsoft_api_key,
 
+    //microsoft
+    chat_microsoft_model_id: await joplin.settings.value('chat_microsoft_model_id'),
+    chat_microsoft_endpoint: await joplin.settings.value('chat_microsoft_endpoint'),
+    notes_microsoft_model_id: await joplin.settings.value('notes_microsoft_model_id'),
+    notes_microsoft_endpoint: await joplin.settings.value('notes_microsoft_endpoint'),
     // OpenAI
     model: await joplin.settings.value('model'),
     chat_timeout: await joplin.settings.value('chat_timeout'),
@@ -521,6 +548,50 @@ export async function register_settings() {
       public: true,
       label: 'Model: Google AI API Key',
     },
+    'microsoft_api_key': {
+      value: '',
+      type: SettingItemType.String,
+      secure: true,
+      section: 'jarvis.chat',
+      public: true,
+      label: 'Model: Microsoft API Key',
+    },
+    'chat_microsoft_model_id': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis.chat',
+      public: true,
+      advanced: true,
+      label: 'Chat: Microsoft custom model ID',
+      description: 'Microsoft-compatible model/deployment ID for text generation. Default: empty',
+    },
+    'chat_microsoft_endpoint': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis.chat',
+      public: true,
+      advanced: true,
+      label: 'Chat: Microsoft custom API endpoint',
+      description: 'Microsoft-compatible API endpoint for text generation. Default: empty',
+    },
+    'notes_microsoft_model_id': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Microsoft custom embedding model ID',
+      description: 'Microsoft-compatible model/deployment ID for embeddings. Default: empty',
+    },
+    'notes_microsoft_endpoint': {
+      value: '',
+      type: SettingItemType.String,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Microsoft custom embedding API endpoint',
+      description: 'Microsoft-compatible API endpoint for embeddings. Default: empty',
+    },
     'model': {
       value: 'gpt-5-mini',
       type: SettingItemType.String,
@@ -542,6 +613,7 @@ export async function register_settings() {
         'gemini-2.5-flash': 'Google AI: gemini-2.5-flash (in:1M, out:64K)',
         'gemini-2.5-pro': 'Google AI: gemini-2.5-pro (in:1M, out:64K)',
         'Hugging Face': 'Hugging Face',
+        'microsoft-custom': 'Microsoft-compatible custom model',
       }
     },
     'chat_timeout': {
@@ -703,6 +775,7 @@ export async function register_settings() {
         'gemini-embedding-001': '(online) Google AI: gemini-embedding-001 [Multilingual]',
         'gemini-embedding-2-preview': '(online) Google AI: gemini-embedding-2-preview [Multimodal]',
         'Hugging Face': '(online) Hugging Face [Multilingual]',
+        'microsoft-custom': '(online) Microsoft-compatible custom embedding model',
       }
     },
     'notes_parallel_jobs': {

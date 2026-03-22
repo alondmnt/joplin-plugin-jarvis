@@ -27,7 +27,7 @@ export const LOW_COVERAGE_THRESHOLD = 0.10;
 export type ModelSwitchDecision = 'populate' | 'switch' | 'cancel';
 
 type NotesModelConfig = Pick<JarvisSettings,
-  'notes_model' | 'notes_hf_model_id' | 'notes_openai_model_id'>;
+  'notes_model' | 'notes_hf_model_id' | 'notes_openai_model_id' | 'notes_microsoft_model_id'>;
 
 /**
  * Resolve the canonical embedding model identifier based on the current Jarvis settings.
@@ -55,6 +55,10 @@ export function resolve_embedding_model_id(settings: NotesModelConfig | null | u
   if (base.startsWith('gemini')) {
     const resolved = base.split('-').slice(1).join('-').trim();
     return resolved || base;
+  }
+  if (base === 'microsoft-custom') {
+    const candidate = String(settings.notes_microsoft_model_id ?? '').trim();
+    return candidate || base;
   }
   return base;
 }
