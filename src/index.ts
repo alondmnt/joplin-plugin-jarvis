@@ -773,6 +773,42 @@ async function register_workspace_listeners(
         return { ok: false, error: errorMessage };
       }
     }
+    if (message.name === 'savePanelChatToNote') {
+  try {
+    const history = Array.isArray(message.history) ? message.history : [];
+    if (!history.length) {
+      return { ok: false, error: 'No chat messages to save.' };
+    }
+
+    const selected = await joplin.workspace.selectedNote();
+    const parentId = selected?.parent_id;
+
+    const timestamp = new Date();
+    const title = `Jarvis Chat ${timestamp.toLocaleString()}`;
+    const body = [
+      '# Jarvis Chat',
+      '',
+      `Saved: ${timestamp.toISOString()}`,
+      '',
+      ...history.map((m: any) => {
+        const role = m?.role === 'user' ? 'You' : 'Jarvis';
+        const content = String(m?.content ?? '');
+        return `## ${role}\n\n${content}\n`;
+      }),
+    ].join('\n');
+
+    const note = await joplin.data.post(['notes'], null, {
+      title,
+      body,
+      ...(parentId ? { parent_id: parentId } : {}),
+      });
+
+      return { ok: true, noteId: note.id, title: note.title };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { ok: false, error: errorMessage };
+    }
+    }
     if (message.name === 'openRelatedNote') {
       // Dismiss plugin panels first (required for web/mobile to allow note opening)
       try {

@@ -1,3 +1,5 @@
+const panelChatHistory = [];
+
 document.addEventListener('click', async event => {
 	const element = event.target;
 	// Only trigger navigation for actual <a> elements, not <summary> elements
@@ -17,9 +19,13 @@ document.addEventListener('click', async event => {
 		});
         return;
 	}
-   if (element.className === 'jarvis-chat-send-button') {
+   	if (element.className === 'jarvis-chat-send-button') {
         await sendPanelChat();
-    }
+	}
+	if (element.className === 'jarvis-chat-save-button') {
+    	await savePanelChatToNote();
+    	return;
+  }
 });
 
 document.addEventListener('search', event => {
@@ -42,34 +48,60 @@ document.addEventListener('keydown', async event => {
 });
 
 function appendChatMessage(role, text) {
-    const log = document.getElementById('jarvis-chat-log');
-    if (!log) return;
+  const log = document.getElementById('jarvis-chat-log');
+  if (!log) return;
 
-    const msg = document.createElement('div');
-    msg.className = `jarvis-chat-message ${role}`;
-    msg.textContent = `${role === 'user' ? 'You' : 'Jarvis'}: ${text}`;
-    log.appendChild(msg);
-    log.scrollTop = log.scrollHeight;
+  const msg = document.createElement('div');
+  msg.className = `jarvis-chat-message ${role}`;
+
+  let label = 'Jarvis';
+  if (role === 'user') label = 'You';
+  if (role === 'system') label = 'System';
+
+  msg.textContent = `${label}: ${text}`;
+  log.appendChild(msg);
+  log.scrollTop = log.scrollHeight;
 }
 
 async function sendPanelChat() {
-    const input = document.getElementById('jarvis-chat-input');
-    if (!input) return;
+  const input = document.getElementById('jarvis-chat-input');
+  if (!input) return;
 
-    const prompt = input.value.trim();
-    if (!prompt) return;
+  const prompt = input.value.trim();
+  if (!prompt) return;
 
-    appendChatMessage('user', prompt);
-    input.value = '';
+  appendChatMessage('user', prompt);
+  panelChatHistory.push({ role: 'user', content: prompt });
+  input.value = '';
 
-    const response = await webviewApi.postMessage({
-        name: 'chatWithNotes',
-        prompt,
-    });
+  const response = await webviewApi.postMessage({
+    name: 'chatWithNotes',
+    prompt,
+  });
 
-    if (response && response.ok) {
-        appendChatMessage('assistant', response.answer || '');
-    } else {
-        appendChatMessage('assistant', `Error: ${(response && response.error) ? response.error : 'Unknown error'}`);
-    }
+  if (response && response.ok) {
+    const answer = response.answer || '';
+    appendChatMessage('assistant', answer);
+    panelChatHistory.push({ role: 'assistant', content: answer });
+  } else {
+    appendChatMessage('assistant', `Error: ${(response && response.error) ? response.error : 'Unknown error'}`);
+  }
+}
+
+async function savePanelChatToNote() {
+  if (!panelChatHistory.length) {
+    appendChatMessage('system', 'Nothing to save yet.');
+    return;
+  }
+
+  const response = await webviewApi.postMessage({
+    name: 'savePanelChatToNote',
+    history: panelChatHistory,
+  });
+
+  if (response && response.ok) {
+    appendChatMessage('system', `Saved to note: ${response.title}`);
+  } else {
+    appendChatMessage('system', `Save failed: ${(response && response.error) ? response.error : 'Unknown error'}`);
+  }
 }

@@ -82,8 +82,9 @@ export async function update_panel(
       <div id="jarvis-chat-log" class="jarvis-chat-log"></div>
       <textarea id="jarvis-chat-input" class="jarvis-chat-input" placeholder="Ask Jarvis about your notes..."></textarea>
       <div class="jarvis-chat-actions">
-        <button class="jarvis-chat-send-button">Send</button>
-      </div>
+      <button class="jarvis-chat-send-button">Send</button>
+      <button class="jarvis-chat-save-button">Save chat to note</button>
+    </div>
     </div>
   </div>
 `);

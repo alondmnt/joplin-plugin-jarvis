@@ -191,3 +191,24 @@ html {
 .jarvis-chat-send-button:hover {
   background-color: var(--joplin-background-color-hover3);
 }
+
+.jarvis-chat-save-button {
+  min-height: 23px;
+  background-color: var(--joplin-background-color);
+  color: var(--joplin-color);
+  border-color: rgb(118, 118, 118);
+  border-width: 1px;
+  border-radius: 3px;
+  border-style: solid;
+  padding: 0 10px;
+  margin-left: 6px;
+}
+
+.jarvis-chat-save-button:hover {
+  background-color: var(--joplin-background-color-hover3);
+}
+
+.jarvis-chat-message.system {
+  opacity: 0.8;
+  font-style: italic;
+}

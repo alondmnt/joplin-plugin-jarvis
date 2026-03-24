@@ -377,9 +377,10 @@ export async function chat_with_notes_panel(
     nearest.push({ id: noteId, title: 'Chat context', embeddings: [], similarity: null });
   }
 
+  // Fallback to regular LLM response when no note matches are found
   if (nearest[0].embeddings.length === 0) {
-    await update_panel(panel, nearest, settings);
-    return 'No notes found. Try rephrasing your question.';
+    const fallback = await model_gen.chat(userPrompt);
+    return fallback.replace(model_gen.user_prefix, '').trim();
   }
 
   const [note_text, selected_embd] = await extract_blocks_text(
@@ -389,9 +390,10 @@ export async function chat_with_notes_panel(
     ''
   );
 
+  // Fallback to regular LLM response when extracted text is empty
   if (note_text === '') {
-    await update_panel(panel, nearest, settings);
-    return 'No notes found. Try rephrasing your question.';
+    const fallback = await model_gen.chat(userPrompt);
+    return fallback.replace(model_gen.user_prefix, '').trim();
   }
 
   const note_links = extract_blocks_links(selected_embd);
@@ -420,9 +422,6 @@ export async function chat_with_notes_panel(
   `);
 
   completion = completion.replace(model_gen.user_prefix, '').trim();
-
-  nearest[0].embeddings = selected_embd;
-  await update_panel(panel, nearest, settings);
 
   const links = note_links.trim();
   return links ? `${completion}\n\n${links}` : completion;
