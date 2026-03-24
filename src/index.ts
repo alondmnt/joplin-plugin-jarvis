@@ -3,7 +3,7 @@ import { ContentScriptType, MenuItemLocation, ToolbarButtonLocation } from 'api/
 import debounce from 'lodash.debounce';
 import { annotate_title, annotate_summary, annotate_tags, annotate_links } from './commands/annotate';
 import { ask_jarvis, edit_with_jarvis } from './commands/ask';
-import { chat_with_jarvis, chat_with_notes } from './commands/chat';
+import { chat_with_jarvis, chat_with_notes, chat_with_notes_panel } from './commands/chat';
 import { find_notes, update_note_db, skip_db_init_dialog } from './commands/notes';
 import { research_with_jarvis } from './commands/research';
 import { load_embedding_model, load_generation_model } from './models/models';
@@ -749,6 +749,30 @@ async function register_workspace_listeners(
   });
 
   await joplin.views.panels.onMessage(runtime.panel, async (message) => {
+        if (message.name === 'chatWithNotes') {
+      if (runtime.model_embed.model === null) {
+        await runtime.model_embed.initialize();
+      }
+      if (runtime.model_embed.model === null) {
+        return { ok: false, error: 'Embeddings model is not initialized.' };
+      }
+      if (!message.prompt || !String(message.prompt).trim()) {
+        return { ok: false, error: 'Please enter a prompt.' };
+      }
+
+      try {
+        const answer = await chat_with_notes_panel(
+          runtime.model_embed,
+          runtime.model_gen,
+          runtime.panel,
+          String(message.prompt).trim(),
+        );
+        return { ok: true, answer };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return { ok: false, error: errorMessage };
+      }
+    }
     if (message.name === 'openRelatedNote') {
       // Dismiss plugin panels first (required for web/mobile to allow note opening)
       try {

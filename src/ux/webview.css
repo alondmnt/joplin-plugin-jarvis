@@ -116,3 +116,78 @@ html {
 ::-webkit-scrollbar-thumb:hover {
 	background: rgba(100, 100, 100, 0.7);
 }
+
+.container.jarvis-split {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 10px);
+}
+
+.jarvis-related-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.jarvis-chat-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--joplin-divider-color, rgba(128, 128, 128, 0.35));
+  padding-top: 4px;
+}
+
+.jarvis-chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0 5px 5px 5px;
+  padding: 6px;
+  border: 1px solid rgb(118, 118, 118);
+  border-radius: 3px;
+}
+
+.jarvis-chat-message {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.jarvis-chat-message.user {
+  font-weight: bold;
+}
+
+.jarvis-chat-input {
+  margin: 0 5px;
+  min-height: 64px;
+  resize: vertical;
+  color: var(--joplin-color);
+  background-color: var(--joplin-background-color);
+  border-width: 1px;
+  border-radius: 3px;
+  border-style: solid;
+  font-size: var(--joplin-font-size);
+}
+
+.jarvis-chat-actions {
+  margin: 5px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.jarvis-chat-send-button {
+  min-height: 23px;
+  background-color: var(--joplin-background-color);
+  color: var(--joplin-color);
+  border-color: rgb(118, 118, 118);
+  border-width: 1px;
+  border-radius: 3px;
+  border-style: solid;
+  padding: 0 10px;
+}
+
+.jarvis-chat-send-button:hover {
+  background-color: var(--joplin-background-color-hover3);
+}

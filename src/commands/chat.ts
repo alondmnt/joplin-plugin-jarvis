@@ -5,7 +5,6 @@ import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
 import { split_by_tokens, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
 
-
 export async function chat_with_jarvis(model_gen: TextGenerationModel) {
   const prompt = await get_chat_prompt(model_gen);
 
@@ -102,7 +101,7 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
       try {
         search_res = await joplin.data.get(['search'], { query: prompt.search, field: ['id'] });
         const search_ids = new Set(search_res.items.map((item) => item.id));
-        sub_embeds.push(...model_embed.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));
+        sub_embeds.push(...model_embed.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id) && embd.line > 0));
         clearApiResponse(search_res);
       } catch (error) {
         clearApiResponse(search_res);
@@ -336,4 +335,95 @@ export async function replace_selection(text: string) {
       clearObjectReferences(note);
     }
   }
+}
+
+export async function chat_with_notes_panel(
+  model_embed: TextEmbeddingModel,
+  model_gen: TextGenerationModel,
+  panel: string,
+  userPrompt: string
+): Promise<string> {
+  if (model_embed.model === null) {
+    return 'Embeddings are unavailable. Initialize an embedding model in settings.';
+  }
+
+  const settings = await get_settings();
+  const note = await joplin.workspace.selectedNote();
+  if (!note) {
+    return 'No note selected.';
+  }
+
+  const noteId = note.id;
+  const noteTitle = note.title;
+  const noteMarkup = note.markup_language;
+
+  let nearest: NoteEmbedding[] = [];
+  try {
+    nearest = await find_nearest_notes(
+      model_embed.embeddings,
+      noteId,
+      noteMarkup,
+      noteTitle,
+      userPrompt,
+      model_embed,
+      settings,
+      false
+    );
+  } finally {
+    clearObjectReferences(note);
+  }
+
+  if (nearest.length === 0) {
+    nearest.push({ id: noteId, title: 'Chat context', embeddings: [], similarity: null });
+  }
+
+  if (nearest[0].embeddings.length === 0) {
+    await update_panel(panel, nearest, settings);
+    return 'No notes found. Try rephrasing your question.';
+  }
+
+  const [note_text, selected_embd] = await extract_blocks_text(
+    nearest[0].embeddings,
+    model_gen,
+    model_gen.context_tokens,
+    ''
+  );
+
+  if (note_text === '') {
+    await update_panel(panel, nearest, settings);
+    return 'No notes found. Try rephrasing your question.';
+  }
+
+  const note_links = extract_blocks_links(selected_embd);
+  let instruct = "Respond to the user prompt that appears at the top. You are given user notes. Use them as if they are your own knowledge, without decorations such as 'according to my notes'. First, determine which notes are relevant to the prompt, without specifying it in the reply. Then, write your reply to the prompt based on these selected notes. In the text of your answer, always cite related notes in the format: Some text [note number]. Do not compile a reference list at the end of the reply. Example: 'This is the answer, as appears in [note 1]'.";
+  if (settings.notes_prompt) {
+    instruct = settings.notes_prompt;
+  }
+
+  let completion = await model_gen.chat(`
+  User prompt
+  ===
+  ${userPrompt}
+  ===
+  End of user prompt
+  ===
+
+  User Notes
+  ===
+  ${note_text}
+  ===
+
+  Instructions
+  ===
+  ${instruct}
+  ===
+  `);
+
+  completion = completion.replace(model_gen.user_prefix, '').trim();
+
+  nearest[0].embeddings = selected_embd;
+  await update_panel(panel, nearest, settings);
+
+  const links = note_links.trim();
+  return links ? `${completion}\n\n${links}` : completion;
 }

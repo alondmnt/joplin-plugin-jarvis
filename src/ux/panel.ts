@@ -47,30 +47,44 @@ export async function update_panel(
   const messageHtml = message
     ? `<p class="jarvis-panel-message">${message}</p>`
     : '';
+  
+  const notesHtml = (await Promise.all(nearest)).map((n) => `
+    <details ${n.title === "Chat context" ? "open" : ""}>
+      <summary class="jarvis-semantic-note">
+        <a class="jarvis-semantic-note" href="#" data-note="${n.id}" data-line="0">${n.title}</a>
+      </summary>
+      <div class="jarvis-semantic-section">
+        ${n.embeddings.map((embd) => `
+          <a class="jarvis-semantic-section" href="#" data-note="${embd.id}" data-line="${embd.line}">
+            (${(100 * embd.similarity).toFixed(0)}) L${String(embd.line).padStart(4, '0')}: ${embd.title}
+          </a><br>
+        `).join('')}
+      </div>
+    </details>
+  `).join('');
 
   await joplin.views.panels.setHtml(panel, `
   <html>
   <style>
   ${settings.notes_panel_user_style}
   </style>
-  <div class="container">
-    <p class="jarvis-semantic-title">${settings.notes_panel_title}</p>
-    ${search_box}
-    ${messageHtml}
-    ${(await Promise.all(nearest)).map((n) => `
-    <details ${n.title === "Chat context" ? "open" : ""}>
-      <summary class="jarvis-semantic-note">
-      <a class="jarvis-semantic-note" href="#" data-note="${n.id}" data-line="0">${n.title}</a></summary>
-      <div class="jarvis-semantic-section" >
-      ${n.embeddings.map((embd) => `
-        <a class="jarvis-semantic-section" href="#" data-note="${embd.id}" data-line="${embd.line}">
-        (${(100 * embd.similarity).toFixed(0)}) L${String(embd.line).padStart(4, '0')}: ${embd.title}
-        </a><br>
-      `).join('')}
+ <div class="container jarvis-split">
+    <div class="jarvis-related-pane">
+      <p class="jarvis-semantic-title">${settings.notes_panel_title}</p>
+      ${search_box}
+      ${messageHtml}
+      ${notesHtml}
+      ${warningHtml}
+    </div>
+
+    <div class="jarvis-chat-pane">
+      <p class="jarvis-semantic-title">Chat with notes</p>
+      <div id="jarvis-chat-log" class="jarvis-chat-log"></div>
+      <textarea id="jarvis-chat-input" class="jarvis-chat-input" placeholder="Ask Jarvis about your notes..."></textarea>
+      <div class="jarvis-chat-actions">
+        <button class="jarvis-chat-send-button">Send</button>
       </div>
-    </details>
-  `).join('')}
-    ${warningHtml}
+    </div>
   </div>
 `);
 }
