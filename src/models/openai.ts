@@ -2,6 +2,27 @@ import joplin from 'api';
 import { ModelError, truncateErrorForDialog } from '../utils';
 import type { EmbedContext } from './models';
 
+function buildHeaders(api_key: string, url: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
+    'X-Title': 'Joplin/Jarvis',
+  };
+
+  if (api_key) {
+    // OpenAI-compatible endpoints typically expect Authorization.
+    headers['Authorization'] = 'Bearer ' + api_key;
+  }
+
+  // Some compatible providers (for example Azure/OpenAI-compatible gateways)
+  // accept api-key style auth for the same requests.
+  if (api_key && url && url.includes('azure.com')) {
+    headers['api-key'] = api_key;
+  }
+
+  return headers;
+}
+
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,
     api_key: string, model: string, max_tokens: number, temperature: number, top_p: number,
@@ -33,12 +54,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + api_key,
-        'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
-        'X-Title': 'Joplin/Jarvis'
-      },
+      headers: buildHeaders(api_key, url),
       body: JSON.stringify(params),
     });
     
@@ -126,12 +142,7 @@ export async function query_completion(prompt: string, api_key: string,
   try {
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + api_key,
-      'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
-      'X-Title': 'Joplin/Jarvis'
-    },
+    headers: buildHeaders(api_key, url),
       body: JSON.stringify(params),
     });
 
@@ -270,12 +281,7 @@ export async function query_embedding(input: string, model: string, api_key: str
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + api_key,
-          'HTTP-Referer': 'https://github.com/alondmnt/joplin-plugin-jarvis',
-          'X-Title': 'Joplin/Jarvis'
-        },
+        headers: buildHeaders(api_key, url),
         body: JSON.stringify(responseParams),
       });
 
