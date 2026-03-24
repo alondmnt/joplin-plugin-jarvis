@@ -16,13 +16,8 @@ function buildHeaders(api_key: string, url: string): Record<string, string> {
 
   // Some compatible providers (for example Azure/OpenAI-compatible gateways)
   // accept api-key style auth for the same requests.
-  if (api_key && url && (url.includes('azure.com') || url.includes('github.ai'))) {
+  if (api_key && url && url.includes('azure.com')) {
     headers['api-key'] = api_key;
-  }
-
-  if (url && url.includes('models.github.ai')) {
-    headers['Accept'] = 'application/vnd.github+json';
-    headers['X-GitHub-Api-Version'] = '2026-03-10';
   }
 
   return headers;
