@@ -1,4 +1,5 @@
 const CHAT_HISTORY_KEY = 'jarvis.panelChatHistory.v1';
+const CHAT_DRAFT_KEY = 'jarvis.panelChatDraft.v1';
 
 let panelChatHistory = loadChatHistory();
 
@@ -49,6 +50,13 @@ document.addEventListener('keydown', async event => {
   }
 });
 
+document.addEventListener('input', event => {
+  const element = event.target;
+  if (element && element.id === 'jarvis-chat-input') {
+    persistDraft(element.value || '');
+  }
+});
+
 function loadChatHistory() {
   try {
     const raw = sessionStorage.getItem(CHAT_HISTORY_KEY);
@@ -68,6 +76,30 @@ function loadChatHistory() {
 function persistChatHistory() {
   try {
     sessionStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(panelChatHistory));
+  } catch (_) {
+    // no-op
+  }
+}
+
+function loadDraft() {
+  try {
+    return sessionStorage.getItem(CHAT_DRAFT_KEY) || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function persistDraft(value) {
+  try {
+    sessionStorage.setItem(CHAT_DRAFT_KEY, value || '');
+  } catch (_) {
+    // no-op
+  }
+}
+
+function clearDraft() {
+  try {
+    sessionStorage.removeItem(CHAT_DRAFT_KEY);
   } catch (_) {
     // no-op
   }
@@ -94,9 +126,21 @@ function appendChatMessage(role, text, persist = false) {
   }
 }
 
-function restoreChatMessages() {
-  for (const item of panelChatHistory) {
-    appendChatMessage(item.role, item.content, false);
+function hydrateChatUi() {
+  const log = document.getElementById('jarvis-chat-log');
+  if (!log) return;
+
+  if (log.dataset.hydrated !== '1') {
+    log.innerHTML = '';
+    for (const item of panelChatHistory) {
+      appendChatMessage(item.role, item.content, false);
+    }
+    log.dataset.hydrated = '1';
+  }
+
+  const input = document.getElementById('jarvis-chat-input');
+  if (input && !input.value) {
+    input.value = loadDraft();
   }
 }
 
@@ -109,6 +153,7 @@ async function sendPanelChat() {
 
   appendChatMessage('user', prompt, true);
   input.value = '';
+  clearDraft();
 
   const response = await webviewApi.postMessage({
     name: 'chatWithNotes',
@@ -142,4 +187,13 @@ async function savePanelChatToNote() {
   }
 }
 
-restoreChatMessages();
+const observer = new MutationObserver(() => {
+  hydrateChatUi();
+});
+
+observer.observe(document.documentElement, {
+  childList: true,
+  subtree: true,
+});
+
+hydrateChatUi();
