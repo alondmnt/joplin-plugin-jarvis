@@ -59,6 +59,35 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
 type ParsedData = { [key: string]: string };
 const cmd_block_pattern: RegExp = /```jarvis[\s\S]*?```/gm;
 
+type PanelChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+function build_panel_prompt(
+  history: PanelChatMessage[] | undefined,
+  fallbackPrompt: string,
+  settings: JarvisSettings,
+): string {
+  if (!history || history.length === 0) {
+    return fallbackPrompt;
+  }
+
+  const lines: string[] = [];
+  for (const item of history) {
+    const content = String(item?.content ?? '').trim();
+    if (!content) { continue; }
+
+    if (item.role === 'assistant') {
+      lines.push(`${settings.chat_prefix}${content}`);
+    } else {
+      lines.push(`${settings.chat_suffix}${content}`);
+    }
+  }
+
+  return lines.join('\n').trim() || fallbackPrompt;
+}
+
 export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<string> {
   // get cursor position
   const cursor = await joplin.commands.execute('editor.execCommand', {
@@ -85,11 +114,17 @@ export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<s
   return prompt;
 }
 
-async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, settings: JarvisSettings):
+async function get_chat_prompt_and_notes(
+  model_embed: TextEmbeddingModel,
+  model_gen: TextGenerationModel,
+  settings: JarvisSettings,
+  promptOverride?: string,
+):
     Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]}, NoteEmbedding[]]> {
   const note = await joplin.workspace.selectedNote();
   try {
-    const prompt = get_notes_prompt(await get_chat_prompt(model_gen), note, model_gen);
+    const sourcePrompt = promptOverride ?? await get_chat_prompt(model_gen);
+    const prompt = get_notes_prompt(sourcePrompt, note, model_gen);
 
     // filter embeddings based on prompt
     let sub_embeds: BlockEmbedding[] = [];
@@ -101,8 +136,7 @@ async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_
       try {
         search_res = await joplin.data.get(['search'], { query: prompt.search, field: ['id'] });
         const search_ids = new Set(search_res.items.map((item) => item.id));
-        sub_embeds.push(...model_embed.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id) && embd.line > 0));
-        clearApiResponse(search_res);
+        sub_embeds.push(...model_embed.embeddings.filter((embd) => search_ids.has(embd.id) && !prompt.notes.has(embd.id)));        clearApiResponse(search_res);
       } catch (error) {
         clearApiResponse(search_res);
         throw error;
@@ -341,59 +375,36 @@ export async function chat_with_notes_panel(
   model_embed: TextEmbeddingModel,
   model_gen: TextGenerationModel,
   panel: string,
-  userPrompt: string
+  userPrompt: string,
+  history: PanelChatMessage[] = [],
 ): Promise<string> {
   if (model_embed.model === null) {
     return 'Embeddings are unavailable. Initialize an embedding model in settings.';
   }
 
   const settings = await get_settings();
-  const note = await joplin.workspace.selectedNote();
-  if (!note) {
-    return 'No note selected.';
-  }
+  const panelPrompt = build_panel_prompt(history, userPrompt, settings);
 
-  const noteId = note.id;
-  const noteTitle = note.title;
-  const noteMarkup = note.markup_language;
+  const [prompt, nearest] = await get_chat_prompt_and_notes(
+    model_embed,
+    model_gen,
+    settings,
+    panelPrompt,
+  );
 
-  let nearest: NoteEmbedding[] = [];
-  try {
-    nearest = await find_nearest_notes(
-      model_embed.embeddings,
-      noteId,
-      noteMarkup,
-      noteTitle,
-      userPrompt,
-      model_embed,
-      settings,
-      false
-    );
-  } finally {
-    clearObjectReferences(note);
-  }
-
-  if (nearest.length === 0) {
-    nearest.push({ id: noteId, title: 'Chat context', embeddings: [], similarity: null });
-  }
-
-  // Fallback to regular LLM response when no note matches are found
   if (nearest[0].embeddings.length === 0) {
-    const fallback = await model_gen.chat(userPrompt);
-    return fallback.replace(model_gen.user_prefix, '').trim();
+    return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
   }
 
   const [note_text, selected_embd] = await extract_blocks_text(
     nearest[0].embeddings,
     model_gen,
     model_gen.context_tokens,
-    ''
+    prompt.search,
   );
 
-  // Fallback to regular LLM response when extracted text is empty
   if (note_text === '') {
-    const fallback = await model_gen.chat(userPrompt);
-    return fallback.replace(model_gen.user_prefix, '').trim();
+    return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
   }
 
   const note_links = extract_blocks_links(selected_embd);
@@ -403,9 +414,7 @@ export async function chat_with_notes_panel(
   }
 
   let completion = await model_gen.chat(`
-  User prompt
-  ===
-  ${userPrompt}
+  ${prompt.prompt}
   ===
   End of user prompt
   ===
@@ -422,6 +431,9 @@ export async function chat_with_notes_panel(
   `);
 
   completion = completion.replace(model_gen.user_prefix, '').trim();
+
+  nearest[0].embeddings = selected_embd;
+  await update_panel(panel, nearest, settings);
 
   const links = note_links.trim();
   return links ? `${completion}\n\n${links}` : completion;

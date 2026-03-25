@@ -750,28 +750,30 @@ async function register_workspace_listeners(
 
   await joplin.views.panels.onMessage(runtime.panel, async (message) => {
         if (message.name === 'chatWithNotes') {
-      if (runtime.model_embed.model === null) {
-        await runtime.model_embed.initialize();
-      }
-      if (runtime.model_embed.model === null) {
-        return { ok: false, error: 'Embeddings model is not initialized.' };
-      }
-      if (!message.prompt || !String(message.prompt).trim()) {
-        return { ok: false, error: 'Please enter a prompt.' };
-      }
+  if (runtime.model_embed.model === null) {
+    await runtime.model_embed.initialize();
+  }
+  if (runtime.model_embed.model === null) {
+    return { ok: false, error: 'Embeddings model is not initialized.' };
+  }
+  if (!message.prompt || !String(message.prompt).trim()) {
+    return { ok: false, error: 'Please enter a prompt.' };
+  }
 
-      try {
-        const answer = await chat_with_notes_panel(
-          runtime.model_embed,
-          runtime.model_gen,
-          runtime.panel,
-          String(message.prompt).trim(),
-        );
-        return { ok: true, answer };
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return { ok: false, error: errorMessage };
-      }
+  try {
+    const history = Array.isArray(message.history) ? message.history : [];
+    const answer = await chat_with_notes_panel(
+      runtime.model_embed,
+      runtime.model_gen,
+      runtime.panel,
+      String(message.prompt).trim(),
+      history,
+    );
+    return { ok: true, answer };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: errorMessage };
+  }
     }
     if (message.name === 'savePanelChatToNote') {
   try {
@@ -1081,4 +1083,4 @@ async function register_settings_handler(
 function wait_ms(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
- 
+
