@@ -265,7 +265,7 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
 }
 
 export async function extract_blocks_text(embeddings: BlockEmbedding[],
-    model_gen: TextGenerationModel, max_length: number, search_query: string):
+  model_gen: TextGenerationModel, max_length: number, search_query: string = ''):
     Promise<[string, BlockEmbedding[]]> {
   let text: string = '';
   let token_sum = 0;
