@@ -27,6 +27,7 @@ import { open_model_management_dialog } from './ux/modelManagement';
 import { getModelStats } from './notes/modelStats';
 import { checkCapacityWarning } from './notes/embeddingCache';
 import { RELEASE_NOTES } from './ux/release';
+import { initialize_chat_panel } from './chatPanel';
 
 const STARTUP_DELAY_SECONDS = 1;
 const PANEL_DEBOUNCE_SECONDS = 1;
@@ -47,6 +48,7 @@ interface PluginRuntime {
   model_embed: TextEmbeddingModel;
   model_gen: TextGenerationModel;
   panel: string;
+  chat_panel: string;
   delay_scroll: number;
   delay_db_update: number;
   abort_timeout: number;
@@ -70,21 +72,56 @@ joplin.plugins.register({
     // This should never fail and ensures UI is always available
     const partialRuntime = await initialize_runtime_ui();
     
-    // Create stub models for Phase 2 (will be replaced in Phase 3)
-    // Include no-op initialize() to handle early event handler calls before Phase 3 completes
-    const stub_embed = { model: null, initialized: false, initialize: async () => {} } as any;
-    const stub_gen = { model: null, initialized: false } as any;
+    // Create lazy stubs for Phase 2 that can self-heal by loading real models on first use.
+    // This prevents commands/panel flows from getting stuck if Phase 3 fails once.
+    let runtime: PluginRuntime;
+    const stub_embed = {
+      model: null,
+      initialized: false,
+      initialize: async () => {
+        if (runtime.model_embed !== stub_embed && runtime.model_embed?.initialize) {
+          await runtime.model_embed.initialize();
+          return;
+        }
+        const loaded = await load_embedding_model(runtime.settings);
+        runtime.model_embed = loaded;
+      },
+    } as any;
+    const stub_gen = {
+      model: null,
+      initialized: false,
+      initialize: async () => {
+        if (runtime.model_gen !== stub_gen && runtime.model_gen?.initialize) {
+          await runtime.model_gen.initialize();
+          return;
+        }
+        const loaded = await load_generation_model(runtime.settings);
+        runtime.model_gen = loaded;
+      },
+      chat: async (prompt: string, preview?: boolean, abortSignal?: AbortSignal) => {
+        await stub_gen.initialize();
+        return runtime.model_gen.chat(prompt, preview, abortSignal);
+      },
+    } as any;
     
     // Create panel with stub model - panel must exist before registering commands
     const panel = await joplin.views.panels.create('jarvis.relatedNotes');
     register_panel(panel, partialRuntime.settings, stub_embed);
     
-    const runtime: PluginRuntime = {
+    runtime = {
       ...partialRuntime,
       model_embed: stub_embed,
       model_gen: stub_gen,
       panel: panel,
+      chat_panel: '',
     } as PluginRuntime;
+
+    try {
+      runtime.chat_panel = await initialize_chat_panel(() => runtime);
+    } catch (error) {
+      console.error('Jarvis: chat panel initialization failed (continuing without sidebar chat)', error);
+      runtime.chat_panel = '';
+    }
     
     const updates = create_update_manager(runtime);
     const find_notes_debounce = debounce(find_notes, PANEL_DEBOUNCE_SECONDS * 1000);
@@ -383,6 +420,9 @@ async function register_commands_and_menus(
     label: 'Chat with Jarvis',
     iconName: 'fas fa-robot',
     execute: async () => {
+      if (runtime.model_gen.model === null && typeof runtime.model_gen.initialize === 'function') {
+        await runtime.model_gen.initialize();
+      }
       await chat_with_jarvis(runtime.model_gen);
     },
   });
@@ -516,12 +556,31 @@ async function register_commands_and_menus(
   });
 
   await joplin.commands.register({
+    name: 'jarvis.chat.toggle_panel',
+    label: 'Toggle Jarvis Chat Panel',
+    execute: async () => {
+      if (!runtime.chat_panel) {
+        await joplin.views.dialogs.showMessageBox('Jarvis chat panel is unavailable. Please restart Joplin and try again.');
+        return;
+      }
+      if (await joplin.views.panels.visible(runtime.chat_panel)) {
+        await joplin.views.panels.hide(runtime.chat_panel);
+      } else {
+        await joplin.views.panels.show(runtime.chat_panel);
+      }
+    },
+  });
+
+  await joplin.commands.register({
     name: 'jarvis.notes.chat',
     label: 'Chat with your notes',
     iconName: 'fas fa-comments',
     execute: async () => {
       if (runtime.model_embed.model === null) {
         await runtime.model_embed.initialize();
+      }
+      if (runtime.model_gen.model === null && typeof runtime.model_gen.initialize === 'function') {
+        await runtime.model_gen.initialize();
       }
       await chat_with_notes(runtime.model_embed, runtime.model_gen, runtime.panel);
     },
@@ -589,6 +648,7 @@ async function register_commands_and_menus(
     { commandName: 'jarvis.notes.db.update' },
     { commandName: 'jarvis.notes.manage_models' },
     { commandName: 'jarvis.notes.toggle_panel' },
+    { commandName: 'jarvis.chat.toggle_panel' },
     { commandName: 'jarvis.notes.exclude_folder' },
     { commandName: 'jarvis.notes.include_folder' },
   ], MenuItemLocation.Tools);

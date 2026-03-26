@@ -5,6 +5,11 @@ import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
 import { split_by_tokens, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
 
+export type PanelChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
 
 export async function chat_with_jarvis(model_gen: TextGenerationModel) {
   const prompt = await get_chat_prompt(model_gen);
@@ -57,6 +62,65 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
   update_panel(panel, nearest, settings);
 }
 
+export async function chat_with_notes_panel(
+  prompt_text: string,
+  history: PanelChatMessage[],
+  model_embed: TextEmbeddingModel,
+  model_gen: TextGenerationModel,
+  settings: JarvisSettings,
+): Promise<string> {
+  if (model_embed.model === null) {
+    return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
+  }
+
+ const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings, prompt_text);
+  if (nearest[0].embeddings.length === 0) {
+    return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
+  }
+
+  const [note_text] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.context_tokens, prompt.search);
+  if (note_text === '') {
+    return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
+  }
+
+  const safe_history = (history ?? []).filter((msg) =>
+    (msg.role === 'user' || msg.role === 'assistant')
+    && typeof msg.content === 'string'
+    && msg.content.trim().length > 0
+  );
+  const history_prompt = safe_history.map((msg) => {
+    const role_prefix = msg.role === 'assistant' ? model_gen.model_prefix : model_gen.user_prefix;
+    return `${role_prefix}${msg.content.trim()}`;
+  }).join('\n');
+
+  let instruct = "Respond to the user prompt that appears at the top. You are given user notes. Use them as if they are your own knowledge, without decorations such as 'according to my notes'. First, determine which notes are relevant to the prompt, without specifying it in the reply. Then, write your reply to the prompt based on these selected notes. In the text of your answer, always cite related notes in the format: Some text [note number]. Do not compile a reference list at the end of the reply. Example: 'This is the answer, as appears in [note 1]'.";
+  if (settings.notes_prompt) {
+    instruct = settings.notes_prompt;
+  }
+
+  const completion = await model_gen.chat(`
+  ${history_prompt}
+  ===
+  End of user prompt
+  ===
+
+  User Notes
+  ===
+  ${note_text}
+  ===
+
+  Instructions
+  ===
+  ${instruct}
+  ===
+  `);
+
+  return completion
+    .replace(model_gen.model_prefix, '')
+    .replace(model_gen.user_prefix, '')
+    .trim();
+}
+
 type ParsedData = { [key: string]: string };
 const cmd_block_pattern: RegExp = /```jarvis[\s\S]*?```/gm;
 
@@ -86,11 +150,21 @@ export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<s
   return prompt;
 }
 
-async function get_chat_prompt_and_notes(model_embed: TextEmbeddingModel, model_gen: TextGenerationModel, settings: JarvisSettings):
+async function get_chat_prompt_and_notes(
+  model_embed: TextEmbeddingModel,
+  model_gen: TextGenerationModel,
+  settings: JarvisSettings,
+  prompt_override?: string,
+  query_override?: string,
+):
     Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]}, NoteEmbedding[]]> {
   const note = await joplin.workspace.selectedNote();
   try {
-    const prompt = get_notes_prompt(await get_chat_prompt(model_gen), note, model_gen);
+    const source_prompt = typeof prompt_override === 'string' ? prompt_override : await get_chat_prompt(model_gen);
+    const prompt = get_notes_prompt(source_prompt, note, model_gen);
+    if (typeof query_override === 'string' && query_override.trim().length > 0) {
+      prompt.search = query_override.trim();
+    }
 
     // filter embeddings based on prompt
     let sub_embeds: BlockEmbedding[] = [];

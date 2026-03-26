@@ -1,0 +1,93 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--joplin-background-color);
+  color: var(--joplin-color);
+  font-family: var(--joplin-font-family);
+  font-size: var(--joplin-font-size);
+}
+
+.jarvis-chat-panel {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 8px;
+  gap: 8px;
+}
+
+.jarvis-chat-header {
+  font-weight: 700;
+  font-size: calc(var(--joplin-font-size) * 1.1);
+}
+
+.jarvis-chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--joplin-divider-color, rgba(127, 127, 127, 0.4));
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--joplin-background-color2, var(--joplin-background-color));
+}
+
+.jarvis-chat-row {
+  margin-bottom: 10px;
+  padding: 6px;
+  border-radius: 6px;
+}
+
+.jarvis-chat-row.user {
+  background: rgba(30, 130, 200, 0.14);
+}
+
+.jarvis-chat-row.assistant {
+  background: rgba(120, 120, 120, 0.12);
+}
+
+.jarvis-chat-role {
+  font-size: 0.9em;
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+
+.jarvis-chat-message {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.jarvis-chat-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 72px;
+  color: var(--joplin-color);
+  background: var(--joplin-background-color);
+  border: 1px solid var(--joplin-divider-color, rgba(127, 127, 127, 0.5));
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.jarvis-chat-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.jarvis-chat-actions button {
+  flex: 1;
+  min-height: 30px;
+  border: 1px solid var(--joplin-divider-color, rgba(127, 127, 127, 0.5));
+  border-radius: 6px;
+  background: var(--joplin-background-color);
+  color: var(--joplin-color);
+}
+
+.jarvis-chat-actions button:hover:not(:disabled) {
+  background: var(--joplin-background-color-hover3);
+}
+
+.jarvis-chat-actions button:disabled {
+  opacity: 0.7;
+}
