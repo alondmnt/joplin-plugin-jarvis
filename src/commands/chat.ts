@@ -74,11 +74,11 @@ export async function chat_with_notes_panel(
   }
 
  const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings, prompt_text);
-  if (nearest[0].embeddings.length === 0) {
+  if (!nearest.length || nearest[0].embeddings.length === 0) {
     return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
   }
 
-  const [note_text] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.context_tokens, prompt.search);
+  const [note_text] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.context_tokens, '');
   if (note_text === '') {
     return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
   }
