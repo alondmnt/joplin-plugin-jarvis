@@ -123,20 +123,50 @@ body {
 
 .jarvis-chat-message pre {
   margin: 0 0 8px 0;
-  padding: 8px;
+  padding: 10px 12px;
   border-radius: 6px;
-  overflow-x: auto;
-  background: rgba(120, 120, 120, 0.2);
+  overflow-x: hidden;
+  overflow-y: visible;
+  max-height: none;
+  border: 1px solid var(--joplin-divider-color, rgba(127, 127, 127, 0.5));
+  background: rgba(100, 110, 120, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
 }
 
 .jarvis-chat-message pre code {
+  display: block;
   background: transparent;
   padding: 0;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.jarvis-chat-message pre[data-lang]::before {
+  content: attr(data-lang);
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.78em;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: rgba(120, 120, 120, 0.28);
+  color: var(--joplin-color-faded, var(--joplin-color));
 }
 
 .jarvis-chat-message a {
-  color: var(--joplin-url-color, #4da3ff);
+  color: var(--joplin-url-color, #69b3ff);
   text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+
+.jarvis-chat-message a:hover {
+  text-decoration-thickness: 2px;
+  filter: brightness(1.08);
 }
 
 .jarvis-chat-input {

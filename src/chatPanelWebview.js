@@ -35,6 +35,24 @@
       .replace(/'/g, '&#39;');
   }
 
+  function extractNoteId(href) {
+    if (!href || typeof href !== 'string') {
+      return '';
+    }
+
+    if (href.startsWith(':/')) {
+      const m = href.match(/^:\/([^?#&]+)/);
+      return m ? m[1] : '';
+    }
+
+    if (href.startsWith('joplin://')) {
+      const m = href.match(/[?&]id=([^&]+)/);
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+
+    return '';
+  }
+
   function renderInlineMarkdown(text) {
     return escapeHtml(text)
       .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -42,13 +60,16 @@
       .replace(/__([^_]+)__/g, '<strong>$1</strong>')
       .replace(/\*([^*]+)\*/g, '<em>$1</em>')
       .replace(/_([^_]+)_/g, '<em>$1</em>')
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|joplin:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|joplin:\/\/[^\s)]+|:\/[^\s)]+)\)/g, '<a href="$2">$1</a>')
+      .replace(/(^|[\s(>])((?:https?:\/\/|joplin:\/\/|:\/)[^\s<)]+)/g, '$1<a href="$2">$2</a>');
   }
 
   function renderCustomMarkdown(text) {
     const lines = String(text).replace(/\r\n/g, '\n').split('\n');
     const output = [];
     let inCodeBlock = false;
+    let codeLines = [];
+    let codeLanguage = '';
     let paragraph = [];
     let currentListType = '';
 
@@ -72,21 +93,27 @@
       const line = rawLine || '';
       const trimmed = line.trim();
 
-      if (trimmed.startsWith('```')) {
+      const fence = trimmed.match(/^```\s*([a-zA-Z0-9_-]+)?\s*$/);
+      if (fence) {
         flushParagraph();
         closeList();
         if (inCodeBlock) {
-          output.push('</code></pre>');
+          const lang_attr = codeLanguage ? ` data-lang="${escapeHtml(codeLanguage)}"` : '';
+          const lang_class = codeLanguage ? ` language-${escapeHtml(codeLanguage)}` : '';
+          const code_text = escapeHtml(codeLines.join('\n'));
+          output.push(`<pre class="jarvis-code-block${lang_class}"${lang_attr}><code>${code_text}</code></pre>`);
           inCodeBlock = false;
+          codeLines = [];
+          codeLanguage = '';
         } else {
-          output.push('<pre><code>');
+          codeLanguage = fence[1] || '';
           inCodeBlock = true;
         }
         continue;
       }
 
       if (inCodeBlock) {
-        output.push(`${escapeHtml(line)}\n`);
+        codeLines.push(line);
         continue;
       }
 
@@ -143,7 +170,10 @@
     flushParagraph();
     closeList();
     if (inCodeBlock) {
-      output.push('</code></pre>');
+      const lang_attr = codeLanguage ? ` data-lang="${escapeHtml(codeLanguage)}"` : '';
+      const lang_class = codeLanguage ? ` language-${escapeHtml(codeLanguage)}` : '';
+      const code_text = escapeHtml(codeLines.join('\n'));
+      output.push(`<pre class="jarvis-code-block${lang_class}"${lang_attr}><code>${code_text}</code></pre>`);
     }
 
     return output.join('');
@@ -309,11 +339,11 @@
         const target = event.target.closest('a');
         if (!target) return;
         const href = target.getAttribute('href') || '';
-        if (href.startsWith('joplin://')) {
+        if (href.startsWith('joplin://') || href.startsWith(':/')) {
           event.preventDefault();
-          const noteIdMatch = href.match(/id=([^&]+)/);
-          if (noteIdMatch) {
-            webviewApi.postMessage({ type: 'openNote', noteId: noteIdMatch[1] });
+          const noteId = extractNoteId(href);
+          if (noteId) {
+            webviewApi.postMessage({ type: 'openNote', noteId });
           }
         }
       });
