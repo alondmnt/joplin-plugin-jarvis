@@ -61,7 +61,6 @@ async function resolve_parent_notebook_id(): Promise<string> {
 
 export async function initialize_chat_panel(get_context: () => ChatPanelContext): Promise<string> {
   const panel = await joplin.views.panels.create('jarvis_chat_panel');
-  await joplin.views.panels.addScript(panel, 'https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js');
   await joplin.views.panels.addScript(panel, 'chatPanel.css');
   await joplin.views.panels.addScript(panel, 'chatPanelWebview.js');
   await joplin.views.panels.setHtml(panel, `

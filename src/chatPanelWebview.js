@@ -1,6 +1,4 @@
 (() => {
-  let md = null;
-  let markdownLoadPromise = null;
   const history = [];
   let initialized = false;
   let requestInFlight = false;
@@ -37,107 +35,118 @@
       .replace(/'/g, '&#39;');
   }
 
-  function tryInitMarkdown() {
-    if (md) {
-      return true;
-    }
-    if (typeof window.markdownit !== 'function') {
-      return false;
-    }
-    md = window.markdownit({
-      html: false,
-      breaks: true,
-      linkify: true,
-      typographer: true,
-    });
-    return true;
+  function renderInlineMarkdown(text) {
+    return escapeHtml(text)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/_([^_]+)_/g, '<em>$1</em>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|joplin:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
   }
 
-  function renderFallbackMarkdown(text) {
-    const safe = escapeHtml(String(text));
-    const linked = safe.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|joplin:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
-    const strong = linked
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/__(.+?)__/g, '<strong>$1</strong>');
-    const emphasized = strong
-      .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      .replace(/_(.+?)_/g, '<em>$1</em>');
-    const coded = emphasized.replace(/`([^`]+)`/g, '<code>$1</code>');
-    return coded
-      .split(/\n{2,}/)
-      .map((paragraph) => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
-      .join('');
-  }
+  function renderCustomMarkdown(text) {
+    const lines = String(text).replace(/\r\n/g, '\n').split('\n');
+    const output = [];
+    let inCodeBlock = false;
+    let paragraph = [];
+    let currentListType = '';
 
-  function renderMarkdown(text) {
-    if (tryInitMarkdown()) {
-      return {
-        html: md.render(String(text).trim()),
-        mode: 'markdown-it',
-      };
-    }
-    return {
-      html: renderFallbackMarkdown(text),
-      mode: 'fallback',
+    const flushParagraph = () => {
+      if (!paragraph.length) {
+        return;
+      }
+      output.push(`<p>${paragraph.map((line) => renderInlineMarkdown(line)).join('<br>')}</p>`);
+      paragraph = [];
     };
-  }
 
-  function rerenderFallbackMessages() {
-    resolveElements();
-    if (!chatLog || !tryInitMarkdown()) {
-      return;
-    }
-    const messages = chatLog.querySelectorAll('.jarvis-chat-message[data-renderer="fallback"]');
-    for (const body of messages) {
-      const raw = body.getAttribute('data-raw') || '';
-      body.innerHTML = md.render(raw.trim());
-      body.setAttribute('data-renderer', 'markdown-it');
-    }
-  }
+    const closeList = () => {
+      if (!currentListType) {
+        return;
+      }
+      output.push(`</${currentListType}>`);
+      currentListType = '';
+    };
 
-  function loadMarkdownIt() {
-    if (tryInitMarkdown()) {
-      return Promise.resolve(true);
-    }
-    if (markdownLoadPromise) {
-      return markdownLoadPromise;
-    }
+    for (const rawLine of lines) {
+      const line = rawLine || '';
+      const trimmed = line.trim();
 
-    const sources = [
-      'https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js',
-      'https://cdn.jsdelivr.net/npm/markdown-it@13.0.2/dist/markdown-it.min.js',
-      'https://unpkg.com/markdown-it@13.0.2/dist/markdown-it.min.js',
-    ];
-
-    markdownLoadPromise = (async () => {
-      for (const src of sources) {
-        const alreadyLoaded = Array.from(document.getElementsByTagName('script')).some((script) => script.src === src);
-        if (alreadyLoaded && tryInitMarkdown()) {
-          rerenderFallbackMessages();
-          return true;
+      if (trimmed.startsWith('```')) {
+        flushParagraph();
+        closeList();
+        if (inCodeBlock) {
+          output.push('</code></pre>');
+          inCodeBlock = false;
+        } else {
+          output.push('<pre><code>');
+          inCodeBlock = true;
         }
-
-        const loaded = await new Promise((resolve) => {
-          const script = document.createElement('script');
-          script.src = src;
-          script.async = true;
-          script.onload = () => resolve(true);
-          script.onerror = () => resolve(false);
-          document.head.appendChild(script);
-        });
-
-        if (loaded && tryInitMarkdown()) {
-          rerenderFallbackMessages();
-          return true;
-        }
+        continue;
       }
 
-      return false;
-    })().finally(() => {
-      markdownLoadPromise = null;
-    });
+      if (inCodeBlock) {
+        output.push(`${escapeHtml(line)}\n`);
+        continue;
+      }
 
-    return markdownLoadPromise;
+      if (!trimmed) {
+        flushParagraph();
+        closeList();
+        continue;
+      }
+
+      const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+      if (heading) {
+        flushParagraph();
+        closeList();
+        const level = heading[1].length;
+        output.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+        continue;
+      }
+
+      const unordered = trimmed.match(/^[-*+]\s+(.+)$/);
+      if (unordered) {
+        flushParagraph();
+        if (currentListType !== 'ul') {
+          closeList();
+          output.push('<ul>');
+          currentListType = 'ul';
+        }
+        output.push(`<li>${renderInlineMarkdown(unordered[1])}</li>`);
+        continue;
+      }
+
+      const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+      if (ordered) {
+        flushParagraph();
+        if (currentListType !== 'ol') {
+          closeList();
+          output.push('<ol>');
+          currentListType = 'ol';
+        }
+        output.push(`<li>${renderInlineMarkdown(ordered[1])}</li>`);
+        continue;
+      }
+
+      if (trimmed.startsWith('>')) {
+        flushParagraph();
+        closeList();
+        output.push(`<blockquote>${renderInlineMarkdown(trimmed.slice(1).trim())}</blockquote>`);
+        continue;
+      }
+
+      closeList();
+      paragraph.push(line);
+    }
+
+    flushParagraph();
+    closeList();
+    if (inCodeBlock) {
+      output.push('</code></pre>');
+    }
+
+    return output.join('');
   }
 
   function scrollToBottom() {
@@ -163,10 +172,7 @@
 
     const body = document.createElement('div');
     body.className = 'jarvis-chat-message';
-    const rendered = renderMarkdown(text);
-    body.innerHTML = rendered.html;
-    body.setAttribute('data-raw', String(text));
-    body.setAttribute('data-renderer', rendered.mode);
+    body.innerHTML = renderCustomMarkdown(text);
 
     row.appendChild(label);
     row.appendChild(body);
@@ -276,7 +282,6 @@
     }
     initialized = true;
     resolveElements();
-    loadMarkdownIt();
 
     document.addEventListener('click', (event) => {
       const target = event.target;
