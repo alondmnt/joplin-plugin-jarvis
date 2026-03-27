@@ -1,5 +1,6 @@
 (() => {
-  const md = window.markdownit ? window.markdownit() : null;
+  let md = null;
+  let markdownLoadPromise = null;
   const history = [];
   let initialized = false;
   let requestInFlight = false;
@@ -36,6 +37,109 @@
       .replace(/'/g, '&#39;');
   }
 
+  function tryInitMarkdown() {
+    if (md) {
+      return true;
+    }
+    if (typeof window.markdownit !== 'function') {
+      return false;
+    }
+    md = window.markdownit({
+      html: false,
+      breaks: true,
+      linkify: true,
+      typographer: true,
+    });
+    return true;
+  }
+
+  function renderFallbackMarkdown(text) {
+    const safe = escapeHtml(String(text));
+    const linked = safe.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|joplin:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
+    const strong = linked
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__(.+?)__/g, '<strong>$1</strong>');
+    const emphasized = strong
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/_(.+?)_/g, '<em>$1</em>');
+    const coded = emphasized.replace(/`([^`]+)`/g, '<code>$1</code>');
+    return coded
+      .split(/\n{2,}/)
+      .map((paragraph) => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
+      .join('');
+  }
+
+  function renderMarkdown(text) {
+    if (tryInitMarkdown()) {
+      return {
+        html: md.render(String(text).trim()),
+        mode: 'markdown-it',
+      };
+    }
+    return {
+      html: renderFallbackMarkdown(text),
+      mode: 'fallback',
+    };
+  }
+
+  function rerenderFallbackMessages() {
+    resolveElements();
+    if (!chatLog || !tryInitMarkdown()) {
+      return;
+    }
+    const messages = chatLog.querySelectorAll('.jarvis-chat-message[data-renderer="fallback"]');
+    for (const body of messages) {
+      const raw = body.getAttribute('data-raw') || '';
+      body.innerHTML = md.render(raw.trim());
+      body.setAttribute('data-renderer', 'markdown-it');
+    }
+  }
+
+  function loadMarkdownIt() {
+    if (tryInitMarkdown()) {
+      return Promise.resolve(true);
+    }
+    if (markdownLoadPromise) {
+      return markdownLoadPromise;
+    }
+
+    const sources = [
+      'https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js',
+      'https://cdn.jsdelivr.net/npm/markdown-it@13.0.2/dist/markdown-it.min.js',
+      'https://unpkg.com/markdown-it@13.0.2/dist/markdown-it.min.js',
+    ];
+
+    markdownLoadPromise = (async () => {
+      for (const src of sources) {
+        const alreadyLoaded = Array.from(document.getElementsByTagName('script')).some((script) => script.src === src);
+        if (alreadyLoaded && tryInitMarkdown()) {
+          rerenderFallbackMessages();
+          return true;
+        }
+
+        const loaded = await new Promise((resolve) => {
+          const script = document.createElement('script');
+          script.src = src;
+          script.async = true;
+          script.onload = () => resolve(true);
+          script.onerror = () => resolve(false);
+          document.head.appendChild(script);
+        });
+
+        if (loaded && tryInitMarkdown()) {
+          rerenderFallbackMessages();
+          return true;
+        }
+      }
+
+      return false;
+    })().finally(() => {
+      markdownLoadPromise = null;
+    });
+
+    return markdownLoadPromise;
+  }
+
   function scrollToBottom() {
     resolveElements();
     if (!chatLog) {
@@ -59,7 +163,10 @@
 
     const body = document.createElement('div');
     body.className = 'jarvis-chat-message';
-    body.innerHTML = md ? md.render(text) : escapeHtml(text).replace(/\n/g, '<br>');
+    const rendered = renderMarkdown(text);
+    body.innerHTML = rendered.html;
+    body.setAttribute('data-raw', String(text));
+    body.setAttribute('data-renderer', rendered.mode);
 
     row.appendChild(label);
     row.appendChild(body);
@@ -169,6 +276,7 @@
     }
     initialized = true;
     resolveElements();
+    loadMarkdownIt();
 
     document.addEventListener('click', (event) => {
       const target = event.target;
