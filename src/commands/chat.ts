@@ -75,7 +75,26 @@ async function run_notes_chat_pipeline(
     return null;
   }
 
-  const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings, prompt_text);
+  const safe_history = (history ?? []).filter((msg) =>
+    (msg.role === 'user' || msg.role === 'assistant')
+    && typeof msg.content === 'string'
+    && msg.content.trim().length > 0
+  );
+  let prompt_override_for_retrieval = prompt_text;
+  if (safe_history.length > 0 && settings.notes_context_history > 0) {
+    const context_msgs = safe_history
+      .slice(-settings.notes_context_history)
+      .map((msg) => {
+        const role_prefix = msg.role === 'assistant'
+          ? model_gen.model_prefix
+          : model_gen.user_prefix;
+        return `${role_prefix}${msg.content.trim()}`;
+      });
+    context_msgs.push(`${model_gen.user_prefix}${prompt_text}`);
+    prompt_override_for_retrieval = context_msgs.join('\n');
+  }
+
+  const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings, prompt_override_for_retrieval);
   if (!nearest.length || nearest[0].embeddings.length === 0) {
     return null;
   }
@@ -91,11 +110,6 @@ async function run_notes_chat_pipeline(
     instruct = settings.notes_prompt;
   }
 
-  const safe_history = (history ?? []).filter((msg) =>
-    (msg.role === 'user' || msg.role === 'assistant')
-    && typeof msg.content === 'string'
-    && msg.content.trim().length > 0
-  );
   const history_prompt = safe_history.map((msg) => {
     const role_prefix = msg.role === 'assistant' ? model_gen.model_prefix : model_gen.user_prefix;
     return `${role_prefix}${msg.content.trim()}`;

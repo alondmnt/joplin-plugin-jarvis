@@ -1,4 +1,5 @@
 (() => {
+  const md = window.markdownit ? window.markdownit() : null;
   const history = [];
   let initialized = false;
   let requestInFlight = false;
@@ -6,6 +7,7 @@
   let chatInput = null;
   let sendButton = null;
   let saveButton = null;
+  let newButton = null;
 
   function resolveElements() {
     if (!chatLog) {
@@ -19,6 +21,9 @@
     }
     if (!saveButton) {
       saveButton = document.getElementById('chat-save');
+    }
+    if (!newButton) {
+      newButton = document.getElementById('chat-new');
     }
   }
 
@@ -54,7 +59,7 @@
 
     const body = document.createElement('div');
     body.className = 'jarvis-chat-message';
-    body.innerHTML = escapeHtml(text).replace(/\n/g, '<br>');
+    body.innerHTML = md ? md.render(text) : escapeHtml(text).replace(/\n/g, '<br>');
 
     row.appendChild(label);
     row.appendChild(body);
@@ -176,8 +181,30 @@
       }
       if (target.id === 'chat-save') {
         saveChat();
+        return;
+      }
+      if (target.id === 'chat-new') {
+        history.length = 0;
+        resolveElements();
+        if (chatLog) chatLog.innerHTML = '';
+        if (chatInput) chatInput.focus();
       }
     });
+
+    if (chatLog) {
+      chatLog.addEventListener('click', (event) => {
+        const target = event.target.closest('a');
+        if (!target) return;
+        const href = target.getAttribute('href') || '';
+        if (href.startsWith('joplin://')) {
+          event.preventDefault();
+          const noteIdMatch = href.match(/id=([^&]+)/);
+          if (noteIdMatch) {
+            webviewApi.postMessage({ type: 'openNote', noteId: noteIdMatch[1] });
+          }
+        }
+      });
+    }
 
     document.addEventListener('keydown', (event) => {
       const target = event.target;

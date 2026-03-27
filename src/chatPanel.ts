@@ -61,6 +61,7 @@ async function resolve_parent_notebook_id(): Promise<string> {
 
 export async function initialize_chat_panel(get_context: () => ChatPanelContext): Promise<string> {
   const panel = await joplin.views.panels.create('jarvis_chat_panel');
+  await joplin.views.panels.addScript(panel, 'https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js');
   await joplin.views.panels.addScript(panel, 'chatPanel.css');
   await joplin.views.panels.addScript(panel, 'chatPanelWebview.js');
   await joplin.views.panels.setHtml(panel, `
@@ -71,6 +72,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
     <div class="jarvis-chat-actions">
       <button id="chat-send" type="button">Send</button>
       <button id="chat-save" type="button">Save to Note</button>
+      <button id="chat-new" type="button">New Chat</button>
     </div>
   </div>
   `);
@@ -133,6 +135,14 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'saved', text: `Save failed: ${msg}` };
       }
+    }
+
+    if (message.type === 'openNote') {
+      const noteId = typeof message.noteId === 'string' ? message.noteId.trim() : '';
+      if (noteId) {
+        await joplin.commands.execute('openNote', noteId);
+      }
+      return { type: 'ack' };
     }
 
     return { type: 'response', text: 'Unsupported panel message type.' };

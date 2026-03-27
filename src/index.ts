@@ -72,7 +72,7 @@ joplin.plugins.register({
     // This should never fail and ensures UI is always available
     const partialRuntime = await initialize_runtime_ui();
     
-    const stub_embed = { model: null, initialized: false } as any;
+    const stub_embed = { model: null, initialized: false, initialize: async () => {} } as any;
     const stub_gen = { model: null, initialized: false } as any;
     
     // Create panel with stub model - panel must exist before registering commands
