@@ -190,9 +190,6 @@
       }
     });
 
-    webviewApi.onMessage((message) => {
-      handleBackendMessage(message);
-    });
   }
 
   if (document.readyState === 'loading') {

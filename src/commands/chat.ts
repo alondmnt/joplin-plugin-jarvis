@@ -23,43 +23,17 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
   if (model_embed.model === null) { return; }
 
   const settings = await get_settings();
-  const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings);
-  if (nearest[0].embeddings.length === 0) {
+  const prompt_text = await get_chat_prompt(model_gen);
+  const result = await run_notes_chat_pipeline(prompt_text, model_embed, model_gen, settings, undefined, preview);
+  if (!result) {
     if (!preview) { await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix); }
     return;
   }
   if (!preview) { await replace_selection('\n\nGenerating notes response...'); }
 
-  const [note_text, selected_embd] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.context_tokens, prompt.search);
-  if (note_text === '') {
-    if (!preview) { await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix); }
-    return;
-  }
-  const note_links = extract_blocks_links(selected_embd);
-  let instruct = "Respond to the user prompt that appears at the top. You are given user notes. Use them as if they are your own knowledge, without decorations such as 'according to my notes'. First, determine which notes are relevant to the prompt, without specifying it in the reply. Then, write your reply to the prompt based on these selected notes. In the text of your answer, always cite related notes in the format: Some text [note number]. Do not compile a reference list at the end of the reply. Example: 'This is the answer, as appears in [note 1]'.";
-  if (settings.notes_prompt) {
-    instruct = settings.notes_prompt;
-  }
-
-  let completion = await model_gen.chat(`
-  ${prompt.prompt}
-  ===
-  End of user prompt
-  ===
-
-  User Notes
-  ===
-  ${note_text}
-  ===
-
-  Instructions
-  ===
-  ${instruct}
-  ===
-  `, preview);
-  if (!preview) { await replace_selection(completion.replace(model_gen.user_prefix, `\n\n${note_links}${model_gen.user_prefix}`)); }
-  nearest[0].embeddings = selected_embd
-  update_panel(panel, nearest, settings);
+  if (!preview) { await replace_selection(result.completion.replace(model_gen.user_prefix, `\n\n${result.note_links}${model_gen.user_prefix}`)); }
+  result.nearest[0].embeddings = result.selected_embd
+  update_panel(panel, result.nearest, settings);
 }
 
 export async function chat_with_notes_panel(
@@ -69,19 +43,52 @@ export async function chat_with_notes_panel(
   model_gen: TextGenerationModel,
   settings: JarvisSettings,
 ): Promise<string> {
+  const result = await run_notes_chat_pipeline(prompt_text, model_embed, model_gen, settings, history);
+  if (!result) {
+    return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
+  }
+
+  const completion = result.completion
+    .replace(model_gen.model_prefix, '')
+    .replace(model_gen.user_prefix, '')
+    .trim();
+
+  return `${completion}\n\n${result.note_links}`.trim();
+}
+
+type NotesChatPipelineResult = {
+  completion: string;
+  note_links: string;
+  nearest: NoteEmbedding[];
+  selected_embd: BlockEmbedding[];
+};
+
+async function run_notes_chat_pipeline(
+  prompt_text: string,
+  model_embed: TextEmbeddingModel,
+  model_gen: TextGenerationModel,
+  settings: JarvisSettings,
+  history?: PanelChatMessage[],
+  preview: boolean = false,
+): Promise<NotesChatPipelineResult | null> {
   if (model_embed.model === null) {
-    return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
+    return null;
   }
 
- const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings, prompt_text);
-  prompt.search = '';
+  const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings, prompt_text);
   if (!nearest.length || nearest[0].embeddings.length === 0) {
-    return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
+    return null;
   }
 
-  const [note_text] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.context_tokens);
+  const [note_text, selected_embd] = await extract_blocks_text(nearest[0].embeddings, model_gen, model_gen.context_tokens, prompt.search);
   if (note_text === '') {
-    return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
+    return null;
+  }
+
+  const note_links = extract_blocks_links(selected_embd);
+  let instruct = "Respond to the user prompt that appears at the top. You are given user notes. Use them as if they are your own knowledge, without decorations such as 'according to my notes'. First, determine which notes are relevant to the prompt, without specifying it in the reply. Then, write your reply to the prompt based on these selected notes. In the text of your answer, always cite related notes in the format: Some text [note number]. Do not compile a reference list at the end of the reply. Example: 'This is the answer, as appears in [note 1]'.";
+  if (settings.notes_prompt) {
+    instruct = settings.notes_prompt;
   }
 
   const safe_history = (history ?? []).filter((msg) =>
@@ -93,14 +100,10 @@ export async function chat_with_notes_panel(
     const role_prefix = msg.role === 'assistant' ? model_gen.model_prefix : model_gen.user_prefix;
     return `${role_prefix}${msg.content.trim()}`;
   }).join('\n');
+  const pipeline_prompt = safe_history.length > 0 ? history_prompt : prompt.prompt;
 
-  let instruct = "Respond to the user prompt that appears at the top. You are given user notes. Use them as if they are your own knowledge, without decorations such as 'according to my notes'. First, determine which notes are relevant to the prompt, without specifying it in the reply. Then, write your reply to the prompt based on these selected notes. In the text of your answer, always cite related notes in the format: Some text [note number]. Do not compile a reference list at the end of the reply. Example: 'This is the answer, as appears in [note 1]'.";
-  if (settings.notes_prompt) {
-    instruct = settings.notes_prompt;
-  }
-
-  const completion = await model_gen.chat(`
-  ${history_prompt}
+  const completion = (await model_gen.chat(`
+  ${pipeline_prompt}
   ===
   End of user prompt
   ===
@@ -114,12 +117,14 @@ export async function chat_with_notes_panel(
   ===
   ${instruct}
   ===
-  `);
+  `, preview)) || '';
 
-  return completion
-    .replace(model_gen.model_prefix, '')
-    .replace(model_gen.user_prefix, '')
-    .trim();
+  return {
+    completion,
+    note_links,
+    nearest,
+    selected_embd,
+  };
 }
 
 type ParsedData = { [key: string]: string };
@@ -156,16 +161,12 @@ async function get_chat_prompt_and_notes(
   model_gen: TextGenerationModel,
   settings: JarvisSettings,
   prompt_override?: string,
-  query_override?: string,
 ):
     Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]}, NoteEmbedding[]]> {
   const note = await joplin.workspace.selectedNote();
   try {
     const source_prompt = typeof prompt_override === 'string' ? prompt_override : await get_chat_prompt(model_gen);
     const prompt = get_notes_prompt(source_prompt, note, model_gen);
-    if (typeof query_override === 'string' && query_override.trim().length > 0) {
-      prompt.search = query_override.trim();
-    }
 
     // filter embeddings based on prompt
     let sub_embeds: BlockEmbedding[] = [];

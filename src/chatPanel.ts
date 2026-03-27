@@ -27,16 +27,13 @@ function sanitize_history(history: unknown): PanelChatMessage[] {
     .filter((entry) => entry.content.trim().length > 0);
 }
 
-function format_history_markdown(history: PanelChatMessage[]): string {
-  const lines: string[] = ['# Jarvis Chat Transcript', ''];
+function format_history_markdown(history: PanelChatMessage[], settings: JarvisSettings): string {
+  const lines: string[] = [];
   for (const message of history) {
-    const heading = message.role === 'assistant' ? '## Assistant' : '## User';
-    lines.push(heading);
-    lines.push('');
-    lines.push(message.content.trim());
-    lines.push('');
+    const prefix = message.role === 'assistant' ? settings.chat_prefix : settings.chat_suffix;
+    lines.push(`${prefix}${message.content.trim()}`);
   }
-  return lines.join('\n').trim() + '\n';
+  return lines.join('\n\n').trim() + '\n';
 }
 
 async function resolve_parent_notebook_id(): Promise<string> {
@@ -123,11 +120,12 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
       }
 
       try {
+        const runtime = get_context();
         const parent_id = await resolve_parent_notebook_id();
         const title_stamp = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
         const note = await joplin.data.post(['notes'], null, {
           title: `Jarvis Chat ${title_stamp}`,
-          body: format_history_markdown(history),
+          body: format_history_markdown(history, runtime.settings),
           parent_id,
         });
         return { type: 'saved', text: `Saved to note: ${note.title}` };
