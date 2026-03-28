@@ -196,6 +196,11 @@ const pluginConfig = Object.assign({}, baseConfig, {
 	resolve: {
 		alias: {
 			api: path.resolve(__dirname, 'api'),
+			// Use the browser/web build of @google/genai to avoid pulling in
+			// google-auth-library, which requires child_process, fs, net, tls
+			// and other Node.js builtins unavailable on mobile.
+			// The web build uses API-key auth only, which is what this plugin needs.
+			'@google/genai': path.resolve(__dirname, 'node_modules/@google/genai/dist/web/index.mjs'),
 		},
 		// JSON files can also be required from scripts so we include this.
 		// https://github.com/joplin/plugin-bibtex/pull/2
