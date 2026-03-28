@@ -24,12 +24,12 @@ export async function chat_with_notes(model_embed: TextEmbeddingModel, model_gen
 
   const settings = await get_settings();
   const prompt_text = await get_chat_prompt(model_gen);
+  if (!preview) { await replace_selection('\n\nGenerating notes response...'); }
   const result = await run_notes_chat_pipeline(prompt_text, model_embed, model_gen, settings, undefined, preview);
   if (!result) {
     if (!preview) { await replace_selection(settings.chat_prefix + 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.' + settings.chat_suffix); }
     return;
   }
-  if (!preview) { await replace_selection('\n\nGenerating notes response...'); }
 
   if (!preview) { await replace_selection(result.completion.replace(model_gen.user_prefix, `\n\n${result.note_links}${model_gen.user_prefix}`)); }
   result.nearest[0].embeddings = result.selected_embd
@@ -90,7 +90,6 @@ async function run_notes_chat_pipeline(
           : model_gen.user_prefix;
         return `${role_prefix}${msg.content.trim()}`;
       });
-    context_msgs.push(`${model_gen.user_prefix}${prompt_text}`);
     prompt_override_for_retrieval = context_msgs.join('\n');
   }
 
