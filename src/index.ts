@@ -27,6 +27,7 @@ import { open_model_management_dialog } from './ux/modelManagement';
 import { getModelStats } from './notes/modelStats';
 import { checkCapacityWarning } from './notes/embeddingCache';
 import { RELEASE_NOTES } from './ux/release';
+import { initialize_chat_panel } from './chatPanel';
 
 const STARTUP_DELAY_SECONDS = 1;
 const PANEL_DEBOUNCE_SECONDS = 1;
@@ -47,6 +48,7 @@ interface PluginRuntime {
   model_embed: TextEmbeddingModel;
   model_gen: TextGenerationModel;
   panel: string;
+  chat_panel: string;
   delay_scroll: number;
   delay_db_update: number;
   abort_timeout: number;
@@ -70,8 +72,6 @@ joplin.plugins.register({
     // This should never fail and ensures UI is always available
     const partialRuntime = await initialize_runtime_ui();
     
-    // Create stub models for Phase 2 (will be replaced in Phase 3)
-    // Include no-op initialize() to handle early event handler calls before Phase 3 completes
     const stub_embed = { model: null, initialized: false, initialize: async () => {} } as any;
     const stub_gen = { model: null, initialized: false } as any;
     
@@ -84,7 +84,15 @@ joplin.plugins.register({
       model_embed: stub_embed,
       model_gen: stub_gen,
       panel: panel,
+      chat_panel: '',
     } as PluginRuntime;
+
+    try {
+      runtime.chat_panel = await initialize_chat_panel(() => runtime);
+    } catch (error) {
+      console.error('Jarvis: chat panel initialization failed (continuing without sidebar chat)', error);
+      runtime.chat_panel = '';
+    }
     
     const updates = create_update_manager(runtime);
     const find_notes_debounce = debounce(find_notes, PANEL_DEBOUNCE_SECONDS * 1000);
@@ -516,6 +524,22 @@ async function register_commands_and_menus(
   });
 
   await joplin.commands.register({
+    name: 'jarvis.chat.toggle_panel',
+    label: 'Toggle Jarvis Chat Panel',
+    execute: async () => {
+      if (!runtime.chat_panel) {
+        await joplin.views.dialogs.showMessageBox('Jarvis chat panel is unavailable. Please restart Joplin and try again.');
+        return;
+      }
+      if (await joplin.views.panels.visible(runtime.chat_panel)) {
+        await joplin.views.panels.hide(runtime.chat_panel);
+      } else {
+        await joplin.views.panels.show(runtime.chat_panel);
+      }
+    },
+  });
+
+  await joplin.commands.register({
     name: 'jarvis.notes.chat',
     label: 'Chat with your notes',
     iconName: 'fas fa-comments',
@@ -589,6 +613,7 @@ async function register_commands_and_menus(
     { commandName: 'jarvis.notes.db.update' },
     { commandName: 'jarvis.notes.manage_models' },
     { commandName: 'jarvis.notes.toggle_panel' },
+    { commandName: 'jarvis.chat.toggle_panel' },
     { commandName: 'jarvis.notes.exclude_folder' },
     { commandName: 'jarvis.notes.include_folder' },
   ], MenuItemLocation.Tools);
