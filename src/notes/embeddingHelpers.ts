@@ -112,7 +112,7 @@ export function calc_mean_embedding_float32(embeddings: Float32Array[], weights?
 export function calc_links_embedding(query: string, embeddings: BlockEmbedding[]): Float32Array {
   const lines = query.split('\n');
   // Filter out jarvis-generated lines (ref notes, user commands)
-  const filtered_query = lines.filter(line => !line.startsWith(ref_notes_prefix) && !line.startsWith(user_notes_cmd)).join('\n');
+  const filtered_query = lines.filter(line => !line.startsWith(ref_notes_prefix) && !line.startsWith(user_notes_cmd) && !/^\[\d+\]:/.test(line)).join('\n');
   const links = filtered_query.match(/\[([^\]]+)\]\(:\/([^\)]+)\)/g);
 
   if (!links) {

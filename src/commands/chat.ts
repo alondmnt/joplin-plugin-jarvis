@@ -108,7 +108,7 @@ async function run_notes_chat_pipeline(
   }
 
   const note_links = extract_blocks_links(selected_embd);
-  let instruct = "Respond to the user prompt that appears at the top. You are given user notes. Use them as if they are your own knowledge, without decorations such as 'according to my notes'. First, determine which notes are relevant to the prompt, without specifying it in the reply. Then, write your reply to the prompt based on these selected notes. In the text of your answer, always cite related notes in the format: Some text [note number]. Do not compile a reference list at the end of the reply. Example: 'This is the answer, as appears in [note 1]'.";
+  let instruct = "Respond to the user prompt that appears at the top. You are given user notes. Use them as if they are your own knowledge, without decorations such as 'according to my notes'. First, determine which notes are relevant to the prompt, without specifying it in the reply. Then, write your reply to the prompt based on these selected notes. In the text of your answer, always cite related notes in the format [number], e.g. [1], [2]. Do not compile a reference list at the end of the reply. Example: 'This is the answer [1], which also relates to [2]'.";
   if (settings.notes_prompt) {
     instruct = settings.notes_prompt;
   }
@@ -290,7 +290,8 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
   const commands = get_global_commands(note.body);
   note.body = stripJarvisBlocks(note.body);
 
-  // (previous responses) strip lines that start with {ref_notes_prefix}
+  // (previous responses) strip reference link definitions and legacy ref notes prefix
+  prompt = prompt.replace(/^\[\d+\]:.*$/gm, '');
   prompt = prompt.replace(new RegExp('^' + ref_notes_prefix + '.*$', 'gm'), '');
   const chat = model_gen._parse_chat(prompt);
   let last_user_prompt = '';

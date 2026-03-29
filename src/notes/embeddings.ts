@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { createHash } from '../utils/crypto';
-import { JarvisSettings, ref_notes_prefix, title_separator } from '../ux/settings';
+import { JarvisSettings, title_separator } from '../ux/settings';
 import { UserDataEmbStore } from './userDataStore';
 import { globalValidationTracker } from './validator';
 import { getLogger } from '../utils/logger';
@@ -354,15 +354,15 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
 }
 
 export function extract_blocks_links(embeddings: BlockEmbedding[]): string {
-  let links: string = '';
+  const lines: string[] = [];
   for (let i=0; i<embeddings.length; i++) {
     if (embeddings[i].level > 0) {
-      links += `[${i+1}](:/${embeddings[i].id}#${get_slug(embeddings[i].title.split(title_separator).slice(-1)[0])}), `;
+      lines.push(`[${i+1}]: :/${embeddings[i].id}#${get_slug(embeddings[i].title.split(title_separator).slice(-1)[0])}`);
     } else {
-      links += `[${i+1}](:/${embeddings[i].id}), `;
+      lines.push(`[${i+1}]: :/${embeddings[i].id}`);
     }
-  };
-  return ref_notes_prefix + ' ' + links.substring(0, links.length-2);
+  }
+  return lines.join('\n');
 }
 
 function get_slug(title: string): string {
