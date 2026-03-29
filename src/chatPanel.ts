@@ -64,7 +64,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
     </div>
     <div class="jarvis-chat-actions">
       <button id="chat-send" type="button">Send</button>
-      <button id="chat-save" type="button">Save to Note</button>
+      <button id="chat-save" type="button">Save</button>
       <button id="chat-new" type="button">New Chat</button>
     </div>
   </div>
