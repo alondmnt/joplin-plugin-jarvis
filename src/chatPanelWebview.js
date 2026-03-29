@@ -201,15 +201,10 @@
     const row = document.createElement('div');
     row.className = role === 'assistant' ? 'jarvis-chat-row assistant' : 'jarvis-chat-row user';
 
-    const label = document.createElement('div');
-    label.className = 'jarvis-chat-role';
-    label.textContent = role === 'assistant' ? 'Assistant' : 'User';
-
     const body = document.createElement('div');
     body.className = 'jarvis-chat-message';
     body.innerHTML = renderCustomMarkdown(text);
 
-    row.appendChild(label);
     row.appendChild(body);
     chatLog.appendChild(row);
     scrollToBottom();
@@ -220,7 +215,7 @@
     if (!chatLog) return null;
     const row = document.createElement('div');
     row.className = 'jarvis-chat-row assistant';
-    row.innerHTML = '<div class="jarvis-chat-role">Assistant</div><div class="jarvis-thinking"><span>.</span><span>.</span><span>.</span></div>';
+    row.innerHTML = '<div class="jarvis-thinking"><span>.</span><span>.</span><span>.</span></div>';
     chatLog.appendChild(row);
     scrollToBottom();
     return row;
@@ -290,6 +285,7 @@
     history.push({ role: 'user', content: prompt });
     appendMessage('user', prompt);
     chatInput.value = '';
+    chatInput.style.height = 'auto';
     requestInFlight = true;
     setSending(true);
     const thinking = showThinking();
@@ -378,6 +374,13 @@
             webviewApi.postMessage({ type: 'openNote', noteId });
           }
         }
+      });
+    }
+
+    if (chatInput) {
+      chatInput.addEventListener('input', () => {
+        chatInput.style.height = 'auto';
+        chatInput.style.height = chatInput.scrollHeight + 'px';
       });
     }
 

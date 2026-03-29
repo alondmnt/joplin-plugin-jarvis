@@ -60,7 +60,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
 <div id="chat-log" class="jarvis-chat-log" aria-live="polite"></div>
     <div class="jarvis-chat-input-wrap">
       <span id="chat-mode" class="jarvis-chat-mode">Notes</span>
-      <textarea id="chat-input" class="jarvis-chat-input" placeholder="Ask Jarvis about your notes..." rows="4"></textarea>
+      <textarea id="chat-input" class="jarvis-chat-input" placeholder="Ask Jarvis about your notes..." rows="2"></textarea>
     </div>
     <div class="jarvis-chat-actions">
       <button id="chat-send" type="button">Send</button>
