@@ -40,24 +40,6 @@
       .replace(/'/g, '&#39;');
   }
 
-  function extractNoteId(href) {
-    if (!href || typeof href !== 'string') {
-      return '';
-    }
-
-    if (href.startsWith(':/')) {
-      const m = href.match(/^:\/([^?#&]+)/);
-      return m ? m[1] : '';
-    }
-
-    if (href.startsWith('joplin://')) {
-      const m = href.match(/[?&]id=([^&]+)/);
-      return m ? decodeURIComponent(m[1]) : '';
-    }
-
-    return '';
-  }
-
   function scrollToBottom() {
     resolveElements();
     if (!chatLog) {
@@ -244,10 +226,7 @@
         const href = target.getAttribute('href') || '';
         if (href.startsWith('joplin://') || href.startsWith(':/')) {
           event.preventDefault();
-          const noteId = extractNoteId(href);
-          if (noteId) {
-            webviewApi.postMessage({ type: 'openNote', noteId });
-          }
+          webviewApi.postMessage({ type: 'openNote', href });
         }
       });
     }

@@ -164,9 +164,9 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
     }
 
     if (message.type === 'openNote') {
-      const noteId = typeof message.noteId === 'string' ? message.noteId.trim() : '';
-      if (noteId) {
-        await joplin.commands.execute('openNote', noteId);
+      const href = typeof message.href === 'string' ? message.href.trim() : '';
+      if (href) {
+        await joplin.commands.execute('openItem', href);
       }
       return { type: 'ack' };
     }
