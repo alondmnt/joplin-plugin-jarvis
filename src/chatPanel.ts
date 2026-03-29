@@ -67,7 +67,10 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
   <div class="jarvis-chat-panel">
     <div class="jarvis-chat-header">Jarvis Chat</div>
     <div id="chat-log" class="jarvis-chat-log" aria-live="polite"></div>
-    <textarea id="chat-input" class="jarvis-chat-input" placeholder="Ask Jarvis about your notes..." rows="4"></textarea>
+    <div class="jarvis-chat-input-wrap">
+      <span id="chat-mode" class="jarvis-chat-mode">Notes</span>
+      <textarea id="chat-input" class="jarvis-chat-input" placeholder="Ask Jarvis about your notes..." rows="4"></textarea>
+    </div>
     <div class="jarvis-chat-actions">
       <button id="chat-send" type="button">Send</button>
       <button id="chat-save" type="button">Save to Note</button>
@@ -107,6 +110,42 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
           runtime.model_gen,
           runtime.settings,
         );
+        return { type: 'response', text };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        return { type: 'response', text: `Chat failed: ${msg}` };
+      }
+    }
+
+    if (message.type === 'chat') {
+      const prompt = typeof message.prompt === 'string' ? message.prompt.trim() : '';
+      if (!prompt) {
+        return { type: 'response', text: 'Please enter a prompt.' };
+      }
+
+      const runtime = get_context();
+      if (runtime.model_gen?.model === null && typeof runtime.model_gen?.initialize === 'function') {
+        await runtime.model_gen.initialize();
+      }
+      if (!runtime.model_gen?.model) {
+        return { type: 'response', text: 'Jarvis model is not initialised yet. Please try again in a moment.' };
+      }
+
+      try {
+        const history = sanitize_history(message.history);
+        const parts = history.slice(0, -1).map((msg) => {
+          const prefix = msg.role === 'assistant'
+            ? runtime.model_gen.model_prefix
+            : runtime.model_gen.user_prefix;
+          return `${prefix}${msg.content.trim()}`;
+        });
+        const full_prompt = parts.join('\n') + runtime.model_gen.user_prefix + prompt;
+
+        const raw = await runtime.model_gen.chat(full_prompt);
+        const text = (raw || '')
+          .replace(runtime.model_gen.model_prefix, '')
+          .replace(runtime.model_gen.user_prefix, '')
+          .trim();
         return { type: 'response', text };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';

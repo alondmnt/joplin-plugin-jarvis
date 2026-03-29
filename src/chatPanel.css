@@ -181,6 +181,24 @@ body {
   padding: 8px;
 }
 
+.jarvis-chat-input-wrap {
+  position: relative;
+}
+
+.jarvis-chat-mode {
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  font-size: 0.8em;
+  opacity: 0.5;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.jarvis-chat-mode:hover {
+  opacity: 1;
+}
+
 .jarvis-chat-actions {
   display: flex;
   gap: 8px;

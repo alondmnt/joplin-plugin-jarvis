@@ -2,11 +2,13 @@
   const history = [];
   let initialized = false;
   let requestInFlight = false;
+  let useNotes = true;
   let chatLog = null;
   let chatInput = null;
   let sendButton = null;
   let saveButton = null;
   let newButton = null;
+  let modeButton = null;
 
   function resolveElements() {
     if (!chatLog) {
@@ -23,6 +25,9 @@
     }
     if (!newButton) {
       newButton = document.getElementById('chat-new');
+    }
+    if (!modeButton) {
+      modeButton = document.getElementById('chat-mode');
     }
   }
 
@@ -275,7 +280,7 @@
 
     try {
       const response = await withTimeout(webviewApi.postMessage({
-        type: 'chatWithNotes',
+        type: useNotes ? 'chatWithNotes' : 'chat',
         prompt,
         history,
       }), 120000);
@@ -331,6 +336,15 @@
         resolveElements();
         if (chatLog) chatLog.innerHTML = '';
         if (chatInput) chatInput.focus();
+        return;
+      }
+      if (target.id === 'chat-mode') {
+        useNotes = !useNotes;
+        target.textContent = useNotes ? 'Notes' : 'Chat';
+        resolveElements();
+        if (chatInput) {
+          chatInput.placeholder = useNotes ? 'Ask Jarvis about your notes...' : 'Chat with Jarvis...';
+        }
       }
     });
 
