@@ -215,6 +215,21 @@
     scrollToBottom();
   }
 
+  function showThinking() {
+    resolveElements();
+    if (!chatLog) return null;
+    const row = document.createElement('div');
+    row.className = 'jarvis-chat-row assistant';
+    row.innerHTML = '<div class="jarvis-chat-role">Assistant</div><div class="jarvis-thinking"><span>.</span><span>.</span><span>.</span></div>';
+    chatLog.appendChild(row);
+    scrollToBottom();
+    return row;
+  }
+
+  function removeThinking(el) {
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
   function setSending(isSending) {
     resolveElements();
     if (sendButton) {
@@ -277,6 +292,7 @@
     chatInput.value = '';
     requestInFlight = true;
     setSending(true);
+    const thinking = showThinking();
 
     try {
       const response = await withTimeout(webviewApi.postMessage({
@@ -284,8 +300,10 @@
         prompt,
         history,
       }), 120000);
+      removeThinking(thinking);
       handleBackendMessage(response);
     } catch (error) {
+      removeThinking(thinking);
       const message = error instanceof Error ? error.message : 'Unknown error';
       appendMessage('assistant', `Chat failed: ${message}`);
     } finally {

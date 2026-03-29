@@ -220,3 +220,22 @@ body {
 .jarvis-chat-actions button:disabled {
   opacity: 0.7;
 }
+
+.jarvis-thinking span {
+  opacity: 0.3;
+  font-size: 1.4em;
+  animation: pulse 1.2s infinite;
+}
+
+.jarvis-thinking span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.jarvis-thinking span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
