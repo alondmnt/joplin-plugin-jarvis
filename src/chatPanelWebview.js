@@ -58,132 +58,6 @@
     return '';
   }
 
-  function renderInlineMarkdown(text) {
-    return escapeHtml(text)
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/__([^_]+)__/g, '<strong>$1</strong>')
-      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-      .replace(/_([^_]+)_/g, '<em>$1</em>')
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|joplin:\/\/[^\s)]+|:\/[^\s)]+)\)/g, '<a href="$2">$1</a>')
-      .replace(/(^|[\s(>])((?:https?:\/\/|joplin:\/\/|:\/)[^\s<)]+)/g, '$1<a href="$2">$2</a>');
-  }
-
-  function renderCustomMarkdown(text) {
-    const lines = String(text).replace(/\r\n/g, '\n').split('\n');
-    const output = [];
-    let inCodeBlock = false;
-    let codeLines = [];
-    let codeLanguage = '';
-    let paragraph = [];
-    let currentListType = '';
-
-    const flushParagraph = () => {
-      if (!paragraph.length) {
-        return;
-      }
-      output.push(`<p>${paragraph.map((line) => renderInlineMarkdown(line)).join('<br>')}</p>`);
-      paragraph = [];
-    };
-
-    const closeList = () => {
-      if (!currentListType) {
-        return;
-      }
-      output.push(`</${currentListType}>`);
-      currentListType = '';
-    };
-
-    for (const rawLine of lines) {
-      const line = rawLine || '';
-      const trimmed = line.trim();
-
-      const fence = trimmed.match(/^```\s*([a-zA-Z0-9_-]+)?\s*$/);
-      if (fence) {
-        flushParagraph();
-        closeList();
-        if (inCodeBlock) {
-          const lang_attr = codeLanguage ? ` data-lang="${escapeHtml(codeLanguage)}"` : '';
-          const lang_class = codeLanguage ? ` language-${escapeHtml(codeLanguage)}` : '';
-          const code_text = escapeHtml(codeLines.join('\n'));
-          output.push(`<pre class="jarvis-code-block${lang_class}"${lang_attr}><code>${code_text}</code></pre>`);
-          inCodeBlock = false;
-          codeLines = [];
-          codeLanguage = '';
-        } else {
-          codeLanguage = fence[1] || '';
-          inCodeBlock = true;
-        }
-        continue;
-      }
-
-      if (inCodeBlock) {
-        codeLines.push(line);
-        continue;
-      }
-
-      if (!trimmed) {
-        flushParagraph();
-        closeList();
-        continue;
-      }
-
-      const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
-      if (heading) {
-        flushParagraph();
-        closeList();
-        const level = heading[1].length;
-        output.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
-        continue;
-      }
-
-      const unordered = trimmed.match(/^[-*+]\s+(.+)$/);
-      if (unordered) {
-        flushParagraph();
-        if (currentListType !== 'ul') {
-          closeList();
-          output.push('<ul>');
-          currentListType = 'ul';
-        }
-        output.push(`<li>${renderInlineMarkdown(unordered[1])}</li>`);
-        continue;
-      }
-
-      const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
-      if (ordered) {
-        flushParagraph();
-        if (currentListType !== 'ol') {
-          closeList();
-          output.push('<ol>');
-          currentListType = 'ol';
-        }
-        output.push(`<li>${renderInlineMarkdown(ordered[1])}</li>`);
-        continue;
-      }
-
-      if (trimmed.startsWith('>')) {
-        flushParagraph();
-        closeList();
-        output.push(`<blockquote>${renderInlineMarkdown(trimmed.slice(1).trim())}</blockquote>`);
-        continue;
-      }
-
-      closeList();
-      paragraph.push(line);
-    }
-
-    flushParagraph();
-    closeList();
-    if (inCodeBlock) {
-      const lang_attr = codeLanguage ? ` data-lang="${escapeHtml(codeLanguage)}"` : '';
-      const lang_class = codeLanguage ? ` language-${escapeHtml(codeLanguage)}` : '';
-      const code_text = escapeHtml(codeLines.join('\n'));
-      output.push(`<pre class="jarvis-code-block${lang_class}"${lang_attr}><code>${code_text}</code></pre>`);
-    }
-
-    return output.join('');
-  }
-
   function scrollToBottom() {
     resolveElements();
     if (!chatLog) {
@@ -192,9 +66,9 @@
     chatLog.scrollTop = chatLog.scrollHeight;
   }
 
-  function appendMessage(role, text) {
+  function appendMessage(role, content, html) {
     resolveElements();
-    if (!chatLog || !text) {
+    if (!chatLog || !content) {
       return;
     }
 
@@ -203,7 +77,7 @@
 
     const body = document.createElement('div');
     body.className = 'jarvis-chat-message';
-    body.innerHTML = renderCustomMarkdown(text);
+    body.innerHTML = html || escapeHtml(content).replace(/\n/g, '<br>');
 
     row.appendChild(body);
     chatLog.appendChild(row);
@@ -267,8 +141,9 @@
     }
 
     const text = typeof message.text === 'string' ? message.text : '';
+    const html = typeof message.html === 'string' ? message.html : '';
     history.push({ role: 'assistant', content: text });
-    appendMessage('assistant', text);
+    appendMessage('assistant', text, html);
   }
 
   async function sendPrompt() {

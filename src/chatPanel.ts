@@ -1,8 +1,11 @@
 import joplin from 'api';
+import MarkdownIt from 'markdown-it';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
 import type { JarvisSettings } from './ux/settings';
 import { chat_with_notes_panel, format_as_note_chat, type PanelChatMessage } from './commands/chat';
 import { clearObjectReferences } from './utils';
+
+const md = new MarkdownIt({ linkify: true, breaks: true });
 
 type ChatPanelContext = {
   model_embed: TextEmbeddingModel;
@@ -101,7 +104,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
           runtime.model_gen,
           runtime.settings,
         );
-        return { type: 'response', text };
+        return { type: 'response', text, html: md.render(text) };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'response', text: `Chat failed: ${msg}` };
@@ -131,7 +134,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
           .replace(runtime.model_gen.model_prefix, '')
           .replace(runtime.model_gen.user_prefix, '')
           .trim();
-        return { type: 'response', text };
+        return { type: 'response', text, html: md.render(text) };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'response', text: `Chat failed: ${msg}` };
