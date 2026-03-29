@@ -1,7 +1,7 @@
 import joplin from 'api';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
 import type { JarvisSettings } from './ux/settings';
-import { chat_with_notes_panel, type PanelChatMessage } from './commands/chat';
+import { chat_with_notes_panel, format_as_note_chat, type PanelChatMessage } from './commands/chat';
 import { clearObjectReferences } from './utils';
 
 type ChatPanelContext = {
@@ -27,14 +27,6 @@ function sanitize_history(history: unknown): PanelChatMessage[] {
     .filter((entry) => entry.content.trim().length > 0);
 }
 
-function format_history_markdown(history: PanelChatMessage[], settings: JarvisSettings): string {
-  const lines: string[] = [];
-  for (const message of history) {
-    const prefix = message.role === 'assistant' ? settings.chat_prefix : settings.chat_suffix;
-    lines.push(`${prefix}${message.content.trim()}`);
-  }
-  return lines.join('\n\n').trim() + '\n';
-}
 
 async function resolve_parent_notebook_id(): Promise<string> {
   const selected_note = await joplin.workspace.selectedNote();
@@ -133,13 +125,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
 
       try {
         const history = sanitize_history(message.history);
-        const parts = history.slice(0, -1).map((msg) => {
-          const prefix = msg.role === 'assistant'
-            ? runtime.model_gen.model_prefix
-            : runtime.model_gen.user_prefix;
-          return `${prefix}${msg.content.trim()}`;
-        });
-        const full_prompt = parts.join('\n') + runtime.model_gen.user_prefix + prompt;
+        const full_prompt = format_as_note_chat(history, runtime.settings);
 
         const raw = await runtime.model_gen.chat(full_prompt);
         const text = (raw || '')
@@ -165,7 +151,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         const title_stamp = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
         const note = await joplin.data.post(['notes'], null, {
           title: `Jarvis Chat ${title_stamp}`,
-          body: format_history_markdown(history, runtime.settings),
+          body: format_as_note_chat(history, runtime.settings),
           parent_id,
         });
         return { type: 'saved', text: `Saved to note: ${note.title}` };

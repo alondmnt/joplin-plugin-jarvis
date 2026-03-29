@@ -10,6 +10,17 @@ export type PanelChatMessage = {
   content: string;
 };
 
+/** Format panel chat history as note-style conversation text, using the same
+ *  role prefixes (chat_prefix / chat_suffix) that the editor chat embeds in
+ *  note bodies. This makes _parse_chat handle panel history identically to
+ *  editor conversations. */
+export function format_as_note_chat(history: PanelChatMessage[], settings: JarvisSettings): string {
+  return history.map((msg) => {
+    const prefix = msg.role === 'assistant' ? settings.chat_prefix : settings.chat_suffix;
+    return `${prefix}${msg.content.trim()}`;
+  }).join('');
+}
+
 
 export async function chat_with_jarvis(model_gen: TextGenerationModel) {
   const prompt = await get_chat_prompt(model_gen);
@@ -82,15 +93,8 @@ async function run_notes_chat_pipeline(
   );
   let prompt_override_for_retrieval = prompt_text;
   if (safe_history.length > 0 && settings.notes_context_history > 0) {
-    const context_msgs = safe_history
-      .slice(-settings.notes_context_history)
-      .map((msg) => {
-        const role_prefix = msg.role === 'assistant'
-          ? model_gen.model_prefix
-          : model_gen.user_prefix;
-        return `${role_prefix}${msg.content.trim()}`;
-      });
-    prompt_override_for_retrieval = context_msgs.join('\n');
+    const context_slice = safe_history.slice(-settings.notes_context_history);
+    prompt_override_for_retrieval = format_as_note_chat(context_slice, settings);
   }
 
   const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings, prompt_override_for_retrieval);
@@ -109,11 +113,9 @@ async function run_notes_chat_pipeline(
     instruct = settings.notes_prompt;
   }
 
-  const history_prompt = safe_history.map((msg) => {
-    const role_prefix = msg.role === 'assistant' ? model_gen.model_prefix : model_gen.user_prefix;
-    return `${role_prefix}${msg.content.trim()}`;
-  }).join('\n');
-  const pipeline_prompt = safe_history.length > 0 ? history_prompt : prompt.prompt;
+  const pipeline_prompt = safe_history.length > 0
+    ? format_as_note_chat(safe_history, settings)
+    : prompt.prompt;
 
   const completion = (await model_gen.chat(`
   ${pipeline_prompt}
