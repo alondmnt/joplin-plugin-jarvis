@@ -134,8 +134,11 @@ async function run_notes_chat_pipeline(
   ===
   `, preview)) || '';
 
+  // normalise citation format: [note 1], [Note1], etc. → [1]
+  const normalised = completion.replace(/\[note\s*(\d+)\]/gi, '[$1]');
+
   return {
-    completion,
+    completion: normalised,
     note_links,
     nearest,
     selected_embd,
