@@ -247,6 +247,13 @@
         event.preventDefault();
         sendPrompt();
       }
+      if (event.key === 'Tab' && event.shiftKey) {
+        event.preventDefault();
+        useNotes = !useNotes;
+        resolveElements();
+        if (modeButton) modeButton.textContent = useNotes ? 'Notes' : 'Chat';
+        if (chatInput) chatInput.placeholder = useNotes ? 'Ask Jarvis about your notes...' : 'Chat with Jarvis...';
+      }
     });
 
   }
