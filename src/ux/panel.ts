@@ -57,6 +57,10 @@ export async function update_panel(
     <p class="jarvis-semantic-title">${settings.notes_panel_title}</p>
     ${search_box}
     ${messageHtml}
+    <div id="jarvis-loading" class="jarvis-loading">
+      <div class="jarvis-spinner"></div>
+      <span>Jarvis is working...</span>
+    </div>
     ${(await Promise.all(nearest)).map((n) => `
     <details ${n.title === "Chat context" ? "open" : ""}>
       <summary class="jarvis-semantic-note">

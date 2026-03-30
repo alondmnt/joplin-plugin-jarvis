@@ -383,7 +383,12 @@ async function register_commands_and_menus(
     label: 'Chat with Jarvis',
     iconName: 'fas fa-robot',
     execute: async () => {
-      await chat_with_jarvis(runtime.model_gen);
+      await joplin.views.panels.postMessage(runtime.panel, { name: 'show_loading' });
+      try {
+        await chat_with_jarvis(runtime.model_gen);
+      } finally {
+        await joplin.views.panels.postMessage(runtime.panel, { name: 'hide_loading' });
+      }
     },
   });
 
@@ -523,7 +528,12 @@ async function register_commands_and_menus(
       if (runtime.model_embed.model === null) {
         await runtime.model_embed.initialize();
       }
-      await chat_with_notes(runtime.model_embed, runtime.model_gen, runtime.panel);
+      await joplin.views.panels.postMessage(runtime.panel, { name: 'show_loading' });
+      try {
+        await chat_with_notes(runtime.model_embed, runtime.model_gen, runtime.panel);
+      } finally {
+        await joplin.views.panels.postMessage(runtime.panel, { name: 'hide_loading' });
+      }
     },
   });
 
