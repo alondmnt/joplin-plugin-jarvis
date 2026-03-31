@@ -54,6 +54,18 @@ async function resolve_parent_notebook_id(): Promise<string> {
   throw new Error('No target notebook is available to save this chat.');
 }
 
+type CachedMessage = { role: 'user' | 'assistant'; content: string; html?: string };
+
+const panelCache: {
+  history: CachedMessage[];
+  useNotes: boolean;
+  draft: string;
+} = {
+  history: [],
+  useNotes: true,
+  draft: '',
+};
+
 export async function initialize_chat_panel(get_context: () => ChatPanelContext): Promise<string> {
   const panel = await joplin.views.panels.create('jarvis_chat_panel');
   await joplin.views.panels.addScript(panel, 'chatPanel.css');
@@ -78,6 +90,31 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
       return { type: 'response', text: 'Invalid panel message.' };
     }
 
+    if (message.type === 'initPanel') {
+      return {
+        type: 'restore',
+        history: panelCache.history,
+        useNotes: panelCache.useNotes,
+        draft: panelCache.draft || '',
+      };
+    }
+
+    if (message.type === 'newChat') {
+      panelCache.history = [];
+      panelCache.draft = '';
+      return { type: 'ack' };
+    }
+
+    if (message.type === 'modeChange') {
+      panelCache.useNotes = !!message.useNotes;
+      return { type: 'ack' };
+    }
+
+    if (message.type === 'draftChange') {
+      panelCache.draft = typeof message.draft === 'string' ? message.draft : '';
+      return { type: 'ack' };
+    }
+
     if (message.type === 'chatWithNotes') {
       const prompt = typeof message.prompt === 'string' ? message.prompt.trim() : '';
       if (!prompt) {
@@ -97,6 +134,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
 
       try {
         const history = sanitize_history(message.history);
+        panelCache.history = history.map(m => ({ ...m }));
         const text = await chat_with_notes_panel(
           prompt,
           history,
@@ -104,7 +142,9 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
           runtime.model_gen,
           runtime.settings,
         );
-        return { type: 'response', text, html: md.render(text) };
+        const html = md.render(text);
+        panelCache.history.push({ role: 'assistant', content: text, html });
+        return { type: 'response', text, html };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'response', text: `Chat failed: ${msg}` };
@@ -127,6 +167,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
 
       try {
         const history = sanitize_history(message.history);
+        panelCache.history = history.map(m => ({ ...m }));
         const full_prompt = format_as_note_chat(history, runtime.settings);
 
         const raw = await runtime.model_gen.chat(full_prompt);
@@ -134,7 +175,9 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
           .replace(runtime.model_gen.model_prefix, '')
           .replace(runtime.model_gen.user_prefix, '')
           .trim();
-        return { type: 'response', text, html: md.render(text) };
+        const html = md.render(text);
+        panelCache.history.push({ role: 'assistant', content: text, html });
+        return { type: 'response', text, html };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'response', text: `Chat failed: ${msg}` };

@@ -9,6 +9,7 @@
   let saveButton = null;
   let newButton = null;
   let modeButton = null;
+  let draftTimer = null;
 
   function resolveElements() {
     if (!chatLog) {
@@ -110,6 +111,41 @@
     });
   }
 
+  function restoreState(message) {
+    if (!message || typeof message !== 'object' || message.type !== 'restore') return;
+
+    resolveElements();
+
+    // restore mode
+    if (typeof message.useNotes === 'boolean') {
+      useNotes = message.useNotes;
+      if (modeButton) modeButton.textContent = useNotes ? 'Notes' : 'Chat';
+      if (chatInput) chatInput.placeholder = useNotes ? 'Ask Jarvis about your notes...' : 'Chat with Jarvis...';
+    }
+
+    // restore draft
+    if (typeof message.draft === 'string' && message.draft && chatInput) {
+      chatInput.value = message.draft;
+      chatInput.style.height = 'auto';
+      chatInput.style.height = chatInput.scrollHeight + 'px';
+    }
+
+    // restore chat history
+    if (Array.isArray(message.history) && message.history.length > 0) {
+      history.length = 0;
+      if (chatLog) chatLog.innerHTML = '';
+      for (const entry of message.history) {
+        if (!entry || typeof entry !== 'object') continue;
+        const role = entry.role === 'assistant' ? 'assistant' : 'user';
+        const content = typeof entry.content === 'string' ? entry.content : '';
+        const html = typeof entry.html === 'string' ? entry.html : '';
+        if (!content) continue;
+        history.push({ role, content });
+        appendMessage(role, content, html);
+      }
+    }
+  }
+
   function handleBackendMessage(message) {
     if (!message || typeof message !== 'object') {
       appendMessage('assistant', 'Received an invalid response from Jarvis.');
@@ -143,6 +179,8 @@
     appendMessage('user', prompt);
     chatInput.value = '';
     chatInput.style.height = 'auto';
+    clearTimeout(draftTimer);
+    webviewApi.postMessage({ type: 'draftChange', draft: '' });
     requestInFlight = true;
     setSending(true);
     const thinking = showThinking();
@@ -206,7 +244,8 @@
         history.length = 0;
         resolveElements();
         if (chatLog) chatLog.innerHTML = '';
-        if (chatInput) chatInput.focus();
+        if (chatInput) { chatInput.value = ''; chatInput.focus(); }
+        webviewApi.postMessage({ type: 'newChat' });
         return;
       }
       if (target.id === 'chat-mode') {
@@ -216,6 +255,7 @@
         if (chatInput) {
           chatInput.placeholder = useNotes ? 'Ask Jarvis about your notes...' : 'Chat with Jarvis...';
         }
+        webviewApi.postMessage({ type: 'modeChange', useNotes });
       }
     });
 
@@ -235,6 +275,10 @@
       chatInput.addEventListener('input', () => {
         chatInput.style.height = 'auto';
         chatInput.style.height = chatInput.scrollHeight + 'px';
+        clearTimeout(draftTimer);
+        draftTimer = setTimeout(() => {
+          webviewApi.postMessage({ type: 'draftChange', draft: chatInput.value });
+        }, 500);
       });
     }
 
@@ -253,9 +297,12 @@
         resolveElements();
         if (modeButton) modeButton.textContent = useNotes ? 'Notes' : 'Chat';
         if (chatInput) chatInput.placeholder = useNotes ? 'Ask Jarvis about your notes...' : 'Chat with Jarvis...';
+        webviewApi.postMessage({ type: 'modeChange', useNotes });
       }
     });
 
+    // request cached state from plugin process
+    webviewApi.postMessage({ type: 'initPanel' }).then(restoreState);
   }
 
   if (document.readyState === 'loading') {
