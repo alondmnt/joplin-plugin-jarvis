@@ -209,6 +209,12 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
     if (message.type === 'openNote') {
       const href = typeof message.href === 'string' ? message.href.trim() : '';
       if (href) {
+        // Dismiss plugin panels first (required for web/mobile to allow note opening)
+        try {
+          await joplin.commands.execute('dismissPluginPanels');
+        } catch {
+          // Ignore errors (not on mobile/web, or old version)
+        }
         await joplin.commands.execute('openItem', href);
       }
       return { type: 'ack' };
