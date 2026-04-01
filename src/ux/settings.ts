@@ -106,6 +106,8 @@ export interface JarvisSettings {
   notes_attach_next: number;
   notes_attach_nearest: number;
   notes_agg_similarity: string;
+  notes_keyword_weight: number;
+  notes_keyword_k: number;
   notes_exclude_folders: Set<string>;
   notes_panel_title: string;
   notes_panel_user_style: string;
@@ -364,6 +366,8 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_attach_next: await joplin.settings.value('notes_attach_next'),
     notes_attach_nearest: await joplin.settings.value('notes_attach_nearest'),
     notes_agg_similarity: await joplin.settings.value('notes_agg_similarity'),
+    notes_keyword_weight: await joplin.settings.value('notes_keyword_weight') / 100,
+    notes_keyword_k: await joplin.settings.value('notes_keyword_k'),
     notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
@@ -993,6 +997,28 @@ export async function register_settings() {
         'max': 'max',
         'avg': 'avg',
       }
+    },
+    'notes_keyword_weight': {
+      value: 0,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 100,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Keyword search weight',
+      description: 'Weight of Joplin keyword search in hybrid retrieval (Reciprocal Rank Fusion). Set to 0 to disable keyword search and use pure semantic search. Default: 0 (disabled)',
+    },
+    'notes_keyword_k': {
+      value: 1,
+      type: SettingItemType.Int,
+      minimum: 1,
+      maximum: 100,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Keyword search RRF k',
+      description: 'RRF smoothing constant for hybrid retrieval. Lower values (1-3) let keyword results displace semantic results more aggressively. Higher values (30-60) make the blend gentler. Default: 1',
     },
     'annotate_preferred_language': {
       value: 'English',

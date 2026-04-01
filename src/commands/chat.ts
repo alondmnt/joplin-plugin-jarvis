@@ -3,7 +3,11 @@ import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks } from '../notes/embeddings';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
-import { split_by_tokens, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
+import { split_by_tokens, preprocess_query, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
+import { keyword_search_chunks, rrf_merge } from '../notes/hybridSearch';
+import { getLogger } from '../utils/logger';
+
+const log = getLogger();
 
 export type PanelChatMessage = {
   role: 'user' | 'assistant';
@@ -180,7 +184,7 @@ async function get_chat_prompt_and_notes(
   settings: JarvisSettings,
   prompt_override?: string,
 ):
-    Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]}, NoteEmbedding[]]> {
+    Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[], last_user_prompt: string}, NoteEmbedding[]]> {
   const note = await joplin.workspace.selectedNote();
   try {
     const source_prompt = typeof prompt_override === 'string' ? prompt_override : await get_chat_prompt(model_gen);
@@ -231,6 +235,39 @@ async function get_chat_prompt_and_notes(
     const nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
     if (nearest.length === 0) {
       nearest.push({id: note.id, title: 'Chat context', embeddings: [], similarity: null});
+    }
+
+    // hybrid search: merge semantic + keyword results via RRF
+    if (settings.notes_keyword_weight > 0 && !prompt.search && prompt.notes.size === 0) {
+      const keyword_source = prompt.last_user_prompt || note.title || '';
+      const keyword_query = preprocess_query(keyword_source).slice(0, 200).trim();
+      if (keyword_query.length > 0) {
+        const keyword_chunks = await keyword_search_chunks(
+          keyword_query, nearest[0].embeddings, settings.notes_max_hits);
+        if (keyword_chunks.length > 0) {
+          const semantic_top = nearest[0].embeddings.slice(0, settings.notes_max_hits);
+          const merged = rrf_merge(semantic_top, keyword_chunks, settings.notes_max_hits, settings.notes_keyword_k, settings.notes_keyword_weight);
+
+          if (settings.notes_debug_mode) {
+            const sem_keys = new Set(semantic_top.map(b => `${b.id}:${b.line}`));
+            const merged_key_set = new Set(merged.map(b => `${b.id}:${b.line}`));
+            const promoted: string[] = [];  // in keyword but not in semantic top
+            const demoted: string[] = [];   // in semantic top but not in merged
+            for (const key of merged_key_set) {
+              if (!sem_keys.has(key)) { promoted.push(key); }
+            }
+            for (const key of sem_keys) {
+              if (!merged_key_set.has(key)) { demoted.push(key); }
+            }
+            log.info(`[Hybrid] query: "${keyword_query.slice(0, 80)}"`);
+            log.info(`[Hybrid] semantic: ${semantic_top.length}, keyword: ${keyword_chunks.length}, merged: ${merged.length}`);
+            if (promoted.length > 0) { log.info(`[Hybrid] promoted by keyword: ${promoted.join(', ')}`); }
+            if (demoted.length > 0) { log.info(`[Hybrid] displaced from semantic: ${demoted.join(', ')}`); }
+          }
+
+          nearest[0].embeddings = merged;
+        }
+      }
     }
 
     // post-processing: attach additional blocks to the nearest ones
@@ -288,7 +325,7 @@ async function get_chat_prompt_and_notes(
 }
 
 function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationModel):
-    {prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]} {
+    {prompt: string, search: string, notes: Set<string>, context: string, not_context: string[], last_user_prompt: string} {
   // get global commands
   const commands = get_global_commands(note.body);
   note.body = stripJarvisBlocks(note.body);
@@ -354,7 +391,7 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
     prompt += '\n' + global_match;
   }
 
-  return {prompt, search, notes, context, not_context};
+  return {prompt, search, notes, context, not_context, last_user_prompt};
 }
 
 function get_global_commands(text: string): ParsedData {
