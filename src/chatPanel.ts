@@ -56,14 +56,24 @@ async function resolve_parent_notebook_id(): Promise<string> {
 
 type CachedMessage = { role: 'user' | 'assistant'; content: string; html?: string };
 
+function local_timestamp(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 const panelCache: {
   history: CachedMessage[];
   useNotes: boolean;
   draft: string;
+  noteId: string;
+  createdAt: string;
 } = {
   history: [],
   useNotes: true,
   draft: '',
+  noteId: '',
+  createdAt: '',
 };
 
 export async function initialize_chat_panel(get_context: () => ChatPanelContext): Promise<string> {
@@ -102,6 +112,8 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
     if (message.type === 'newChat') {
       panelCache.history = [];
       panelCache.draft = '';
+      panelCache.noteId = '';
+      panelCache.createdAt = '';
       return { type: 'ack' };
     }
 
@@ -135,6 +147,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
       try {
         const history = sanitize_history(message.history);
         panelCache.history = history.map(m => ({ ...m }));
+        if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
         const text = await chat_with_notes_panel(
           prompt,
           history,
@@ -168,6 +181,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
       try {
         const history = sanitize_history(message.history);
         panelCache.history = history.map(m => ({ ...m }));
+        if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
         const full_prompt = format_as_note_chat(history, runtime.settings);
 
         const raw = await runtime.model_gen.chat(full_prompt);
@@ -192,13 +206,21 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
 
       try {
         const runtime = get_context();
+        const title_stamp = panelCache.createdAt || local_timestamp(new Date());
+        const body = format_as_note_chat(history, runtime.settings);
+
+        if (panelCache.noteId) {
+          await joplin.data.put(['notes', panelCache.noteId], null, { body });
+          return { type: 'saved', text: `Updated note: Jarvis Chat ${title_stamp}` };
+        }
+
         const parent_id = await resolve_parent_notebook_id();
-        const title_stamp = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
         const note = await joplin.data.post(['notes'], null, {
           title: `Jarvis Chat ${title_stamp}`,
-          body: format_as_note_chat(history, runtime.settings),
+          body,
           parent_id,
         });
+        panelCache.noteId = note.id;
         return { type: 'saved', text: `Saved to note: ${note.title}` };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
