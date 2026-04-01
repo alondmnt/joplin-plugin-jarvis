@@ -22,7 +22,7 @@ export async function keyword_search_chunks(
 ): Promise<BlockEmbedding[]> {
   let search_res: any = null;
   try {
-    search_res = await joplin.data.get(['search'], { query: query, fields: ['id'], limit: top_n });
+    search_res = await joplin.data.get(['search'], { query: query, fields: ['id'], limit: top_n, order_by: 'relevance' });
   } catch (error) {
     clearApiResponse(search_res);
     return [];

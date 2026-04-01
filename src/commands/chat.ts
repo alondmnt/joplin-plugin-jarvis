@@ -243,7 +243,7 @@ async function get_chat_prompt_and_notes(
       const keyword_query = preprocess_query(keyword_source).slice(0, 200).trim();
       if (keyword_query.length > 0) {
         const keyword_chunks = await keyword_search_chunks(
-          keyword_query, nearest[0].embeddings, settings.notes_max_hits);
+          keyword_query, nearest[0].embeddings, 100);
         if (keyword_chunks.length > 0) {
           const semantic_top = nearest[0].embeddings.slice(0, settings.notes_max_hits);
           const merged = rrf_merge(semantic_top, keyword_chunks, settings.notes_max_hits, settings.notes_keyword_k, settings.notes_keyword_weight);
@@ -265,7 +265,10 @@ async function get_chat_prompt_and_notes(
             if (demoted.length > 0) { log.info(`[Hybrid] displaced from semantic: ${demoted.join(', ')}`); }
           }
 
-          nearest[0].embeddings = merged;
+          // reorder: merged top, then remaining pool blocks not already in merged
+          const merged_keys = new Set(merged.map(b => `${b.id}:${b.line}`));
+          const tail = nearest[0].embeddings.filter(b => !merged_keys.has(`${b.id}:${b.line}`));
+          nearest[0].embeddings = [...merged, ...tail];
         }
       }
     }
