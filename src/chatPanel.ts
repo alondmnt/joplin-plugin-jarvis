@@ -54,6 +54,28 @@ async function resolve_parent_notebook_id(): Promise<string> {
   throw new Error('No target notebook is available to save this chat.');
 }
 
+type CachedMessage = { role: 'user' | 'assistant'; content: string; html?: string };
+
+function local_timestamp(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+const panelCache: {
+  history: CachedMessage[];
+  useNotes: boolean;
+  draft: string;
+  noteId: string;
+  createdAt: string;
+} = {
+  history: [],
+  useNotes: true,
+  draft: '',
+  noteId: '',
+  createdAt: '',
+};
+
 export async function initialize_chat_panel(get_context: () => ChatPanelContext): Promise<string> {
   const panel = await joplin.views.panels.create('jarvis_chat_panel');
   await joplin.views.panels.addScript(panel, 'chatPanel.css');
@@ -78,6 +100,33 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
       return { type: 'response', text: 'Invalid panel message.' };
     }
 
+    if (message.type === 'initPanel') {
+      return {
+        type: 'restore',
+        history: panelCache.history,
+        useNotes: panelCache.useNotes,
+        draft: panelCache.draft || '',
+      };
+    }
+
+    if (message.type === 'newChat') {
+      panelCache.history = [];
+      panelCache.draft = '';
+      panelCache.noteId = '';
+      panelCache.createdAt = '';
+      return { type: 'ack' };
+    }
+
+    if (message.type === 'modeChange') {
+      panelCache.useNotes = !!message.useNotes;
+      return { type: 'ack' };
+    }
+
+    if (message.type === 'draftChange') {
+      panelCache.draft = typeof message.draft === 'string' ? message.draft : '';
+      return { type: 'ack' };
+    }
+
     if (message.type === 'chatWithNotes') {
       const prompt = typeof message.prompt === 'string' ? message.prompt.trim() : '';
       if (!prompt) {
@@ -97,6 +146,8 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
 
       try {
         const history = sanitize_history(message.history);
+        panelCache.history = history.map(m => ({ ...m }));
+        if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
         const text = await chat_with_notes_panel(
           prompt,
           history,
@@ -104,7 +155,9 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
           runtime.model_gen,
           runtime.settings,
         );
-        return { type: 'response', text, html: md.render(text) };
+        const html = md.render(text);
+        panelCache.history.push({ role: 'assistant', content: text, html });
+        return { type: 'response', text, html };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'response', text: `Chat failed: ${msg}` };
@@ -127,6 +180,8 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
 
       try {
         const history = sanitize_history(message.history);
+        panelCache.history = history.map(m => ({ ...m }));
+        if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
         const full_prompt = format_as_note_chat(history, runtime.settings);
 
         const raw = await runtime.model_gen.chat(full_prompt);
@@ -134,7 +189,9 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
           .replace(runtime.model_gen.model_prefix, '')
           .replace(runtime.model_gen.user_prefix, '')
           .trim();
-        return { type: 'response', text, html: md.render(text) };
+        const html = md.render(text);
+        panelCache.history.push({ role: 'assistant', content: text, html });
+        return { type: 'response', text, html };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'response', text: `Chat failed: ${msg}` };
@@ -149,13 +206,21 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
 
       try {
         const runtime = get_context();
+        const title_stamp = panelCache.createdAt || local_timestamp(new Date());
+        const body = format_as_note_chat(history, runtime.settings);
+
+        if (panelCache.noteId) {
+          await joplin.data.put(['notes', panelCache.noteId], null, { body });
+          return { type: 'saved', text: `Updated note: Jarvis Chat ${title_stamp}` };
+        }
+
         const parent_id = await resolve_parent_notebook_id();
-        const title_stamp = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
         const note = await joplin.data.post(['notes'], null, {
           title: `Jarvis Chat ${title_stamp}`,
-          body: format_as_note_chat(history, runtime.settings),
+          body,
           parent_id,
         });
+        panelCache.noteId = note.id;
         return { type: 'saved', text: `Saved to note: ${note.title}` };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -166,6 +231,12 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
     if (message.type === 'openNote') {
       const href = typeof message.href === 'string' ? message.href.trim() : '';
       if (href) {
+        // Dismiss plugin panels first (required for web/mobile to allow note opening)
+        try {
+          await joplin.commands.execute('dismissPluginPanels');
+        } catch {
+          // Ignore errors (not on mobile/web, or old version)
+        }
         await joplin.commands.execute('openItem', href);
       }
       return { type: 'ack' };
