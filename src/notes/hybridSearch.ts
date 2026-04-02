@@ -28,8 +28,11 @@ export async function decompose_query(
 For each, output on a separate line:
 SEARCH: <semantic query> | KEYWORDS: <terms or NONE>
 
-Use "quoted phrases" for compound terms. Drop evaluative words from keywords.
-Combine co-occurring entities in a single keyword term.
+Rules:
+- Use 1 sub-query when the question targets a single topic, entity, or time period.
+- Use 2-3 only for genuinely multi-faceted questions (comparisons, multiple entities).
+- Use "quoted phrases" for compound terms. Drop evaluative words from keywords.
+- Combine co-occurring entities in a single keyword term.
 
 Question: ${query}`;
 
