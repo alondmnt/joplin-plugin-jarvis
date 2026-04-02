@@ -9,8 +9,8 @@ import { research_with_jarvis } from './commands/research';
 import { register_api_commands } from './commands/api';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
-import { find_nearest_notes, group_by_notes, clear_corpus_cache } from './notes/embeddings';
-import { keyword_rerank } from './notes/hybridSearch';
+import { find_nearest_notes, clear_corpus_cache } from './notes/embeddings';
+import { search_by_query } from './notes/hybridSearch';
 import { ensure_catalog_note, get_catalog_note_id } from './notes/catalog';
 import { read_model_metadata } from './notes/catalogMetadataStore';
 import { register_panel, update_panel } from './ux/panel';
@@ -798,25 +798,9 @@ async function register_workspace_listeners(
       }
     }
     if (message.name === 'searchRelatedNote') {
-      const flat = await find_nearest_notes(
-        runtime.model_embed.embeddings,
-        '1234',
-        1,
-        '',
-        message.query,
-        runtime.model_embed,
-        runtime.settings,
-        false,
-        runtime.panel,
-        updates.is_update_in_progress()
-      );
-      // keyword rerank using the search query, then group by note
-      const reranked = (flat.length > 0 && flat[0].embeddings.length > 0)
-        ? await keyword_rerank(flat[0].embeddings, [message.query], runtime.settings)
-        : [];
-      const nearest = reranked.length > 0
-        ? await group_by_notes(reranked, runtime.settings)
-        : flat;
+      const nearest = await search_by_query(
+        message.query, '1234', runtime.model_embed, runtime.settings,
+        runtime.panel, updates.is_update_in_progress());
       // Compute capacity warning from in-memory stats (if available)
       const stats = getModelStats(runtime.model_embed.id);
       const profileIsDesktop = runtime.settings.notes_device_profile_effective === 'desktop';

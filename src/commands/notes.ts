@@ -1,8 +1,6 @@
 import joplin from 'api';
-import { find_nearest_notes, group_by_notes, update_embeddings, corpusCaches, userDataStore } from '../notes/embeddings';
-import { read_user_data_embeddings } from '../notes/userDataReader';
-import { maxsim_search, keyword_rerank } from '../notes/hybridSearch';
-import type { BlockEmbedding } from '../notes/embeddings';
+import { find_nearest_notes, update_embeddings, corpusCaches } from '../notes/embeddings';
+import { search_by_note } from '../notes/hybridSearch';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time, set_model_last_full_sweep_time } from '../ux/settings';
@@ -603,34 +601,8 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
   let nearest;
   // multi-chunk search: score each chunk of the current note independently
   // fall back to single-vector when user has selected specific text
-  const use_multi_chunk = settings.notes_multi_chunk_search && (!selected || selected === note.body);
-  if (use_multi_chunk) {
-    // load current note's chunk embeddings
-    let query_chunks: BlockEmbedding[] = model.embeddings.filter(b => b.id === note.id);
-    if (query_chunks.length === 0 && settings.notes_db_in_user_data) {
-      // userData mode: load from store
-      const results = await read_user_data_embeddings({
-        store: userDataStore, modelId: model.id, noteIds: [note.id],
-      });
-      if (results.length > 0) { query_chunks = results[0].blocks; }
-    }
-
-    if (query_chunks.length > 0) {
-      const query_embeddings = query_chunks.map(c => c.embedding);
-      const cache = corpusCaches.get(model.id);
-      const scored = maxsim_search(query_embeddings, model.embeddings, cache, note.id, settings);
-
-      if (scored.length > 0) {
-        const reranked = note.title
-          ? await keyword_rerank(scored, [note.title], settings)
-          : scored;
-        nearest = await group_by_notes(reranked, settings);
-
-        if (settings.notes_debug_mode) {
-          console.info(`Jarvis: multi-chunk search with ${query_chunks.length} query chunks, ${scored.length} scored blocks`);
-        }
-      }
-    }
+  if (!selected || selected === note.body) {
+    nearest = await search_by_note(note.id, note.title, model, settings);
   }
   if (!nearest) {
     try {

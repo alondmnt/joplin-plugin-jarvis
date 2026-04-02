@@ -1,6 +1,7 @@
 import joplin from 'api';
-import { BlockEmbedding } from './embeddings';
-import { TextGenerationModel } from '../models/models';
+import { BlockEmbedding, NoteEmbedding, find_nearest_notes, group_by_notes, corpusCaches, userDataStore } from './embeddings';
+import { read_user_data_embeddings } from './userDataReader';
+import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
 import { JarvisSettings } from '../ux/settings';
 import { clearApiResponse, with_timeout } from '../utils';
 import { calc_similarity } from './embeddingHelpers';
@@ -278,4 +279,65 @@ export function maxsim_search(
   }
 
   return [];  // cold start: no pool available
+}
+
+/**
+ * Multi-chunk search for a note: load chunks, MaxSim score, keyword rerank, group.
+ * Used by the related notes panel and the API when a noteId is provided.
+ *
+ * @returns grouped NoteEmbedding[], or null if chunks unavailable or multi-chunk disabled
+ */
+export async function search_by_note(
+  noteId: string,
+  noteTitle: string,
+  model: TextEmbeddingModel,
+  settings: JarvisSettings,
+): Promise<NoteEmbedding[] | null> {
+  if (!settings.notes_multi_chunk_search) { return null; }
+
+  // load note's chunk embeddings (legacy pool or userData)
+  let query_chunks: BlockEmbedding[] = model.embeddings.filter(b => b.id === noteId);
+  if (query_chunks.length === 0 && settings.notes_db_in_user_data) {
+    const loaded = await read_user_data_embeddings({
+      store: userDataStore, modelId: model.id, noteIds: [noteId],
+    });
+    if (loaded.length > 0) { query_chunks = loaded[0].blocks; }
+  }
+  if (query_chunks.length === 0) { return null; }
+
+  const cache = corpusCaches.get(model.id);
+  const scored = maxsim_search(
+    query_chunks.map(c => c.embedding), model.embeddings, cache, noteId, settings);
+  if (scored.length === 0) { return null; }
+
+  const reranked = noteTitle
+    ? await keyword_rerank(scored, [noteTitle], settings)
+    : scored;
+  return group_by_notes(reranked, settings);
+}
+
+/**
+ * Text query search: flat semantic search, keyword rerank, group by note.
+ * Used by the panel search box and the API when a text query is provided.
+ *
+ * @returns grouped NoteEmbedding[]
+ */
+export async function search_by_query(
+  query: string,
+  excludeId: string,
+  model: TextEmbeddingModel,
+  settings: JarvisSettings,
+  panel?: string,
+  isUpdateInProgress?: boolean,
+): Promise<NoteEmbedding[]> {
+  const flat = await find_nearest_notes(
+    model.embeddings, excludeId, 1, '', query,
+    model, settings, false, panel, isUpdateInProgress ?? false,
+  );
+  if (flat.length === 0 || flat[0].embeddings.length === 0) { return flat; }
+
+  const reranked = await keyword_rerank(flat[0].embeddings, [query], settings);
+  return reranked.length > 0
+    ? group_by_notes(reranked, settings)
+    : flat;
 }
