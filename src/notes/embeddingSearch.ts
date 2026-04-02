@@ -158,7 +158,8 @@ async function validate_cache_quality_if_debug(
 }
 
 export async function find_nearest_notes(embeddings: BlockEmbedding[], current_id: string, markup_language: number, current_title: string, query: string,
-    model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true, panel?: string, isUpdateInProgress: boolean=false, abortController?: AbortController):
+    model: TextEmbeddingModel, settings: JarvisSettings, return_grouped_notes: boolean=true, panel?: string, isUpdateInProgress: boolean=false, abortController?: AbortController,
+    headless: boolean=false):
     Promise<NoteEmbedding[]> {
 
   let searchStartTime = 0;  // Will be set right before cache search starts
@@ -229,6 +230,12 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
         break;
       } catch (rawError) {
         const error = ensure_model_error(rawError, { id: current_id, title: current_title });
+
+        if (headless) {
+          abortController.abort();
+          throw error;
+        }
+
         const action = await promptEmbeddingError(settings, error, {
           attempt,
           maxAttempts: MAX_EMBEDDING_RETRIES,
