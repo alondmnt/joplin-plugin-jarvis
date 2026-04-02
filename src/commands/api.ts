@@ -10,8 +10,8 @@
  */
 import joplin from 'api';
 import { getLogger } from '../utils/logger';
-import { clearApiResponse, htmlToText } from '../utils';
-import { find_nearest_notes, append_ocr_text_to_body } from '../notes/embeddings';
+import { clearApiResponse } from '../utils';
+import { find_nearest_notes, preprocess_note_for_hashing, convert_newlines } from '../notes/embeddings';
 import type { NoteEmbedding } from '../notes/embeddings';
 import type { TextEmbeddingModel } from '../models/models';
 import type { JarvisSettings } from '../ux/settings';
@@ -71,14 +71,13 @@ async function attachBlockText(
     let resp: any = null;
     try {
       resp = await joplin.data.get(['notes', id], { fields: ['body', 'markup_language'] });
-      let body: string = resp.body ?? '';
-      if (resp.markup_language === 2) {
-        try { body = await htmlToText(body); } catch { /* keep original */ }
-      }
-      // Append OCR text to match the body offsets used during indexing
-      const noteObj: any = { id, body, markup_language: resp.markup_language };
-      await append_ocr_text_to_body(noteObj);
-      bodies.set(id, noteObj.body);
+      // Reconstruct the canonical body using the same pipeline as indexing:
+      // preprocess_note_for_hashing (HTML-to-text + OCR append + strip Jarvis blocks)
+      // then convert_newlines (\r\n → \n) to match the offsets in body_idx.
+      const note: any = { id, body: resp.body ?? '', markup_language: resp.markup_language };
+      await preprocess_note_for_hashing(note);
+      note.body = convert_newlines(note.body);
+      bodies.set(id, note.body);
       clearApiResponse(resp);
     } catch {
       clearApiResponse(resp);
