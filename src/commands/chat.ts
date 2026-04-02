@@ -1,10 +1,10 @@
 import joplin from 'api';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
-import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks } from '../notes/embeddings';
+import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, corpusCaches } from '../notes/embeddings';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
 import { split_by_tokens, preprocess_query, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
-import { decompose_query, keyword_search_chunks, rrf_merge } from '../notes/hybridSearch';
+import { decompose_query, keyword_search_chunks, rrf_merge, maxsim_search } from '../notes/hybridSearch';
 import { getLogger } from '../utils/logger';
 
 const log = getLogger();
@@ -243,69 +243,42 @@ async function get_chat_prompt_and_notes(
         if (sub_queries && sub_queries.length > 0) {
           if (settings.notes_debug_mode) {
             log.info(`[Hybrid] decomposed into ${sub_queries.length} sub-queries`);
+            for (const sq of sub_queries) {
+              log.info(`[Hybrid] sq: "${sq.semantic.slice(0, 60)}" | keywords: [${sq.keywords.join(', ')}]`);
+            }
           }
 
-          // each sub-query: semantic search + keyword search + per-query merge
-          const sq_results: BlockEmbedding[][] = [];
-          let last_nearest: NoteEmbedding[] = [];
+          // embed each sub-query and score via MaxSim
+          const query_embeddings: Float32Array[] = [];
           for (const sq of sub_queries) {
-            note.body = sq.semantic;
-            last_nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
-            if (!last_nearest.length || !last_nearest[0].embeddings.length) { continue; }
+            query_embeddings.push(await model_embed.embed(sq.semantic, 'query'));
+          }
+          const cache = corpusCaches.get(model_embed.id);
+          const scored = maxsim_search(query_embeddings, sub_embeds, cache, note.id, settings);
 
-            let sq_blocks = last_nearest[0].embeddings.slice(0, settings.notes_max_hits);
+          if (scored.length > 0) {
+            nearest = [{id: note.id, title: 'Chat context', embeddings: scored, similarity: null}];
 
-            // keyword search while .similarity reflects this sub-query
-            if (settings.notes_keyword_weight > 0 && sq.keywords.length > 0) {
+            // keyword merge (RRF - different scoring system)
+            const keywords = sub_queries.flatMap(sq => sq.keywords).filter(k => k.length > 0);
+            if (settings.notes_keyword_weight > 0 && keywords.length > 0) {
               const seen = new Set<string>();
               const kw_chunks: BlockEmbedding[] = [];
-              for (const kw of sq.keywords) {
-                for (const chunk of await keyword_search_chunks(kw, last_nearest[0].embeddings, 100)) {
+              for (const kw of keywords) {
+                for (const chunk of await keyword_search_chunks(kw, scored, 100)) {
                   const key = `${chunk.id}:${chunk.line}`;
                   if (!seen.has(key)) { seen.add(key); kw_chunks.push(chunk); }
                 }
               }
               if (kw_chunks.length > 0) {
-                sq_blocks = rrf_merge(sq_blocks, kw_chunks,
-                  settings.notes_max_hits, settings.notes_keyword_k,
-                  settings.notes_keyword_weight);
+                const semantic_top = scored.slice(0, settings.notes_max_hits);
+                const merged = rrf_merge(semantic_top, kw_chunks,
+                  settings.notes_max_hits, settings.notes_keyword_k, settings.notes_keyword_weight);
+                const merged_keys = new Set(merged.map(b => `${b.id}:${b.line}`));
+                const tail = scored.filter(b => !merged_keys.has(`${b.id}:${b.line}`));
+                nearest[0].embeddings = [...merged, ...tail];
               }
             }
-
-            if (settings.notes_debug_mode) {
-              log.info(`[Hybrid] sq: "${sq.semantic.slice(0, 60)}" | keywords: [${sq.keywords.join(', ')}] → ${sq_blocks.length} blocks`);
-            }
-
-            sq_results.push(sq_blocks);
-          }
-
-          if (sq_results.length > 0) {
-            // merge across sub-queries (equal weight)
-            let merged = sq_results[0];
-            for (let i = 1; i < sq_results.length; i++) {
-              merged = rrf_merge(merged, sq_results[i],
-                settings.notes_max_hits, settings.notes_keyword_k, 1.0);
-            }
-
-            if (settings.notes_debug_mode && sq_results.length > 1) {
-              // show which blocks appear in multiple sub-queries (boosted by RRF)
-              const block_counts = new Map<string, number>();
-              for (const sq_blocks of sq_results) {
-                for (const b of sq_blocks) {
-                  const key = `${b.id}:${b.line}`;
-                  block_counts.set(key, (block_counts.get(key) || 0) + 1);
-                }
-              }
-              const shared = [...block_counts.entries()].filter(([, c]) => c > 1).map(([k]) => k);
-              const unique_per_sq = sq_results.map(sq => sq.filter(b => block_counts.get(`${b.id}:${b.line}`) === 1).length);
-              log.info(`[Hybrid] cross-query merge: ${merged.length} results, ${shared.length} shared across sub-queries, unique per sq: [${unique_per_sq.join(', ')}]`);
-            }
-
-            // preserve full pool: merged top + remaining tail
-            nearest = last_nearest;
-            const merged_keys = new Set(merged.map(b => `${b.id}:${b.line}`));
-            const tail = nearest[0].embeddings.filter(b => !merged_keys.has(`${b.id}:${b.line}`));
-            nearest[0].embeddings = [...merged, ...tail];
             decomposed = true;
           }
         }
