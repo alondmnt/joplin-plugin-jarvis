@@ -1,8 +1,11 @@
 import joplin from 'api';
 import { BlockEmbedding } from './embeddings';
 import { TextGenerationModel } from '../models/models';
+import { JarvisSettings } from '../ux/settings';
 import { clearApiResponse, with_timeout } from '../utils';
 import { calc_similarity } from './embeddingHelpers';
+import { quantize_vector_to_q8 } from './q8';
+import { SimpleCorpusCache } from './embeddingCache';
 import { getLogger } from '../utils/logger';
 
 const log = getLogger();
@@ -185,4 +188,57 @@ export function maxsim_score(
     }
     block.similarity = max_sim;
   }
+}
+
+/**
+ * MaxSim search across cache or legacy pool.
+ * For each pool block, compute max cosine similarity across query embeddings.
+ * Uses Q8 cache when available, falls back to Float32 on in-memory pool.
+ *
+ * @param query_embeddings - query vectors (one per chunk/turn/sub-query)
+ * @param pool - legacy in-memory pool (may be empty in userData mode)
+ * @param cache - corpus cache (may be undefined or unbuilt)
+ * @param exclude_id - note ID to exclude (current note)
+ * @param settings - for min_similarity, min_length, notes_max_hits
+ * @returns scored blocks sorted by similarity descending, or empty if no pool available
+ */
+export function maxsim_search(
+  query_embeddings: Float32Array[],
+  pool: BlockEmbedding[],
+  cache: SimpleCorpusCache | undefined,
+  exclude_id: string,
+  settings: JarvisSettings,
+): BlockEmbedding[] {
+  if (cache?.isBuilt()) {
+    // userData: per-query cache search, keep max similarity per block
+    const block_scores = new Map<string, BlockEmbedding>();
+    for (const emb of query_embeddings) {
+      const q8 = quantize_vector_to_q8(emb);
+      const results = cache.search(q8, settings.notes_max_hits * 4, settings.notes_min_similarity);
+      for (const r of results) {
+        if (r.id === exclude_id) { continue; }
+        const key = `${r.id}:${r.line}`;
+        const existing = block_scores.get(key);
+        if (!existing || r.similarity > existing.similarity) {
+          block_scores.set(key, r);
+        }
+      }
+    }
+    const scored = [...block_scores.values()];
+    scored.sort((a, b) => b.similarity - a.similarity);
+    return scored;
+  }
+
+  if (pool.length > 0) {
+    // legacy: Float32 MaxSim on in-memory pool
+    maxsim_score(query_embeddings, pool, exclude_id);
+    const filtered = pool.filter(b =>
+      b.id !== exclude_id &&
+      b.similarity >= settings.notes_min_similarity &&
+      b.length >= settings.notes_min_length);
+    filtered.sort((a, b) => b.similarity - a.similarity);
+    return filtered;
+  }
+
+  return [];  // cold start: no pool available
 }

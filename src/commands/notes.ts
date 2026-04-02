@@ -1,8 +1,7 @@
 import joplin from 'api';
 import { find_nearest_notes, group_by_notes, update_embeddings, corpusCaches, userDataStore } from '../notes/embeddings';
 import { read_user_data_embeddings } from '../notes/userDataReader';
-import { maxsim_score } from '../notes/hybridSearch';
-import { quantize_vector_to_q8 } from '../notes/q8';
+import { maxsim_search } from '../notes/hybridSearch';
 import type { BlockEmbedding } from '../notes/embeddings';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
@@ -617,43 +616,11 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
     }
 
     if (query_chunks.length > 0) {
-      // MaxSim: search per chunk, keep max similarity per pool block
-      const block_scores = new Map<string, BlockEmbedding>();
+      const query_embeddings = query_chunks.map(c => c.embedding);
       const cache = corpusCaches.get(model.id);
+      const scored = maxsim_search(query_embeddings, model.embeddings, cache, note.id, settings);
 
-      if (!cache?.isBuilt() && model.embeddings.length === 0) {
-        // no scoring pool available yet; fall through to find_nearest_notes
-        // which builds the cache as a side effect. multi-chunk works on
-        // subsequent panel refreshes.
-        query_chunks = [];
-      }
-      for (const chunk of query_chunks) {
-        let results: BlockEmbedding[];
-        if (cache?.isBuilt()) {
-          const q8 = quantize_vector_to_q8(chunk.embedding);
-          results = cache.search(q8, settings.notes_max_hits * 4, settings.notes_min_similarity);
-        } else {
-          // legacy: score pool with this chunk's embedding
-          maxsim_score([chunk.embedding], model.embeddings, note.id);
-          results = model.embeddings.filter(b =>
-            b.id !== note.id &&
-            b.similarity >= settings.notes_min_similarity &&
-            b.length >= settings.notes_min_length);
-        }
-
-        for (const r of results) {
-          if (r.id === note.id) { continue; }
-          const key = `${r.id}:${r.line}`;
-          const existing = block_scores.get(key);
-          if (!existing || r.similarity > existing.similarity) {
-            block_scores.set(key, r);
-          }
-        }
-      }
-
-      if (block_scores.size > 0) {
-        const scored = [...block_scores.values()];
-        scored.sort((a, b) => b.similarity - a.similarity);
+      if (scored.length > 0) {
         nearest = await group_by_notes(scored, settings);
 
         if (settings.notes_debug_mode) {
