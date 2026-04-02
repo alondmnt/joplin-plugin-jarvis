@@ -1,6 +1,7 @@
 import joplin from 'api';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
-import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, corpusCaches } from '../notes/embeddings';
+import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, corpusCaches, userDataStore } from '../notes/embeddings';
+import { read_user_data_embeddings } from '../notes/userDataReader';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
 import { split_by_tokens, preprocess_query, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
@@ -287,6 +288,20 @@ async function get_chat_prompt_and_notes(
     }
 
     // post-processing: attach additional blocks to the nearest ones
+    // in userData mode, model_embed.embeddings is empty - load blocks
+    // for result notes from userData to enable prev/next/nearest attachment
+    let attachment_pool = model_embed.embeddings;
+    if (attachment_pool.length === 0 && settings.notes_db_in_user_data &&
+        (settings.notes_attach_prev > 0 || settings.notes_attach_next > 0 || settings.notes_attach_nearest > 0)) {
+      const result_note_ids = [...new Set(nearest[0].embeddings.map(b => b.id))];
+      if (result_note_ids.length > 0) {
+        const loaded = await read_user_data_embeddings({
+          store: userDataStore, modelId: model_embed.id, noteIds: result_note_ids,
+        });
+        attachment_pool = loaded.flatMap(r => r.blocks);
+      }
+    }
+
     let attached: Set<string> = new Set();
     let blocks: BlockEmbedding[] = [];
     for (const embd of nearest[0].embeddings) {
@@ -298,7 +313,7 @@ async function get_chat_prompt_and_notes(
       // TODO: rethink whether we should indeed skip the entire iteration
 
       if (settings.notes_attach_prev > 0) {
-        const prev = await get_prev_blocks(embd, model_embed.embeddings, settings.notes_attach_prev);
+        const prev = await get_prev_blocks(embd, attachment_pool, settings.notes_attach_prev);
         // push in reverse order
         for (let i = prev.length - 1; i >= 0; i--) {
           const bid = `${prev[i].id}:${prev[i].line}`;
@@ -313,7 +328,7 @@ async function get_chat_prompt_and_notes(
       blocks.push(embd);
 
       if (settings.notes_attach_next > 0) {
-        const next = await get_next_blocks(embd, model_embed.embeddings, settings.notes_attach_next);
+        const next = await get_next_blocks(embd, attachment_pool, settings.notes_attach_next);
         for (let i = 0; i < next.length; i++) {
           const bid = `${next[i].id}:${next[i].line}`;
           if (attached.has(bid)) { continue; }
@@ -322,8 +337,8 @@ async function get_chat_prompt_and_notes(
         }
       }
 
-      if (settings.notes_attach_nearest > 0) {
-        const nearest = await get_nearest_blocks(embd, model_embed.embeddings, settings, settings.notes_attach_nearest);
+      if (settings.notes_attach_nearest > 0 && embd.embedding) {
+        const nearest = await get_nearest_blocks(embd, attachment_pool, settings, settings.notes_attach_nearest);
         for (let i = 0; i < nearest.length; i++) {
           const bid = `${nearest[i].id}:${nearest[i].line}`;
           if (attached.has(bid)) { continue; }
