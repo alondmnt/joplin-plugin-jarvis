@@ -1011,7 +1011,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Notes: Keyword search weight',
-      description: 'Weight of Joplin keyword search in hybrid retrieval (Reciprocal Rank Fusion). Set to 0 to disable keyword search and use pure semantic search. Default: 0 (disabled)',
+      description: 'Weight of Joplin keyword search in hybrid retrieval. Applies to both the related notes panel (using note title) and chat (using the user query or LLM-generated keywords). Set to 0 to disable. Default: 0 (disabled)',
     },
     'notes_keyword_k': {
       value: 1,
@@ -1031,16 +1031,16 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Notes: LLM query decomposition',
-      description: 'Use the chat model to decompose queries into focused sub-queries for retrieval. Adds latency per chat query. Default: off',
+      description: 'Chat only: use the chat model to decompose queries into focused sub-queries with targeted keywords. Adds latency per query. Default: off',
     },
     'notes_multi_chunk_search': {
-      value: false,
+      value: true,
       type: SettingItemType.Bool,
       section: 'jarvis.notes',
       public: true,
       advanced: true,
       label: 'Notes: Multi-chunk search',
-      description: 'Score each section of the current note independently for more diverse results in multi-topic notes (MaxSim). Default: off',
+      description: 'Related notes panel only: score each section of the current note independently for more diverse results in multi-topic notes. Default: on',
     },
     'annotate_preferred_language': {
       value: 'English',
