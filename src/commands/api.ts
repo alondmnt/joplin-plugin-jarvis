@@ -186,9 +186,11 @@ export async function register_api_commands(runtime: ApiRuntime): Promise<void> 
           searchQuery,
           runtime.model_embed,
           searchSettings,
-          true,   // return_grouped_notes
-          undefined,  // panel (no progress bar)
-          false,  // isUpdateInProgress
+          true,      // return_grouped_notes
+          undefined, // panel (no progress bar)
+          false,     // isUpdateInProgress
+          undefined, // abortController
+          true,      // headless — no interactive error dialogs
         );
 
         const serialised = toSerializableResults(results);
