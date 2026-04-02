@@ -474,8 +474,27 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     }];
   }
 
+  // End search timer HERE (before title fetching / grouping)
+  const searchEndTime = Date.now();
+  const searchTimeMs = searchStartTime > 0 ? searchEndTime - searchStartTime : 0;
+
+  return group_by_notes(nearest, settings);
+}
+
+/**
+ * Group scored blocks by note, aggregate similarities, fetch titles,
+ * and apply folder exclusion. Blocks must have .similarity set.
+ *
+ * @param blocks - scored blocks with .similarity set
+ * @param settings - plugin settings (aggregation method, max hits, exclusions)
+ * @returns notes sorted by aggregated similarity, with titles and blocks
+ */
+export async function group_by_notes(
+  blocks: BlockEmbedding[],
+  settings: JarvisSettings,
+): Promise<NoteEmbedding[]> {
   // group the embeddings by note id
-  const grouped = nearest.reduce((acc: {[note_id: string]: BlockEmbedding[]}, embed) => {
+  const grouped = blocks.reduce((acc: {[note_id: string]: BlockEmbedding[]}, embed) => {
     if (!acc[embed.id]) {
       acc[embed.id] = [];
     }
@@ -483,7 +502,7 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     return acc;
   }, {});
 
-  // Calculate aggregated similarities (same as brute-force for fair comparison)
+  // calculate aggregated similarities
   const notesWithScores = Object.entries(grouped).map(([note_id, note_embed]) => {
     const sorted_embed = note_embed.sort((a, b) => b.similarity - a.similarity);
     let agg_sim: number;
@@ -492,29 +511,21 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
     } else if (settings.notes_agg_similarity === 'avg') {
       agg_sim = sorted_embed.reduce((acc, embd) => acc + embd.similarity, 0) / sorted_embed.length;
     } else {
-      // Fallback to max if unknown aggregation method
       agg_sim = sorted_embed[0].similarity;
     }
 
-    // Debug: Check for NaN similarities
     if (settings.notes_debug_mode && (isNaN(agg_sim) || agg_sim === undefined)) {
-      log.warn(`[Cache] NaN similarity detected for note ${note_id}: agg=${agg_sim}, method=${settings.notes_agg_similarity}, block[0].similarity=${sorted_embed[0]?.similarity}`);
+      log.warn(`[group_by_notes] NaN similarity for note ${note_id}: agg=${agg_sim}, method=${settings.notes_agg_similarity}, block[0].similarity=${sorted_embed[0]?.similarity}`);
     }
 
     return { note_id, sorted_embed, agg_sim };
   });
   notesWithScores.sort((a, b) => b.agg_sim - a.agg_sim);
 
-  // End search timer HERE (before title fetching)
-  const searchEndTime = Date.now();
-  const searchTimeMs = searchStartTime > 0 ? searchEndTime - searchStartTime : 0;
-
-  // Now fetch titles (not included in timing)
-  // Also fetch parent_id and deleted_time to filter out excluded/deleted notes (safeguard for edge cases)
-  // Fetch a small buffer of extra candidates to compensate for any filtered results
+  // fetch titles, filter excluded/deleted notes
   const hasExcludedFolders = settings.notes_exclude_folders && settings.notes_exclude_folders.size > 0;
   const fetchLimit = hasExcludedFolders
-    ? Math.min(notesWithScores.length, settings.notes_max_hits + 5)  // Small buffer for filtered results
+    ? Math.min(notesWithScores.length, settings.notes_max_hits + 5)
     : settings.notes_max_hits;
   const result = (await Promise.all(notesWithScores.slice(0, fetchLimit).map(async ({note_id, sorted_embed, agg_sim}) => {
     let title: string;
@@ -525,17 +536,16 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       });
       title = noteResponse.title;
 
-      // Use unified filtering (skip tags for performance)
       const result = should_exclude_note(
         noteResponse,
-        undefined,  // No tags needed when checkTags: false
+        undefined,
         settings,
         { checkDeleted: true, checkTags: false }
       );
 
       if (result.excluded) {
         clearObjectReferences(noteResponse);
-        return null; // Will be filtered out below
+        return null;
       }
 
       clearObjectReferences(noteResponse);

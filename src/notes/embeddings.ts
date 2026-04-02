@@ -428,7 +428,7 @@ export { ensure_float_embedding, calc_similarity, calc_mean_embedding, calc_mean
 export { update_embeddings, UpdateNoteResult } from './embeddingUpdate';
 
 // Re-export semantic search orchestration from embeddingSearch module
-export { find_nearest_notes } from './embeddingSearch';
+export { find_nearest_notes, group_by_notes } from './embeddingSearch';
 
 // Re-export cache management utilities from embeddingCache module
 export { corpusCaches, update_cache_for_note, clear_corpus_cache, clear_all_corpus_caches } from './embeddingCache';
