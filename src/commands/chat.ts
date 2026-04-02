@@ -4,7 +4,7 @@ import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_tex
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
 import { split_by_tokens, preprocess_query, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
-import { keyword_search_chunks, rrf_merge } from '../notes/hybridSearch';
+import { decompose_query, keyword_search_chunks, rrf_merge } from '../notes/hybridSearch';
 import { getLogger } from '../utils/logger';
 
 const log = getLogger();
@@ -232,45 +232,133 @@ async function get_chat_prompt_and_notes(
         note.body = note.body.replace(new RegExp(nc, 'g'), '');
       }
     }
-    const nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
-    if (nearest.length === 0) {
-      nearest.push({id: note.id, title: 'Chat context', embeddings: [], similarity: null});
-    }
-
-    // hybrid search: merge semantic + keyword results via RRF
-    if (settings.notes_keyword_weight > 0 && !prompt.search && prompt.notes.size === 0) {
-      const keyword_source = prompt.last_user_prompt || note.title || '';
-      const keyword_query = preprocess_query(keyword_source).slice(0, 200).trim();
-      if (keyword_query.length > 0) {
-        const keyword_chunks = await keyword_search_chunks(
-          keyword_query, nearest[0].embeddings, 100);
-        if (keyword_chunks.length > 0) {
-          const semantic_top = nearest[0].embeddings.slice(0, settings.notes_max_hits);
-          const merged = rrf_merge(semantic_top, keyword_chunks, settings.notes_max_hits, settings.notes_keyword_k, settings.notes_keyword_weight);
-
+    // LLM query decomposition (when enabled, skip if user set explicit context)
+    const original_body = note.body;
+    let nearest: NoteEmbedding[] = [];
+    let decomposed = false;
+    if (settings.notes_decompose_query && !prompt.search && prompt.notes.size === 0 && !prompt.context) {
+      const source = prompt.last_user_prompt || note.title || '';
+      if (source.length > 0) {
+        const sub_queries = await decompose_query(source, model_gen);
+        if (sub_queries && sub_queries.length > 0) {
           if (settings.notes_debug_mode) {
-            const sem_keys = new Set(semantic_top.map(b => `${b.id}:${b.line}`));
-            const merged_key_set = new Set(merged.map(b => `${b.id}:${b.line}`));
-            const promoted: string[] = [];  // in keyword but not in semantic top
-            const demoted: string[] = [];   // in semantic top but not in merged
-            for (const key of merged_key_set) {
-              if (!sem_keys.has(key)) { promoted.push(key); }
-            }
-            for (const key of sem_keys) {
-              if (!merged_key_set.has(key)) { demoted.push(key); }
-            }
-            log.info(`[Hybrid] query: "${keyword_query.slice(0, 80)}"`);
-            log.info(`[Hybrid] semantic: ${semantic_top.length}, keyword: ${keyword_chunks.length}, merged: ${merged.length}`);
-            if (promoted.length > 0) { log.info(`[Hybrid] promoted by keyword: ${promoted.join(', ')}`); }
-            if (demoted.length > 0) { log.info(`[Hybrid] displaced from semantic: ${demoted.join(', ')}`); }
+            log.info(`[Hybrid] decomposed into ${sub_queries.length} sub-queries`);
           }
 
-          // reorder: merged top, then remaining pool blocks not already in merged
-          const merged_keys = new Set(merged.map(b => `${b.id}:${b.line}`));
-          const tail = nearest[0].embeddings.filter(b => !merged_keys.has(`${b.id}:${b.line}`));
-          nearest[0].embeddings = [...merged, ...tail];
+          // each sub-query: semantic search + keyword search + per-query merge
+          const sq_results: BlockEmbedding[][] = [];
+          let last_nearest: NoteEmbedding[] = [];
+          for (const sq of sub_queries) {
+            note.body = sq.semantic;
+            last_nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
+            if (!last_nearest.length || !last_nearest[0].embeddings.length) { continue; }
+
+            let sq_blocks = last_nearest[0].embeddings.slice(0, settings.notes_max_hits);
+
+            // keyword search while .similarity reflects this sub-query
+            if (settings.notes_keyword_weight > 0 && sq.keywords.length > 0) {
+              const seen = new Set<string>();
+              const kw_chunks: BlockEmbedding[] = [];
+              for (const kw of sq.keywords) {
+                for (const chunk of await keyword_search_chunks(kw, last_nearest[0].embeddings, 100)) {
+                  const key = `${chunk.id}:${chunk.line}`;
+                  if (!seen.has(key)) { seen.add(key); kw_chunks.push(chunk); }
+                }
+              }
+              if (kw_chunks.length > 0) {
+                sq_blocks = rrf_merge(sq_blocks, kw_chunks,
+                  settings.notes_max_hits, settings.notes_keyword_k,
+                  settings.notes_keyword_weight);
+              }
+            }
+
+            if (settings.notes_debug_mode) {
+              log.info(`[Hybrid] sq: "${sq.semantic.slice(0, 60)}" | keywords: [${sq.keywords.join(', ')}] → ${sq_blocks.length} blocks`);
+            }
+
+            sq_results.push(sq_blocks);
+          }
+
+          if (sq_results.length > 0) {
+            // merge across sub-queries (equal weight)
+            let merged = sq_results[0];
+            for (let i = 1; i < sq_results.length; i++) {
+              merged = rrf_merge(merged, sq_results[i],
+                settings.notes_max_hits, settings.notes_keyword_k, 1.0);
+            }
+
+            if (settings.notes_debug_mode && sq_results.length > 1) {
+              // show which blocks appear in multiple sub-queries (boosted by RRF)
+              const block_counts = new Map<string, number>();
+              for (const sq_blocks of sq_results) {
+                for (const b of sq_blocks) {
+                  const key = `${b.id}:${b.line}`;
+                  block_counts.set(key, (block_counts.get(key) || 0) + 1);
+                }
+              }
+              const shared = [...block_counts.entries()].filter(([, c]) => c > 1).map(([k]) => k);
+              const unique_per_sq = sq_results.map(sq => sq.filter(b => block_counts.get(`${b.id}:${b.line}`) === 1).length);
+              log.info(`[Hybrid] cross-query merge: ${merged.length} results, ${shared.length} shared across sub-queries, unique per sq: [${unique_per_sq.join(', ')}]`);
+            }
+
+            // preserve full pool: merged top + remaining tail
+            nearest = last_nearest;
+            const merged_keys = new Set(merged.map(b => `${b.id}:${b.line}`));
+            const tail = nearest[0].embeddings.filter(b => !merged_keys.has(`${b.id}:${b.line}`));
+            nearest[0].embeddings = [...merged, ...tail];
+            decomposed = true;
+          }
         }
       }
+    }
+
+    if (!decomposed) {
+      // restore original context (decomposition may have mutated note.body)
+      note.body = original_body;
+      // existing path: single find_nearest_notes + optional keyword merge
+      nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
+      if (nearest.length === 0) {
+        nearest.push({id: note.id, title: 'Chat context', embeddings: [], similarity: null});
+      }
+
+      // keyword merge (when enabled, without decomposition)
+      if (settings.notes_keyword_weight > 0 && !prompt.search && prompt.notes.size === 0) {
+        const keyword_source = prompt.last_user_prompt || note.title || '';
+        const keyword_query = preprocess_query(keyword_source).slice(0, 200).trim();
+        if (keyword_query.length > 0) {
+          const keyword_chunks = await keyword_search_chunks(
+            keyword_query, nearest[0].embeddings, 100);
+          if (keyword_chunks.length > 0) {
+            const semantic_top = nearest[0].embeddings.slice(0, settings.notes_max_hits);
+            const merged = rrf_merge(semantic_top, keyword_chunks, settings.notes_max_hits, settings.notes_keyword_k, settings.notes_keyword_weight);
+
+            if (settings.notes_debug_mode) {
+              const sem_keys = new Set(semantic_top.map(b => `${b.id}:${b.line}`));
+              const merged_key_set = new Set(merged.map(b => `${b.id}:${b.line}`));
+              const promoted: string[] = [];
+              const demoted: string[] = [];
+              for (const key of merged_key_set) {
+                if (!sem_keys.has(key)) { promoted.push(key); }
+              }
+              for (const key of sem_keys) {
+                if (!merged_key_set.has(key)) { demoted.push(key); }
+              }
+              log.info(`[Hybrid] query: "${keyword_query.slice(0, 80)}"`);
+              log.info(`[Hybrid] semantic: ${semantic_top.length}, keyword: ${keyword_chunks.length}, merged: ${merged.length}`);
+              if (promoted.length > 0) { log.info(`[Hybrid] promoted by keyword: ${promoted.join(', ')}`); }
+              if (demoted.length > 0) { log.info(`[Hybrid] displaced from semantic: ${demoted.join(', ')}`); }
+            }
+
+            const merged_keys = new Set(merged.map(b => `${b.id}:${b.line}`));
+            const tail = nearest[0].embeddings.filter(b => !merged_keys.has(`${b.id}:${b.line}`));
+            nearest[0].embeddings = [...merged, ...tail];
+          }
+        }
+      }
+    }
+
+    if (nearest.length === 0) {
+      nearest.push({id: note.id, title: 'Chat context', embeddings: [], similarity: null});
     }
 
     // post-processing: attach additional blocks to the nearest ones

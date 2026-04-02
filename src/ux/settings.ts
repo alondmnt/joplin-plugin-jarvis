@@ -108,6 +108,7 @@ export interface JarvisSettings {
   notes_agg_similarity: string;
   notes_keyword_weight: number;
   notes_keyword_k: number;
+  notes_decompose_query: boolean;
   notes_exclude_folders: Set<string>;
   notes_panel_title: string;
   notes_panel_user_style: string;
@@ -368,6 +369,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_agg_similarity: await joplin.settings.value('notes_agg_similarity'),
     notes_keyword_weight: await joplin.settings.value('notes_keyword_weight') / 100,
     notes_keyword_k: await joplin.settings.value('notes_keyword_k'),
+    notes_decompose_query: await joplin.settings.value('notes_decompose_query'),
     notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
@@ -1019,6 +1021,15 @@ export async function register_settings() {
       advanced: true,
       label: 'Notes: Keyword search RRF k',
       description: 'RRF smoothing constant for hybrid retrieval. Lower values (1-3) let keyword results displace semantic results more aggressively. Higher values (30-60) make the blend gentler. Default: 1',
+    },
+    'notes_decompose_query': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: LLM query decomposition',
+      description: 'Use the chat model to decompose queries into focused sub-queries for retrieval. Adds latency per chat query. Default: off',
     },
     'annotate_preferred_language': {
       value: 'English',
