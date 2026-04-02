@@ -267,89 +267,98 @@ function calc_line_number(note_body: string, block: string, sub: string): [numbe
 export async function extract_blocks_text(embeddings: BlockEmbedding[],
   model_gen: TextGenerationModel, max_length: number, search_query: string = ''):
     Promise<[string, BlockEmbedding[]]> {
-  let text: string = '';
+  // phase 1: select blocks within token budget (relevance order)
+  const selected_blocks: {embd: BlockEmbedding, text: string}[] = [];
   let token_sum = 0;
-  let embd: BlockEmbedding;
-  let selected: BlockEmbedding[] = [];
-  let note_idx = 0;
-  let last_title = '';
-  
-  // Cache for note objects (including processed body + OCR text)
-  // Prevents redundant API calls when same note appears multiple times
   const noteCache = new Map<string, any>();
 
-  for (let i=0; i<embeddings.length; i++) {
-    embd = embeddings[i];
-    if (embd.body_idx < 0) {
-      // unknown position in note (rare case)
-      log.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
+  for (let i = 0; i < embeddings.length; i++) {
+    const embd_orig = embeddings[i];
+    if (embd_orig.body_idx < 0) {
+      log.debug(`extract_blocks_text: skipped ${embd_orig.id} : ${embd_orig.line} / ${embd_orig.title}`);
       continue;
     }
 
     let note: any;
-    
-    // Check cache first
-    if (noteCache.has(embd.id)) {
-      note = noteCache.get(embd.id);
+    if (noteCache.has(embd_orig.id)) {
+      note = noteCache.get(embd_orig.id);
     } else {
-      // Load note and process it (HTML conversion + OCR)
       try {
-        note = await joplin.data.get(['notes', embd.id], { fields: ['id', 'title', 'body', 'markup_language'] });
+        note = await joplin.data.get(['notes', embd_orig.id], { fields: ['id', 'title', 'body', 'markup_language'] });
         if (note.markup_language === 2) {
-          try {
-            note.body = await htmlToText(note.body);
-          } catch (error) {
-            log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error);
-          }
+          try { note.body = await htmlToText(note.body); }
+          catch (error) { log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error); }
         }
         await append_ocr_text_to_body(note);
-        
-        // Cache the fully processed note (will be cleared at end of function)
-        noteCache.set(embd.id, note);
+        noteCache.set(embd_orig.id, note);
       } catch (error) {
-        log.debug(`extract_blocks_text: skipped ${embd.id} : ${embd.line} / ${embd.title}`);
+        log.debug(`extract_blocks_text: skipped ${embd_orig.id} : ${embd_orig.line} / ${embd_orig.title}`);
         continue;
       }
     }
-    
-    const block_text = note.body.substring(embd.body_idx, embd.body_idx + embd.length);
-    embd = Object.assign({}, embd);  // copy to avoid in-place modification
+
+    const block_text = note.body.substring(embd_orig.body_idx, embd_orig.body_idx + embd_orig.length);
+    const embd = Object.assign({}, embd_orig);
     if (embd.title !== note.title) {
       embd.title = note.title + title_separator + embd.title;
     }
 
-    if ((search_query) &&
-        !search_keywords(embd.title + '\n' + block_text, search_query)) {
+    if (search_query && !search_keywords(embd.title + '\n' + block_text, search_query)) {
       continue;
     }
 
-    let decoration = '';
-    const is_new_note = (last_title !== embd.title);
-    if (is_new_note) {
-      // start a new note section
-      last_title = embd.title;
-      note_idx += 1;
-      decoration = `\n# note ${note_idx}: ${embd.title}`;
-    }
-
-    const block_tokens = model_gen.count_tokens(decoration + '\n' + block_text);
-    if (token_sum + block_tokens > max_length) {
-      break;
-    }
-    text += decoration + '\n' + block_text;
+    const block_tokens = model_gen.count_tokens(block_text) + 20;  // estimate decoration
+    if (token_sum + block_tokens > max_length) { break; }
+    selected_blocks.push({embd, text: block_text});
     token_sum += block_tokens;
-
-    if (is_new_note) {
-      selected.push(embd);
-    }
-  };
-  
-  // Aggressively clear noteCache to help GC (can hold large note bodies)
-  for (const note of noteCache.values()) {
-    clearObjectReferences(note);
   }
+
+  // clear note cache
+  for (const note of noteCache.values()) { clearObjectReferences(note); }
   noteCache.clear();
-  
+
+  // phase 2: group by note, sort by line within each note
+  const by_note = new Map<string, {embd: BlockEmbedding, text: string}[]>();
+  for (const block of selected_blocks) {
+    const note_id = block.embd.id;
+    if (!by_note.has(note_id)) { by_note.set(note_id, []); }
+    by_note.get(note_id).push(block);
+  }
+  for (const blocks of by_note.values()) {
+    blocks.sort((a, b) => a.embd.line - b.embd.line);
+  }
+
+  // phase 3: format output with one citation per unique note+heading
+  let text = '';
+  let citation_idx = 0;
+  const selected: BlockEmbedding[] = [];
+  for (const [note_id, blocks] of by_note) {
+    const note_title = blocks[0].embd.title.split(title_separator)[0];
+    text += `\n# ${note_title}`;
+    let last_heading = '';
+    for (const block of blocks) {
+      const heading = block.embd.title.split(title_separator).slice(-1)[0];
+      if (heading !== last_heading) {
+        citation_idx++;
+        last_heading = heading;
+        if (heading !== note_title) {
+          text += `\n## ${heading} [${citation_idx}]`;
+        } else if (blocks.indexOf(block) === 0) {
+          // root-level first block: put citation on the note header line
+          text += ` [${citation_idx}]`;
+        } else {
+          text += `\n[${citation_idx}]`;
+        }
+        selected.push(Object.assign({}, block.embd));
+      }
+      // strip redundant heading lines from block text:
+      // - leading heading (already shown in note/section header)
+      // - trailing bare heading marker (split artifact at block boundary)
+      let block_text = block.text.replace(/^#+ .*\n?/, '').replace(/\n?#+ *$/, '');
+      text += '\n' + block_text;
+    }
+  }
+
   return [text, selected];
 }
 
