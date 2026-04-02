@@ -104,7 +104,6 @@ export interface JarvisSettings {
   notes_prompt: string;
   notes_attach_prev: number;
   notes_attach_next: number;
-  notes_attach_nearest: number;
   notes_agg_similarity: string;
   notes_keyword_weight: number;
   notes_keyword_k: number;
@@ -366,7 +365,6 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_prompt: await joplin.settings.value('notes_prompt'),
     notes_attach_prev: await joplin.settings.value('notes_attach_prev'),
     notes_attach_next: await joplin.settings.value('notes_attach_next'),
-    notes_attach_nearest: await joplin.settings.value('notes_attach_nearest'),
     notes_agg_similarity: await joplin.settings.value('notes_agg_similarity'),
     notes_keyword_weight: await joplin.settings.value('notes_keyword_weight') / 100,
     notes_keyword_k: await joplin.settings.value('notes_keyword_k'),
@@ -976,18 +974,6 @@ export async function register_settings() {
       advanced: true,
       label: 'Notes: Number of trailing blocks to add',
       description: 'Succeeding blocks that appear after the current block in the same note. Applies to "Chat with your notes". Default: 0',
-    },
-    'notes_attach_nearest': {
-      value: 0,
-      type: SettingItemType.Int,
-      minimum: 0,
-      maximum: 10,
-      step: 1,
-      section: 'jarvis.notes',
-      public: true,
-      advanced: true,
-      label: 'Notes: Number of nearest blocks to add',
-      description: 'Most similar blocks to the current block. Applies to "Chat with your notes". Default: 0',
     },
     'notes_agg_similarity': {
       value: 'max',

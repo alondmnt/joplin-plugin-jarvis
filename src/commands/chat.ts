@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
-import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks, corpusCaches, userDataStore } from '../notes/embeddings';
+import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_next_blocks, get_prev_blocks, corpusCaches, userDataStore } from '../notes/embeddings';
 import { read_user_data_embeddings } from '../notes/userDataReader';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
@@ -292,7 +292,7 @@ async function get_chat_prompt_and_notes(
     // for result notes from userData to enable prev/next/nearest attachment
     let attachment_pool = model_embed.embeddings;
     if (attachment_pool.length === 0 && settings.notes_db_in_user_data &&
-        (settings.notes_attach_prev > 0 || settings.notes_attach_next > 0 || settings.notes_attach_nearest > 0)) {
+        (settings.notes_attach_prev > 0 || settings.notes_attach_next > 0)) {
       const result_note_ids = [...new Set(nearest[0].embeddings.map(b => b.id))];
       if (result_note_ids.length > 0) {
         const loaded = await read_user_data_embeddings({
@@ -337,15 +337,6 @@ async function get_chat_prompt_and_notes(
         }
       }
 
-      if (settings.notes_attach_nearest > 0 && embd.embedding) {
-        const nearest = await get_nearest_blocks(embd, attachment_pool, settings, settings.notes_attach_nearest);
-        for (let i = 0; i < nearest.length; i++) {
-          const bid = `${nearest[i].id}:${nearest[i].line}`;
-          if (attached.has(bid)) { continue; }
-          attached.add(bid);
-          blocks.push(nearest[i]);
-        }
-      }
     }
     nearest[0].embeddings = blocks;
 
