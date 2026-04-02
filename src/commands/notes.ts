@@ -1,7 +1,7 @@
 import joplin from 'api';
 import { find_nearest_notes, group_by_notes, update_embeddings, corpusCaches, userDataStore } from '../notes/embeddings';
 import { read_user_data_embeddings } from '../notes/userDataReader';
-import { maxsim_search } from '../notes/hybridSearch';
+import { maxsim_search, keyword_search_chunks, rrf_merge } from '../notes/hybridSearch';
 import type { BlockEmbedding } from '../notes/embeddings';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
@@ -621,7 +621,20 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
       const scored = maxsim_search(query_embeddings, model.embeddings, cache, note.id, settings);
 
       if (scored.length > 0) {
-        nearest = await group_by_notes(scored, settings);
+        // keyword search on note title (RRF - different scoring system)
+        let final_blocks = scored;
+        if (settings.notes_keyword_weight > 0 && note.title) {
+          const kw_chunks = await keyword_search_chunks(note.title, scored, 100);
+          if (kw_chunks.length > 0) {
+            const semantic_top = scored.slice(0, settings.notes_max_hits);
+            const merged = rrf_merge(semantic_top, kw_chunks,
+              settings.notes_max_hits, settings.notes_keyword_k, settings.notes_keyword_weight);
+            const merged_keys = new Set(merged.map(b => `${b.id}:${b.line}`));
+            const tail = scored.filter(b => !merged_keys.has(`${b.id}:${b.line}`));
+            final_blocks = [...merged, ...tail];
+          }
+        }
+        nearest = await group_by_notes(final_blocks, settings);
 
         if (settings.notes_debug_mode) {
           console.info(`Jarvis: multi-chunk search with ${query_chunks.length} query chunks, ${scored.length} scored blocks`);
