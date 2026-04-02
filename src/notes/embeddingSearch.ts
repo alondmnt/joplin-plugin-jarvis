@@ -333,21 +333,8 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       const effectiveCapacity = return_grouped_notes ? heapCapacity : heapCapacity * 4;
       const queryQ8 = quantize_vector_to_q8(rep_embedding);
       const cacheSearchStart = Date.now();
-      const cacheResults = cache.search(queryQ8, effectiveCapacity, settings.notes_min_similarity);
+      const userBlocks = cache.search(queryQ8, effectiveCapacity, settings.notes_min_similarity);
       const cacheSearchMs = Date.now() - cacheSearchStart;
-
-      // Convert cache results to BlockEmbedding format
-      const userBlocks = cacheResults.map(result => ({
-        id: result.noteId,
-        hash: result.noteHash,
-        line: result.lineNumber,
-        body_idx: result.bodyStart,
-        length: result.bodyLength,
-        level: result.headingLevel,
-        title: result.title,
-        embedding: new Float32Array(0),
-        similarity: result.similarity,
-      }));
 
       if (settings.notes_debug_mode) {
         const cacheStats = cache.getStats();
@@ -375,12 +362,12 @@ export async function find_nearest_notes(embeddings: BlockEmbedding[], current_i
       );
 
       // Replace legacy blocks with cache results
-      const replaceIds = new Set(cacheResults.map(r => r.noteId));
+      const replaceIds = new Set(userBlocks.map(r => r.id));
       const legacyBlocks = combinedEmbeddings.filter(embed => !replaceIds.has(embed.id));
       combinedEmbeddings = legacyBlocks.concat(userBlocks);
 
       // Clear cache results after conversion (prevent memory leak)
-      clearObjectReferences(cacheResults);
+      clearObjectReferences(userBlocks);
 
       // Skip to final processing
     }

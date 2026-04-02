@@ -1,6 +1,9 @@
 import joplin from 'api';
-import { find_nearest_notes, group_by_notes, update_embeddings, corpusCaches } from '../notes/embeddings';
+import { find_nearest_notes, group_by_notes, update_embeddings, corpusCaches, userDataStore } from '../notes/embeddings';
+import { read_user_data_embeddings } from '../notes/userDataReader';
 import { maxsim_score } from '../notes/hybridSearch';
+import { quantize_vector_to_q8 } from '../notes/q8';
+import type { BlockEmbedding } from '../notes/embeddings';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time, set_model_last_full_sweep_time } from '../ux/settings';
@@ -602,19 +605,56 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
   // multi-chunk search: score each chunk of the current note independently
   // fall back to single-vector when user has selected specific text
   const use_multi_chunk = settings.notes_multi_chunk_search && (!selected || selected === note.body);
-  const query_chunks = use_multi_chunk
-    ? model.embeddings.filter(b => b.id === note.id)
-    : [];
-  if (query_chunks.length > 0) {
-    const query_embeddings = query_chunks.map(c => c.embedding);
-    maxsim_score(query_embeddings, model.embeddings, note.id);
-    const filtered = model.embeddings.filter(b =>
-      b.id !== note.id &&
-      b.similarity >= settings.notes_min_similarity &&
-      b.length >= settings.notes_min_length);
-    filtered.sort((a, b) => b.similarity - a.similarity);
-    nearest = await group_by_notes(filtered, settings);
-  } else {
+  if (use_multi_chunk) {
+    // load current note's chunk embeddings
+    let query_chunks: BlockEmbedding[] = model.embeddings.filter(b => b.id === note.id);
+    if (query_chunks.length === 0 && settings.notes_db_in_user_data) {
+      // userData mode: load from store
+      const results = await read_user_data_embeddings({
+        store: userDataStore, modelId: model.id, noteIds: [note.id],
+      });
+      if (results.length > 0) { query_chunks = results[0].blocks; }
+    }
+
+    if (query_chunks.length > 0) {
+      // MaxSim: search per chunk, keep max similarity per pool block
+      const block_scores = new Map<string, BlockEmbedding>();
+      const cache = corpusCaches.get(model.id);
+
+      for (const chunk of query_chunks) {
+        let results: BlockEmbedding[];
+        if (cache?.isBuilt()) {
+          const q8 = quantize_vector_to_q8(chunk.embedding);
+          results = cache.search(q8, settings.notes_max_hits * 4, settings.notes_min_similarity);
+        } else {
+          // legacy: score pool with this chunk's embedding
+          maxsim_score([chunk.embedding], model.embeddings, note.id);
+          results = model.embeddings.filter(b =>
+            b.id !== note.id &&
+            b.similarity >= settings.notes_min_similarity &&
+            b.length >= settings.notes_min_length);
+        }
+
+        for (const r of results) {
+          if (r.id === note.id) { continue; }
+          const key = `${r.id}:${r.line}`;
+          const existing = block_scores.get(key);
+          if (!existing || r.similarity > existing.similarity) {
+            block_scores.set(key, r);
+          }
+        }
+      }
+
+      const scored = [...block_scores.values()];
+      scored.sort((a, b) => b.similarity - a.similarity);
+      nearest = await group_by_notes(scored, settings);
+
+      if (settings.notes_debug_mode) {
+        console.info(`Jarvis: multi-chunk search with ${query_chunks.length} query chunks, ${scored.length} scored blocks`);
+      }
+    }
+  }
+  if (!nearest) {
     try {
       nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings, true, panel);
     } catch (error) {
