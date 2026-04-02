@@ -166,6 +166,43 @@ export function rrf_merge(
 }
 
 /**
+ * Keyword reranking: search Joplin for keyword matches, then RRF merge
+ * with the semantic-scored pool. Preserves full pool (merged top + tail).
+ *
+ * @param scored - semantically scored blocks (best first)
+ * @param keywords - keyword search terms (one Joplin search per term)
+ * @param settings - for keyword_weight, keyword_k, notes_max_hits
+ * @returns reranked blocks (merged top + remaining tail)
+ */
+export async function keyword_rerank(
+  scored: BlockEmbedding[],
+  keywords: string[],
+  settings: JarvisSettings,
+): Promise<BlockEmbedding[]> {
+  if (settings.notes_keyword_weight <= 0 || keywords.length === 0 || scored.length === 0) {
+    return scored;
+  }
+
+  const seen = new Set<string>();
+  const kw_chunks: BlockEmbedding[] = [];
+  for (const kw of keywords) {
+    for (const chunk of await keyword_search_chunks(kw, scored, 100)) {
+      const key = `${chunk.id}:${chunk.line}`;
+      if (!seen.has(key)) { seen.add(key); kw_chunks.push(chunk); }
+    }
+  }
+
+  if (kw_chunks.length === 0) { return scored; }
+
+  const semantic_top = scored.slice(0, settings.notes_max_hits);
+  const merged = rrf_merge(semantic_top, kw_chunks,
+    settings.notes_max_hits, settings.notes_keyword_k, settings.notes_keyword_weight);
+  const merged_keys = new Set(merged.map(b => `${b.id}:${b.line}`));
+  const tail = scored.filter(b => !merged_keys.has(`${b.id}:${b.line}`));
+  return [...merged, ...tail];
+}
+
+/**
  * MaxSim scoring: for each pool block, compute max cosine similarity
  * across all query embeddings (ColBERT-style late interaction).
  * Sets block.similarity in place.
