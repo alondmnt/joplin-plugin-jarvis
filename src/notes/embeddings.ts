@@ -283,13 +283,11 @@ export async function extract_blocks_text(embeddings: BlockEmbedding[],
     if (noteCache.has(embd_orig.id)) {
       note = noteCache.get(embd_orig.id);
     } else {
+      // Reconstruct the canonical body (same pipeline as indexing)
       try {
         note = await joplin.data.get(['notes', embd_orig.id], { fields: ['id', 'title', 'body', 'markup_language'] });
-        if (note.markup_language === 2) {
-          try { note.body = await htmlToText(note.body); }
-          catch (error) { log.warn(`Failed to convert HTML to Markdown for note ${note.id}`, error); }
-        }
-        await append_ocr_text_to_body(note);
+        await preprocess_note_for_hashing(note);
+        note.body = convert_newlines(note.body);
         noteCache.set(embd_orig.id, note);
       } catch (error) {
         log.debug(`extract_blocks_text: skipped ${embd_orig.id} : ${embd_orig.line} / ${embd_orig.title}`);
@@ -448,6 +446,6 @@ export function calc_hash(text: string): string {
 }
 
 /** Normalize newline characters so hashes remain stable across platforms. */
-function convert_newlines(str: string): string {
+export function convert_newlines(str: string): string {
   return str.replace(/\r\n|\r/g, '\n');
 }

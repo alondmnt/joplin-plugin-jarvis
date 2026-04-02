@@ -6,6 +6,7 @@ import { ask_jarvis, edit_with_jarvis } from './commands/ask';
 import { chat_with_jarvis, chat_with_notes } from './commands/chat';
 import { find_notes, update_note_db, skip_db_init_dialog } from './commands/notes';
 import { research_with_jarvis } from './commands/research';
+import { register_api_commands } from './commands/api';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
 import { find_nearest_notes, group_by_notes, clear_corpus_cache } from './notes/embeddings';
@@ -598,6 +599,9 @@ async function register_commands_and_menus(
       set_folders(false, folder.id, runtime.settings);
     },
   });
+
+  // Inter-plugin API commands (no UI, return structured JSON)
+  await register_api_commands(runtime);
 
   joplin.views.menus.create('jarvis', 'Jarvis', [
     { commandName: 'jarvis.chat', accelerator: 'CmdOrCtrl+Shift+C' },
