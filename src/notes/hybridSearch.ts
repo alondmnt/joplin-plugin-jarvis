@@ -29,7 +29,15 @@ Combine co-occurring entities in a single keyword term.
 Question: ${query}`;
 
   try {
-    const response: string = await with_timeout(10_000, model_gen.complete(prompt));
+    // use temperature 0 for deterministic decomposition
+    const saved_temperature = model_gen.temperature;
+    model_gen.temperature = 0;
+    let response: string;
+    try {
+      response = await with_timeout(10_000, model_gen.complete(prompt));
+    } finally {
+      model_gen.temperature = saved_temperature;
+    }
     if (!response) { return null; }
 
     const results: {semantic: string, keywords: string[]}[] = [];
@@ -56,9 +64,9 @@ Question: ${query}`;
 }
 
 /**
- * Pick the best semantic block per keyword-matched note.
- * Calls Joplin search API and maps note-level results to chunk-level
- * by selecting the block with highest .similarity per note.
+ * Return all semantic pool blocks from keyword-matched notes.
+ * Calls Joplin search API and maps note-level results to chunk-level,
+ * returning all blocks per matched note sorted by similarity (best first).
  *
  * Requires .similarity to be populated on semantic_pool blocks
  * (set by find_nearest_notes).
@@ -66,7 +74,7 @@ Question: ${query}`;
  * @param query - keyword query for Joplin search
  * @param semantic_pool - blocks with .similarity set from semantic pass
  * @param top_n - max notes to retrieve from Joplin search
- * @returns one block per keyword-matched note, in Joplin search rank order
+ * @returns all blocks from keyword-matched notes, grouped by note in Joplin search rank order
  */
 export async function keyword_search_chunks(
   query: string,
@@ -85,22 +93,25 @@ export async function keyword_search_chunks(
 
   if (note_ids.length === 0) { return []; }
 
-  // group pool blocks by keyword-matched note ID
+  // collect all pool blocks from keyword-matched notes, grouped by note
   const note_id_set = new Set(note_ids);
-  const by_note: {[note_id: string]: BlockEmbedding} = {};
+  const blocks_by_note: {[note_id: string]: BlockEmbedding[]} = {};
   for (const block of semantic_pool) {
     if (!note_id_set.has(block.id)) { continue; }
-    // keep the block with highest similarity per note
-    if (!by_note[block.id] || block.similarity > by_note[block.id].similarity) {
-      by_note[block.id] = block;
-    }
+    if (!blocks_by_note[block.id]) { blocks_by_note[block.id] = []; }
+    blocks_by_note[block.id].push(block);
   }
 
-  // return in Joplin search rank order
+  // sort blocks within each note by similarity (best first)
+  for (const note_id in blocks_by_note) {
+    blocks_by_note[note_id].sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+  }
+
+  // return in Joplin search rank order, all blocks per note
   const result: BlockEmbedding[] = [];
   for (const note_id of note_ids) {
-    if (by_note[note_id]) {
-      result.push(by_note[note_id]);
+    if (blocks_by_note[note_id]) {
+      result.push(...blocks_by_note[note_id]);
     }
   }
   return result;
