@@ -621,6 +621,12 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
       const block_scores = new Map<string, BlockEmbedding>();
       const cache = corpusCaches.get(model.id);
 
+      if (!cache?.isBuilt() && model.embeddings.length === 0) {
+        // no scoring pool available yet; fall through to find_nearest_notes
+        // which builds the cache as a side effect. multi-chunk works on
+        // subsequent panel refreshes.
+        query_chunks = [];
+      }
       for (const chunk of query_chunks) {
         let results: BlockEmbedding[];
         if (cache?.isBuilt()) {
@@ -645,12 +651,14 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
         }
       }
 
-      const scored = [...block_scores.values()];
-      scored.sort((a, b) => b.similarity - a.similarity);
-      nearest = await group_by_notes(scored, settings);
+      if (block_scores.size > 0) {
+        const scored = [...block_scores.values()];
+        scored.sort((a, b) => b.similarity - a.similarity);
+        nearest = await group_by_notes(scored, settings);
 
-      if (settings.notes_debug_mode) {
-        console.info(`Jarvis: multi-chunk search with ${query_chunks.length} query chunks, ${scored.length} scored blocks`);
+        if (settings.notes_debug_mode) {
+          console.info(`Jarvis: multi-chunk search with ${query_chunks.length} query chunks, ${scored.length} scored blocks`);
+        }
       }
     }
   }
