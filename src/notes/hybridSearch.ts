@@ -2,6 +2,7 @@ import joplin from 'api';
 import { BlockEmbedding } from './embeddings';
 import { TextGenerationModel } from '../models/models';
 import { clearApiResponse, with_timeout } from '../utils';
+import { calc_similarity } from './embeddingHelpers';
 import { getLogger } from '../utils/logger';
 
 const log = getLogger();
@@ -159,4 +160,29 @@ export function rrf_merge(
     .sort((a, b) => b.score - a.score)
     .slice(0, top_m)
     .map(entry => entry.block);
+}
+
+/**
+ * MaxSim scoring: for each pool block, compute max cosine similarity
+ * across all query embeddings (ColBERT-style late interaction).
+ * Sets block.similarity in place.
+ *
+ * @param query_embeddings - query vectors (one per chunk/turn/sub-query)
+ * @param pool - blocks to score (modified in place: .similarity set)
+ * @param exclude_id - note ID to exclude from scoring (current note)
+ */
+export function maxsim_score(
+  query_embeddings: Float32Array[],
+  pool: BlockEmbedding[],
+  exclude_id: string,
+): void {
+  for (const block of pool) {
+    if (block.id === exclude_id) { continue; }
+    let max_sim = 0;
+    for (const query_emb of query_embeddings) {
+      const sim = calc_similarity(block.embedding, query_emb);
+      if (sim > max_sim) { max_sim = sim; }
+    }
+    block.similarity = max_sim;
+  }
 }

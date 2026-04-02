@@ -1,5 +1,6 @@
 import joplin from 'api';
-import { find_nearest_notes, update_embeddings, corpusCaches } from '../notes/embeddings';
+import { find_nearest_notes, group_by_notes, update_embeddings, corpusCaches } from '../notes/embeddings';
+import { maxsim_score } from '../notes/hybridSearch';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time, set_model_last_full_sweep_time } from '../ux/settings';
@@ -598,14 +599,31 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
     selected = note.body;
   }
   let nearest;
-  try {
-    nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings, true, panel);
-  } catch (error) {
-    if (error instanceof ModelError) {
-      await joplin.views.dialogs.showMessageBox(`Error: ${error.message}`);
-      return;
+  // multi-chunk search: score each chunk of the current note independently
+  // fall back to single-vector when user has selected specific text
+  const use_multi_chunk = settings.notes_multi_chunk_search && (!selected || selected === note.body);
+  const query_chunks = use_multi_chunk
+    ? model.embeddings.filter(b => b.id === note.id)
+    : [];
+  if (query_chunks.length > 0) {
+    const query_embeddings = query_chunks.map(c => c.embedding);
+    maxsim_score(query_embeddings, model.embeddings, note.id);
+    const filtered = model.embeddings.filter(b =>
+      b.id !== note.id &&
+      b.similarity >= settings.notes_min_similarity &&
+      b.length >= settings.notes_min_length);
+    filtered.sort((a, b) => b.similarity - a.similarity);
+    nearest = await group_by_notes(filtered, settings);
+  } else {
+    try {
+      nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings, true, panel);
+    } catch (error) {
+      if (error instanceof ModelError) {
+        await joplin.views.dialogs.showMessageBox(`Error: ${error.message}`);
+        return;
+      }
+      throw error;
     }
-    throw error;
   }
 
   // Compute capacity warning from in-memory stats (if available)

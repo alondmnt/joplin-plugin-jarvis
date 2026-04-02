@@ -109,6 +109,7 @@ export interface JarvisSettings {
   notes_keyword_weight: number;
   notes_keyword_k: number;
   notes_decompose_query: boolean;
+  notes_multi_chunk_search: boolean;
   notes_exclude_folders: Set<string>;
   notes_panel_title: string;
   notes_panel_user_style: string;
@@ -370,6 +371,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_keyword_weight: await joplin.settings.value('notes_keyword_weight') / 100,
     notes_keyword_k: await joplin.settings.value('notes_keyword_k'),
     notes_decompose_query: await joplin.settings.value('notes_decompose_query'),
+    notes_multi_chunk_search: await joplin.settings.value('notes_multi_chunk_search'),
     notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
@@ -1030,6 +1032,15 @@ export async function register_settings() {
       advanced: true,
       label: 'Notes: LLM query decomposition',
       description: 'Use the chat model to decompose queries into focused sub-queries for retrieval. Adds latency per chat query. Default: off',
+    },
+    'notes_multi_chunk_search': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Multi-chunk search',
+      description: 'Score each section of the current note independently for more diverse results in multi-topic notes (MaxSim). Default: off',
     },
     'annotate_preferred_language': {
       value: 'English',
