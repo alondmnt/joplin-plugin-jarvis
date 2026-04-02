@@ -11,12 +11,13 @@
 import joplin from 'api';
 import { getLogger } from '../utils/logger';
 import { clearApiResponse } from '../utils';
-import { find_nearest_notes, preprocess_note_for_hashing, convert_newlines } from '../notes/embeddings';
-import type { NoteEmbedding } from '../notes/embeddings';
+import { find_nearest_notes, group_by_notes, preprocess_note_for_hashing, convert_newlines, corpusCaches, userDataStore } from '../notes/embeddings';
+import { read_user_data_embeddings } from '../notes/userDataReader';
+import { maxsim_search, keyword_rerank } from '../notes/hybridSearch';
+import type { NoteEmbedding, BlockEmbedding } from '../notes/embeddings';
 import type { TextEmbeddingModel } from '../models/models';
 import type { JarvisSettings } from '../ux/settings';
 import { getModelStats } from '../notes/modelStats';
-import { corpusCaches } from '../notes/embeddingCache';
 
 const log = getLogger();
 
@@ -156,42 +157,69 @@ export async function register_api_commands(runtime: ApiRuntime): Promise<void> 
       }
 
       try {
-        // Resolve query text and note context
-        let searchQuery: string;
-        let searchId: string;
-        let searchTitle: string;
-        let markupLanguage: number;
+        let results: NoteEmbedding[] | undefined;
 
         if (noteId) {
-          // Fetch the note to use as query context
+          // note-based search: multi-chunk MaxSim (same as panel)
           const note = await joplin.data.get(['notes', noteId],
             { fields: ['id', 'title', 'body', 'markup_language'] });
-          searchId = note.id;
-          searchTitle = note.title ?? '';
-          markupLanguage = note.markup_language ?? 1;
-          searchQuery = query?.trim() || note.body || '';
+          const noteTitle = note.title ?? '';
+          const noteBody = note.body ?? '';
+          const noteMarkup = note.markup_language ?? 1;
           clearApiResponse(note);
-        } else {
-          searchId = '__jarvis_api__';
-          searchTitle = '';
-          markupLanguage = 1;  // Markdown
-          searchQuery = query!.trim();
-        }
 
-        const results = await find_nearest_notes(
-          [],  // no pre-loaded embeddings — let the function use the cache / compute on the fly
-          searchId,
-          markupLanguage,
-          searchTitle,
-          searchQuery,
-          runtime.model_embed,
-          searchSettings,
-          true,      // return_grouped_notes
-          undefined, // panel (no progress bar)
-          false,     // isUpdateInProgress
-          undefined, // abortController
-          true,      // headless — no interactive error dialogs
-        );
+          // load note's chunk embeddings
+          let query_chunks: BlockEmbedding[] = runtime.model_embed.embeddings.filter(b => b.id === noteId);
+          if (query_chunks.length === 0 && searchSettings.notes_db_in_user_data) {
+            const loaded = await read_user_data_embeddings({
+              store: userDataStore, modelId: runtime.model_embed.id, noteIds: [noteId],
+            });
+            if (loaded.length > 0) { query_chunks = loaded[0].blocks; }
+          }
+
+          if (query_chunks.length > 0 && searchSettings.notes_multi_chunk_search) {
+            // multi-chunk MaxSim + keyword rerank on title
+            const query_embeddings = query_chunks.map(c => c.embedding);
+            const cache = corpusCaches.get(runtime.model_embed.id);
+            const scored = maxsim_search(query_embeddings, runtime.model_embed.embeddings, cache, noteId, searchSettings);
+            if (scored.length > 0) {
+              const reranked = noteTitle
+                ? await keyword_rerank(scored, [noteTitle], searchSettings)
+                : scored;
+              results = await group_by_notes(reranked, searchSettings);
+            }
+          }
+
+          if (!results) {
+            // fallback: single-vector search using query text or note body
+            const searchQuery = query?.trim() || noteBody;
+            const flat = await find_nearest_notes(
+              [], noteId, noteMarkup, noteTitle, searchQuery,
+              runtime.model_embed, searchSettings, false,
+              undefined, false, undefined, true,
+            );
+            const blocks = (flat.length > 0 && flat[0].embeddings.length > 0)
+              ? await keyword_rerank(flat[0].embeddings, [query?.trim() || noteTitle].filter(Boolean), searchSettings)
+              : [];
+            results = blocks.length > 0
+              ? await group_by_notes(blocks, searchSettings)
+              : flat;
+          }
+        } else {
+          // text query search: same as search box (flat + keyword rerank + group)
+          const searchQuery = query!.trim();
+          const flat = await find_nearest_notes(
+            [], '__jarvis_api__', 1, '', searchQuery,
+            runtime.model_embed, searchSettings, false,
+            undefined, false, undefined, true,
+          );
+          const blocks = (flat.length > 0 && flat[0].embeddings.length > 0)
+            ? await keyword_rerank(flat[0].embeddings, [searchQuery], searchSettings)
+            : [];
+          results = blocks.length > 0
+            ? await group_by_notes(blocks, searchSettings)
+            : flat;
+        }
 
         const serialised = toSerializableResults(results);
         await attachBlockText(serialised);
