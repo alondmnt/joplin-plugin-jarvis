@@ -169,7 +169,7 @@ export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<s
   if (typeof prompt !== 'string') {
     // rich text editor
     const note = await joplin.workspace.selectedNote();
-    prompt = note.body;
+    prompt = note?.body ?? '';
     clearObjectReferences(note);
   }
 
@@ -189,6 +189,9 @@ async function get_chat_prompt_and_notes(
 ):
     Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[], last_user_prompt: string}, NoteEmbedding[]]> {
   const note = await joplin.workspace.selectedNote();
+  if (!note) {
+    throw new Error('No note selected. Please open a note before using chat.');
+  }
   try {
     const source_prompt = typeof prompt_override === 'string' ? prompt_override : await get_chat_prompt(model_gen);
     const prompt = get_notes_prompt(source_prompt, note, model_gen);
