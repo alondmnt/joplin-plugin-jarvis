@@ -10,7 +10,7 @@ import { register_api_commands } from './commands/api';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
 import { find_nearest_notes, clear_corpus_cache } from './notes/embeddings';
-import { search_by_query } from './notes/hybridSearch';
+import { search_by_query } from './notes/searchOrchestration';
 import { ensure_catalog_note, get_catalog_note_id } from './notes/catalog';
 import { read_model_metadata } from './notes/catalogMetadataStore';
 import { register_panel, update_panel } from './ux/panel';

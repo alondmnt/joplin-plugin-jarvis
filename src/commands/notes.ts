@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { find_nearest_notes, update_embeddings, corpusCaches } from '../notes/embeddings';
-import { search_by_note } from '../notes/hybridSearch';
+import { search_by_note } from '../notes/searchOrchestration';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time, set_model_last_full_sweep_time } from '../ux/settings';

@@ -12,7 +12,7 @@ import joplin from 'api';
 import { getLogger } from '../utils/logger';
 import { clearApiResponse } from '../utils';
 import { preprocess_note_for_hashing, convert_newlines } from '../notes/embeddings';
-import { search_by_note, search_by_query } from '../notes/hybridSearch';
+import { search_by_note, search_by_query } from '../notes/searchOrchestration';
 import type { NoteEmbedding } from '../notes/embeddings';
 import type { TextEmbeddingModel } from '../models/models';
 import type { JarvisSettings } from '../ux/settings';

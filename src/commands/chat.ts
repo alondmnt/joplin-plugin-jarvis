@@ -5,7 +5,9 @@ import { read_user_data_embeddings } from '../notes/userDataReader';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
 import { split_by_tokens, preprocess_query, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
-import { decompose_query, keyword_rerank, maxsim_search } from '../notes/hybridSearch';
+import { decompose_query } from '../notes/queryDecomposition';
+import { keyword_rerank } from '../notes/hybridSearch';
+import { maxsim_search } from '../notes/searchOrchestration';
 import { getLogger } from '../utils/logger';
 
 const log = getLogger();
