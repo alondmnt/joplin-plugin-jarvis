@@ -334,9 +334,9 @@ export async function update_note_db(
   }
   
   // Surface or clear sweep warning for the related notes panel
-  if (!force && allFailedNotes.length > 0) {
+  if (allFailedNotes.length > 0) {
     lastSweepWarning = `${allFailedNotes.length} note(s) failed to embed. Check logs.`;
-  } else if (!force) {
+  } else {
     lastSweepWarning = undefined;
   }
 
@@ -622,10 +622,10 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
   }
   if (!nearest) {
     try {
-      nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings, true, panel);
+      nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings, true, panel, false, undefined, true);
     } catch (error) {
       if (error instanceof ModelError) {
-        await joplin.views.dialogs.showMessageBox(`Error: ${error.message}`);
+        await update_panel(panel, [], settings, null, error.message);
         return;
       }
       throw error;
