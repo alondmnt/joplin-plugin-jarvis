@@ -539,7 +539,7 @@ async function register_commands_and_menus(
 
   await joplin.commands.register({
     name: 'jarvis.chat.toggle_panel',
-    label: 'Toggle Jarvis Chat Panel',
+    label: 'Toggle chat panel',
     execute: async () => {
       if (!runtime.chat_panel) {
         await joplin.views.dialogs.showMessageBox('Jarvis chat panel is unavailable. Please restart Joplin and try again.');
