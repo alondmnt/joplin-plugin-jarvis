@@ -56,6 +56,15 @@ async function resolve_parent_notebook_id(): Promise<string> {
 
 type CachedMessage = { role: 'user' | 'assistant'; content: string; html?: string };
 
+/** Build cache entries from frontend history, rendering markdown for all messages. */
+function cache_history(history: {role: string; content: string}[]): CachedMessage[] {
+  return history.map(m => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.content,
+    html: md.render(m.content),
+  }));
+}
+
 function local_timestamp(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
@@ -146,7 +155,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
 
       try {
         const history = sanitize_history(message.history);
-        panelCache.history = history.map(m => ({ ...m }));
+        panelCache.history = cache_history(history);
         if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
         const text = await chat_with_notes_panel(
           prompt,
@@ -180,7 +189,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
 
       try {
         const history = sanitize_history(message.history);
-        panelCache.history = history.map(m => ({ ...m }));
+        panelCache.history = cache_history(history);
         if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
         const full_prompt = format_as_note_chat(history, runtime.settings);
 
