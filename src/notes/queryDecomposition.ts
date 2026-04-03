@@ -28,7 +28,7 @@ SEARCH: <semantic query> | KEYWORDS: <terms or NONE>
 
 Rules:
 - Use 1 sub-query when the question targets a single topic, entity, or time period.
-- Use 2-3 only for genuinely multi-faceted questions (comparisons, multiple entities).
+- Use 2-3 for comparisons (one sub-query per side) or multiple distinct entities/topics.
 - Use "quoted phrases" for compound terms. Drop evaluative words from keywords.
 - Combine co-occurring entities in a single keyword term.
 
