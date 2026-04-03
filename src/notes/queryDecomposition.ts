@@ -35,15 +35,7 @@ Rules:
 Question: ${query}`;
 
   try {
-    // use temperature 0 for deterministic decomposition
-    const saved_temperature = model_gen.temperature;
-    model_gen.temperature = 0;
-    let response: string;
-    try {
-      response = await with_timeout(10_000, model_gen.complete(prompt));
-    } finally {
-      model_gen.temperature = saved_temperature;
-    }
+    const response = await with_timeout(10_000, model_gen.complete(prompt));
     if (!response) { return null; }
 
     const results: {semantic: string, keywords: string[]}[] = [];
