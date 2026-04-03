@@ -98,6 +98,14 @@ joplin.plugins.register({
       runtime.chat_panel = '';
     }
     
+    // Hide panels on startup if settings say so (useful on mobile)
+    if (!runtime.settings.notes_panel_visible) {
+      await joplin.views.panels.hide(runtime.panel);
+    }
+    if (!runtime.settings.chat_panel_visible && runtime.chat_panel) {
+      await joplin.views.panels.hide(runtime.chat_panel);
+    }
+
     const updates = create_update_manager(runtime);
     const find_notes_debounce = debounce(find_notes, PANEL_DEBOUNCE_SECONDS * 1000);
 
@@ -515,7 +523,8 @@ async function register_commands_and_menus(
     name: 'jarvis.notes.toggle_panel',
     label: 'Toggle related notes panel',
     execute: async () => {
-      if (await joplin.views.panels.visible(runtime.panel)) {
+      const visible = await joplin.views.panels.visible(runtime.panel);
+      if (visible) {
         await joplin.views.panels.hide(runtime.panel);
       } else {
         await joplin.views.panels.show(runtime.panel);
@@ -524,6 +533,7 @@ async function register_commands_and_menus(
         }
         find_notes_debounce(runtime.model_embed, runtime.panel, true);
       }
+      await joplin.settings.setValue('notes_panel_visible', !visible);
     },
   });
 
@@ -535,11 +545,13 @@ async function register_commands_and_menus(
         await joplin.views.dialogs.showMessageBox('Jarvis chat panel is unavailable. Please restart Joplin and try again.');
         return;
       }
-      if (await joplin.views.panels.visible(runtime.chat_panel)) {
+      const visible = await joplin.views.panels.visible(runtime.chat_panel);
+      if (visible) {
         await joplin.views.panels.hide(runtime.chat_panel);
       } else {
         await joplin.views.panels.show(runtime.chat_panel);
       }
+      await joplin.settings.setValue('chat_panel_visible', !visible);
     },
   });
 
@@ -1033,6 +1045,26 @@ async function register_settings_handler(
             console.warn('Jarvis: note DB sweep failed after delay change', error);
           }
         })();
+      }
+    }
+
+    // Panel visibility settings (two-way sync with toggle commands)
+    if (event.keys.includes('notes_panel_visible')) {
+      if (runtime.settings.notes_panel_visible) {
+        await joplin.views.panels.show(runtime.panel);
+        if (runtime.model_embed.model === null) {
+          await runtime.model_embed.initialize();
+        }
+        find_notes_debounce(runtime.model_embed, runtime.panel, true);
+      } else {
+        await joplin.views.panels.hide(runtime.panel);
+      }
+    }
+    if (event.keys.includes('chat_panel_visible') && runtime.chat_panel) {
+      if (runtime.settings.chat_panel_visible) {
+        await joplin.views.panels.show(runtime.chat_panel);
+      } else {
+        await joplin.views.panels.hide(runtime.chat_panel);
       }
     }
   });
