@@ -1131,7 +1131,6 @@ export class TextGenerationModel {
     await this.limit_rate();
 
     let response = '';
-    prompt = this._sanitize_prompt(prompt);
     if (preview) {
       await this._preview_chat(prompt);
       return;
@@ -1166,8 +1165,6 @@ export class TextGenerationModel {
       throw new Error('Model completion operation cancelled');
     }
     await this.limit_rate();
-
-    prompt = this._sanitize_prompt(prompt);
 
     // Set up abort handling for the actual generation operation
     return new Promise((resolve, reject) => {
@@ -1337,12 +1334,6 @@ export class TextGenerationModel {
     await joplin.views.dialogs.open(await dialogPreview);
   }
 
-  _sanitize_prompt(prompt: string): string {
-    // strip markdown links and keep the text
-    return prompt.trim().replace(/\[.*?\]\(.*?\)/g, (match) => {
-      return match.substring(1, match.indexOf(']'));
-    });
-  }
 }
 
 export class HuggingFaceGeneration extends TextGenerationModel {
