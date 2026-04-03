@@ -473,6 +473,7 @@ export async function update_embeddings(
   totalRows: number;
   dim: number;
   processedCount: number;
+  failedNotes: string[];
 }> {
   // Fetch excluded note IDs once for entire batch (with pagination)
   const excludedByTag = await get_excluded_note_ids_by_tags();
@@ -511,6 +512,13 @@ export async function update_embeddings(
 
         if (fatalError) {
           throw fatalError;
+        }
+
+        if (!force) {
+          // Background sweep: skip silently, let caller surface the warning
+          log.warn(`Background embedding failed for note ${note.id}: ${error.message}`);
+          skippedNotes.push(note.id);
+          return;
         }
 
         const action = await runSerialized(() =>
@@ -569,7 +577,7 @@ export async function update_embeddings(
   ).length;
 
   if (successfulNotes.length === 0) {
-    return { settingsMismatches, totalRows: 0, dim: 0, processedCount: 0 };
+    return { settingsMismatches, totalRows: 0, dim: 0, processedCount: 0, failedNotes: skippedNotes };
   }
 
   // Only populate model.embeddings when userData index is disabled (legacy mode)
@@ -591,7 +599,7 @@ export async function update_embeddings(
     }
     clearObjectReferences(successfulNotes);
 
-    return { settingsMismatches, totalRows: mergedEmbeddings.length, dim, processedCount };
+    return { settingsMismatches, totalRows: mergedEmbeddings.length, dim, processedCount, failedNotes: skippedNotes };
   }
 
   // Count total embedding rows without creating temporary array (memory efficient)
@@ -611,7 +619,7 @@ export async function update_embeddings(
   // Clear excluded note IDs cache after batch
   clear_excluded_note_ids_cache();
 
-  return { settingsMismatches, totalRows, dim, processedCount };
+  return { settingsMismatches, totalRows, dim, processedCount, failedNotes: skippedNotes };
 }
 
 // function to remove all embeddings of the given notes from an array of embeddings in-place

@@ -14,6 +14,9 @@ import { read_model_metadata } from '../notes/catalogMetadataStore';
 import { should_exclude_note } from '../notes/noteHelpers';
 import { RELEASE_NOTES } from '../ux/release';
 
+/** Last sweep failure message; shown in related notes panel until next successful sweep. */
+export let lastSweepWarning: string | undefined;
+
 /**
  * Safety margin for incremental sweeps to catch notes that sync late.
  *
@@ -128,6 +131,7 @@ export async function update_note_db(
   // This avoids loading all embeddings into memory to count them
   let totalEmbeddingRows = 0;
   let embeddingDim = 0;  // Track dimension from first batch (needed when model.embeddings is empty)
+  const allFailedNotes: string[] = [];
 
   if (noteIds && noteIds.length > 0) {
     // Mode 1: Specific note IDs (note saves, sync notifications)
@@ -163,6 +167,7 @@ export async function update_note_db(
           shouldUpdatePanel,
         );
         allSettingsMismatches.push(...result.settingsMismatches);
+        allFailedNotes.push(...result.failedNotes);
         totalEmbeddingRows += result.totalRows;
         if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
         actually_processed_notes += result.actuallyProcessed;
@@ -181,6 +186,7 @@ export async function update_note_db(
         shouldUpdatePanel,
       );
       allSettingsMismatches.push(...result.settingsMismatches);
+      allFailedNotes.push(...result.failedNotes);
       totalEmbeddingRows += result.totalRows;
       if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
       actually_processed_notes += result.actuallyProcessed;
@@ -236,6 +242,7 @@ export async function update_note_db(
         shouldUpdatePanel,
       );
       allSettingsMismatches.push(...result.settingsMismatches);
+      allFailedNotes.push(...result.failedNotes);
       totalEmbeddingRows += result.totalRows;
       if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
       actually_processed_notes += result.actuallyProcessed;
@@ -305,6 +312,7 @@ export async function update_note_db(
           shouldUpdatePanel,
         );
         allSettingsMismatches.push(...result.settingsMismatches);
+        allFailedNotes.push(...result.failedNotes);
         totalEmbeddingRows += result.totalRows;
         if (embeddingDim === 0 && result.dim > 0) embeddingDim = result.dim;
         actually_processed_notes += result.actuallyProcessed;
@@ -325,6 +333,13 @@ export async function update_note_db(
     console.info(`Jarvis: full sweep completed - ${processed_notes} notes with embeddings processed`);
   }
   
+  // Surface or clear sweep warning for the related notes panel
+  if (!force && allFailedNotes.length > 0) {
+    lastSweepWarning = `${allFailedNotes.length} note(s) failed to embed. Check logs.`;
+  } else if (!force) {
+    lastSweepWarning = undefined;
+  }
+
   // Update last sweep timestamp after successful completion of any full sweep
   // (both incremental and thorough scans, but not specific note IDs)
   if (!abortController.signal.aborted && isFullSweep) {
@@ -477,9 +492,10 @@ async function process_batch_and_update_progress(
   totalRows: number;
   dim: number;
   actuallyProcessed: number;
+  failedNotes: string[];
 }> {
   if (batch.length === 0) {
-    return { settingsMismatches: [], totalRows: 0, dim: 0, actuallyProcessed: 0 };
+    return { settingsMismatches: [], totalRows: 0, dim: 0, actuallyProcessed: 0, failedNotes: [] };
   }
 
   // Filter out excluded notes early to avoid unnecessary processing
@@ -624,7 +640,7 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
     : null;
 
   // write results to panel
-  await update_panel(panel, nearest, settings, capacityWarning);
+  await update_panel(panel, nearest, settings, capacityWarning, lastSweepWarning);
 
   // Clear note body after use
   clearObjectReferences(note);

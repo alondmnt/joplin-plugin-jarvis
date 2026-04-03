@@ -4,7 +4,7 @@ import debounce from 'lodash.debounce';
 import { annotate_title, annotate_summary, annotate_tags, annotate_links } from './commands/annotate';
 import { ask_jarvis, edit_with_jarvis } from './commands/ask';
 import { chat_with_jarvis, chat_with_notes } from './commands/chat';
-import { find_notes, update_note_db, skip_db_init_dialog } from './commands/notes';
+import { find_notes, update_note_db, skip_db_init_dialog, lastSweepWarning } from './commands/notes';
 import { research_with_jarvis } from './commands/research';
 import { register_api_commands } from './commands/api';
 import { load_embedding_model, load_generation_model } from './models/models';
@@ -807,7 +807,7 @@ async function register_workspace_listeners(
       const capacityWarning = stats
         ? checkCapacityWarning(stats.rowCount, stats.dim, profileIsDesktop)
         : null;
-      await update_panel(runtime.panel, nearest, runtime.settings, capacityWarning);
+      await update_panel(runtime.panel, nearest, runtime.settings, capacityWarning, lastSweepWarning);
     }
     if (message.name === 'abortUpdate') {
       // Abort both database updates and model deletion operations
