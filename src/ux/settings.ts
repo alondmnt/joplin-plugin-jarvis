@@ -989,7 +989,7 @@ export async function register_settings() {
       }
     },
     'notes_keyword_weight': {
-      value: 0,
+      value: 30,
       type: SettingItemType.Int,
       minimum: 0,
       maximum: 100,
@@ -997,7 +997,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Notes: Keyword search weight',
-      description: 'Weight of Joplin keyword search in hybrid retrieval. Applies to both the related notes panel (using note title) and chat (using the user query or LLM-generated keywords). Set to 0 to disable. Default: 0 (disabled)',
+      description: 'Weight of Joplin keyword search in hybrid retrieval. Applies to both the related notes panel (using note title) and chat (using the user query or LLM-generated keywords). Set to 0 to disable. Default: 30',
     },
     'notes_keyword_k': {
       value: 1,
@@ -1011,13 +1011,13 @@ export async function register_settings() {
       description: 'RRF smoothing constant for hybrid retrieval. Lower values (1-3) let keyword results displace semantic results more aggressively. Higher values (30-60) make the blend gentler. Default: 1',
     },
     'notes_decompose_query': {
-      value: false,
+      value: true,
       type: SettingItemType.Bool,
       section: 'jarvis.notes',
       public: true,
       advanced: true,
       label: 'Notes: LLM query decomposition',
-      description: 'Chat only: use the chat model to decompose queries into focused sub-queries with targeted keywords. Adds latency per query. Default: off',
+      description: 'Chat only: use the chat model to decompose queries into focused sub-queries with targeted keywords. Adds latency per query. Default: on',
     },
     'notes_multi_chunk_search': {
       value: true,
