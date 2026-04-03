@@ -116,6 +116,11 @@
 
     resolveElements();
 
+    // apply mobile layout adjustment
+    if (message.platform === 'mobile') {
+      document.querySelector('.jarvis-chat-panel')?.classList.add('mobile');
+    }
+
     // restore mode
     if (typeof message.useNotes === 'boolean') {
       useNotes = message.useNotes;
@@ -263,9 +268,9 @@
       chatLog.addEventListener('click', (event) => {
         const target = event.target.closest('a');
         if (!target) return;
+        event.preventDefault();
         const href = target.getAttribute('href') || '';
-        if (href.startsWith('joplin://') || href.startsWith(':/')) {
-          event.preventDefault();
+        if (href) {
           webviewApi.postMessage({ type: 'openNote', href });
         }
       });

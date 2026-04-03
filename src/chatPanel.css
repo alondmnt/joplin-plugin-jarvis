@@ -237,3 +237,11 @@ body {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 1; }
 }
+
+/* Mobile: Joplin panels are slightly shorter than 100vh */
+.jarvis-chat-panel.mobile {
+  height: 97vh;
+}
+.jarvis-chat-panel.mobile .jarvis-chat-input {
+  max-height: calc(97vh - 80px);
+}

@@ -115,6 +115,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         history: panelCache.history,
         useNotes: panelCache.useNotes,
         draft: panelCache.draft || '',
+        platform: get_context().settings.notes_device_platform || 'desktop',
       };
     }
 
