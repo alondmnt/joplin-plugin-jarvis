@@ -33,6 +33,9 @@ export const GENERATION_SETTING_KEYS = new Set([
   'chat_suffix',
 ]);
 
+/** Keys from registerSettings(), populated at startup. Used by get_settings(). */
+let registeredSettingKeys: string[] = [];
+
 export const EMBEDDING_SETTING_KEYS = new Set([
   'openai_api_key',
   'hf_api_key',
@@ -110,6 +113,8 @@ export interface JarvisSettings {
   notes_decompose_query: boolean;
   notes_multi_chunk_search: boolean;
   notes_exclude_folders: Set<string>;
+  notes_panel_visible: boolean;
+  chat_panel_visible: boolean;
   notes_panel_title: string;
   notes_panel_user_style: string;
   notes_abort_on_error: boolean;
@@ -248,8 +253,8 @@ export function parse_dropdown_json(json: any, selected?: string): string {
   return options;
 }
 
-async function parse_dropdown_setting(name: string): Promise<string> {
-  const setting = await joplin.settings.value(name);
+/** Parse a dropdown setting value into HTML options. */
+function parse_dropdown_value(setting: string, name: string): string {
   const empty = '<option value=""></option>';
   const preset = parse_dropdown_json(prompts[name]);
   try {
@@ -260,9 +265,12 @@ async function parse_dropdown_setting(name: string): Promise<string> {
 }
 
 export async function get_settings(): Promise<JarvisSettings> {
-  let model_id = await joplin.settings.value('model');
+  // Bulk-fetch all plugin settings in a single API call
+  const v = await joplin.settings.values(registeredSettingKeys);
+
+  let model_id = v['model'] as string;
   if (model_id == 'openai-custom') {
-    model_id = await joplin.settings.value('chat_openai_model_id');
+    model_id = v['chat_openai_model_id'] as string;
     model_id = model_id.replace(/-\d{4}.*$/, '');  // remove the date suffix
     model_id = model_id.replace(/-\d{2}-\d{2}.*$/, '');  // remove the date suffix
     model_id = model_id.replace(/-latest$/, '');  // remove the latest suffix
@@ -270,23 +278,14 @@ export async function get_settings(): Promise<JarvisSettings> {
     model_id = model_id.replace(/-exp$/, '');  // remove the exp suffix
   }
   // if model is in model_max_tokens, use its value, otherwise use the settings value
-  let max_tokens = model_max_tokens[model_id] || await joplin.settings.value('max_tokens');
-  let memory_tokens = await joplin.settings.value('memory_tokens');
-  let notes_context_tokens = await joplin.settings.value('notes_context_tokens');
+  const max_tokens = model_max_tokens[model_id] || v['max_tokens'] as number;
 
-  const annotate_tags_method = await joplin.settings.value('annotate_tags_method');
+  const annotate_tags_method = v['annotate_tags_method'] as string;
 
-  const openai_api_key = await joplin.settings.value('openai_api_key');
-  const hf_api_key = await joplin.settings.value('hf_api_key');
-  const google_api_key = await joplin.settings.value('google_api_key');
-  const scopus_api_key = await joplin.settings.value('scopus_api_key');
-  const springer_api_key = await joplin.settings.value('springer_api_key');
-  const pubmed_api_key = await joplin.settings.value('pubmed_api_key');
-
-  const rawProfileSetting = (await joplin.settings.value('notes_device_profile') ?? 'auto') as ('auto' | 'desktop' | 'mobile');
-  const firstBuildCompleted = safe_parse_first_build_completed(await joplin.settings.value('notes_model_first_build_completed'));
-  const lastSweepTimes = safe_parse_last_sweep_time(await joplin.settings.value('notes_model_last_sweep_time'));
-  const lastFullSweepTimes = safe_parse_last_sweep_time(await joplin.settings.value('notes_model_last_full_sweep_time'));
+  const rawProfileSetting = (v['notes_device_profile'] ?? 'auto') as ('auto' | 'desktop' | 'mobile');
+  const firstBuildCompleted = safe_parse_first_build_completed(v['notes_model_first_build_completed'] as string);
+  const lastSweepTimes = safe_parse_last_sweep_time(v['notes_model_last_sweep_time'] as string);
+  const lastFullSweepTimes = safe_parse_last_sweep_time(v['notes_model_last_full_sweep_time'] as string);
 
   // Detect platform from Joplin API (defaults to 'desktop' on error)
   let detectedPlatform = 'desktop';
@@ -304,122 +303,55 @@ export async function get_settings(): Promise<JarvisSettings> {
     ? (detectedPlatform.toLowerCase() === 'mobile' ? 'mobile' : 'desktop')
     : (rawProfileSetting === 'mobile' ? 'mobile' : 'desktop');
 
-  const weight_relevance_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_relevance')) || 0);
-  const weight_citations_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_citations')) || 0);
-  const weight_fulltext_raw = Math.max(0, Number(await joplin.settings.value('paper_weight_fulltext')) || 0);
+  const weight_relevance_raw = Math.max(0, Number(v['paper_weight_relevance']) || 0);
+  const weight_citations_raw = Math.max(0, Number(v['paper_weight_citations']) || 0);
+  const weight_fulltext_raw = Math.max(0, Number(v['paper_weight_fulltext']) || 0);
   const weight_total = Math.max(1, weight_relevance_raw + weight_citations_raw + weight_fulltext_raw);
   const paper_weight_relevance = weight_relevance_raw / weight_total;
   const paper_weight_citations = weight_citations_raw / weight_total;
   const paper_weight_fulltext = weight_fulltext_raw / weight_total;
 
+  // Spread raw values, then override the ones that need transforms
   return {
-    // APIs
-    openai_api_key,
-    hf_api_key,
-    google_api_key,
-    scopus_api_key,
-    springer_api_key,
-    pubmed_api_key,
+    ...v,
 
-    // OpenAI
-    model: await joplin.settings.value('model'),
-    chat_timeout: await joplin.settings.value('chat_timeout'),
-    chat_system_message: await joplin.settings.value('chat_system_message'),
-    chat_openai_model_id: await joplin.settings.value('chat_openai_model_id'),
-    chat_openai_model_type: await joplin.settings.value('chat_openai_model_type'),
-    chat_openai_endpoint: await joplin.settings.value('chat_openai_endpoint'),
-    chat_hf_model_id: await joplin.settings.value('chat_hf_model_id'),
-    chat_hf_endpoint: await joplin.settings.value('chat_hf_endpoint'),
-    temperature: (await joplin.settings.value('temp')) / 10,
-    max_tokens: max_tokens,
-    memory_tokens: memory_tokens,
-    top_p: (await joplin.settings.value('top_p')) / 100,
-    frequency_penalty: (await joplin.settings.value('frequency_penalty')) / 10,
-    presence_penalty: (await joplin.settings.value('presence_penalty')) / 10,
-    include_prompt: await joplin.settings.value('include_prompt'),
+    // scaled values
+    temperature: (v['temp'] as number) / 10,
+    top_p: (v['top_p'] as number) / 100,
+    frequency_penalty: (v['frequency_penalty'] as number) / 10,
+    presence_penalty: (v['presence_penalty'] as number) / 10,
+    notes_include_links: (v['notes_include_links'] as number) / 100,
+    notes_min_similarity: (v['notes_min_similarity'] as number) / 100,
+    notes_keyword_weight: (v['notes_keyword_weight'] as number) / 100,
 
-    // related notes
-    /// model
-    notes_model: await joplin.settings.value('notes_model'),
-    notes_parallel_jobs: await joplin.settings.value('notes_parallel_jobs'),
-    notes_max_tokens: await joplin.settings.value('notes_max_tokens'),
-    notes_context_tokens: notes_context_tokens,
-    notes_openai_model_id: await joplin.settings.value('notes_openai_model_id'),
-    notes_openai_endpoint: await joplin.settings.value('notes_openai_endpoint'),
-    notes_hf_model_id: await joplin.settings.value('notes_hf_model_id'),
-    notes_hf_endpoint: await joplin.settings.value('notes_hf_endpoint'),
-    /// chunk
-    notes_embed_title: await joplin.settings.value('notes_embed_title'),
-    notes_embed_path: await joplin.settings.value('notes_embed_path'),
-    notes_embed_heading: await joplin.settings.value('notes_embed_heading'),
-    notes_embed_tags: await joplin.settings.value('notes_embed_tags'),
-    /// other
-    notes_db_update_delay: await joplin.settings.value('notes_db_update_delay'),
-    notes_include_code: await joplin.settings.value('notes_include_code'),
-    notes_include_links: await joplin.settings.value('notes_include_links') / 100,
-    notes_min_similarity: await joplin.settings.value('notes_min_similarity') / 100,
-    notes_min_length: await joplin.settings.value('notes_min_length'),
-    notes_max_hits: await joplin.settings.value('notes_max_hits'),
-    notes_context_history: await joplin.settings.value('notes_context_history'),
-    notes_search_box: await joplin.settings.value('notes_search_box'),
-    notes_prompt: await joplin.settings.value('notes_prompt'),
-    notes_attach_prev: await joplin.settings.value('notes_attach_prev'),
-    notes_attach_next: await joplin.settings.value('notes_attach_next'),
-    notes_agg_similarity: await joplin.settings.value('notes_agg_similarity'),
-    notes_keyword_weight: await joplin.settings.value('notes_keyword_weight') / 100,
-    notes_keyword_k: await joplin.settings.value('notes_keyword_k'),
-    notes_decompose_query: await joplin.settings.value('notes_decompose_query'),
-    notes_multi_chunk_search: await joplin.settings.value('notes_multi_chunk_search'),
-    notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
-    notes_panel_title: await joplin.settings.value('notes_panel_title'),
-    notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
-    notes_abort_on_error: await joplin.settings.value('notes_abort_on_error'),
-    notes_embed_timeout: await joplin.settings.value('notes_embed_timeout'),
-    notes_db_in_user_data: await joplin.settings.value('notes_db_in_user_data'),
-    notes_debug_mode: await joplin.settings.value('notes_debug_mode'),
+    // computed / parsed
+    max_tokens,
+    notes_exclude_folders: new Set((v['notes_exclude_folders'] as string).split(',').map(s => s.trim())),
     notes_device_profile: rawProfileSetting,
     notes_device_profile_effective: effectiveProfile,
     notes_device_platform: detectedPlatform,
-    notes_max_shard_bytes: await joplin.settings.value('notes_max_shard_bytes'),
     notes_model_first_build_completed: firstBuildCompleted,
     notes_model_last_sweep_time: lastSweepTimes,
     notes_model_last_full_sweep_time: lastFullSweepTimes,
-    // annotations
-    annotate_preferred_language: await joplin.settings.value('annotate_preferred_language'),
-    annotate_tags_flag: await joplin.settings.value('annotate_tags_flag'),
-    annotate_summary_flag: await joplin.settings.value('annotate_summary_flag'),
-    annotate_summary_title: await joplin.settings.value('annotate_summary_title'),
-    annotate_links_flag: await joplin.settings.value('annotate_links_flag'),
-    annotate_links_title: await joplin.settings.value('annotate_links_title'),
-    annotate_autocomplete_prompt: await joplin.settings.value('annotate_autocomplete_prompt'),
-    annotate_title_flag: await joplin.settings.value('annotate_title_flag'),
-    annotate_tags_method: annotate_tags_method,
-    annotate_tags_max: await joplin.settings.value('annotate_tags_max'),
-    annotate_tags_existing: await joplin.settings.value('annotate_tags_existing'),
-
-    // research
-    paper_search_engine: await joplin.settings.value('paper_search_engine'),
-    use_wikipedia: await joplin.settings.value('use_wikipedia'),
-    include_paper_summary: await joplin.settings.value('include_paper_summary'),
     paper_weight_relevance,
     paper_weight_citations,
     paper_weight_fulltext,
 
-    // prompts
-    instruction: await parse_dropdown_setting('instruction'),
-    scope: await parse_dropdown_setting('scope'),
-    role: await parse_dropdown_setting('role'),
-    reasoning: await parse_dropdown_setting('reasoning'),
+    // dropdown parsing
+    instruction: parse_dropdown_value(v['instruction'] as string, 'instruction'),
+    scope: parse_dropdown_value(v['scope'] as string, 'scope'),
+    role: parse_dropdown_value(v['role'] as string, 'role'),
+    reasoning: parse_dropdown_value(v['reasoning'] as string, 'reasoning'),
     prompts: {
-      title: (await joplin.settings.value('annotate_title_prompt')) || title_prompt,
-      summary: (await joplin.settings.value('annotate_summary_prompt')) || summary_prompt,
+      title: (v['annotate_title_prompt'] as string) || title_prompt,
+      summary: (v['annotate_summary_prompt'] as string) || summary_prompt,
       tags: tags_prompt[annotate_tags_method],
     },
 
-    // chat
-    chat_prefix: (await joplin.settings.value('chat_prefix')).replace(/\\n/g, '\n'),
-    chat_suffix: (await joplin.settings.value('chat_suffix')).replace(/\\n/g, '\n'),
-  };
+    // string transforms
+    chat_prefix: (v['chat_prefix'] as string).replace(/\\n/g, '\n'),
+    chat_suffix: (v['chat_suffix'] as string).replace(/\\n/g, '\n'),
+  } as unknown as JarvisSettings;
 }
 
 export async function register_settings() {
@@ -452,13 +384,21 @@ export async function register_settings() {
     iconName: 'fas fa-robot',
   });
 
-  await joplin.settings.registerSettings({
+  const settings = {
     'toolbar_show_chat': {
       value: true,
       type: SettingItemType.Bool,
       section: 'jarvis.chat',
       public: true,
       label: 'Toolbar: Show Chat with Jarvis button',
+    },
+    'chat_panel_visible': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.chat',
+      public: true,
+      label: 'Chat: Panel visible',
+      description: 'Show or hide the chat panel. Useful on mobile where toggle commands are not accessible.',
     },
     'toolbar_show_notes_chat': {
       value: true,
@@ -473,6 +413,14 @@ export async function register_settings() {
       section: 'jarvis.notes',
       public: true,
       label: 'Toolbar: Show Find related notes button',
+    },
+    'notes_panel_visible': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      label: 'Notes: Panel visible',
+      description: 'Show or hide the related notes panel. Useful on mobile where toggle commands are not accessible.',
     },
     'toolbar_show_edit': {
       value: true,
@@ -1377,7 +1325,9 @@ export async function register_settings() {
       label: 'Release notes version (internal)',
       description: 'Last seen release notes version. Do not modify.',
     },
-  });
+  };
+  await joplin.settings.registerSettings(settings);
+  registeredSettingKeys = Object.keys(settings);
 }
 
 /**
