@@ -259,7 +259,10 @@ async function get_chat_prompt_and_notes(
           const scored = maxsim_search(query_embeddings, sub_embeds, cache, note.id, settings);
 
           if (scored.length > 0) {
-            const keywords = sub_queries.flatMap(sq => sq.keywords).filter(k => k.length > 0);
+            const keywords = sub_queries
+              .map(sq => sq.keywords.filter(k => k.length > 0).join(' '))
+              .filter(k => k.length > 0)
+              .map(k => k.includes(' ') ? `any:1 ${k}` : k);
             const reranked = await keyword_rerank(scored, keywords, settings);
             nearest = [{id: note.id, title: 'Chat context', embeddings: reranked, similarity: null}];
             decomposed = true;

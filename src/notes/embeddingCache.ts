@@ -46,19 +46,6 @@ interface BlockMetadata {
   headingLevel: number;  // For grouping/display
 }
 
-/**
- * Search result from in-memory cache.
- */
-export interface CachedSearchResult {
-  noteId: string;
-  noteHash: string;
-  title: string;
-  lineNumber: number;
-  bodyStart: number;
-  bodyLength: number;
-  headingLevel: number;
-  similarity: number;
-}
 
 /**
  * Estimate memory footprint of in-memory cache.
