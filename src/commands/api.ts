@@ -11,7 +11,8 @@
 import joplin from 'api';
 import { getLogger } from '../utils/logger';
 import { clearApiResponse } from '../utils';
-import { find_nearest_notes, preprocess_note_for_hashing, convert_newlines } from '../notes/embeddings';
+import { preprocess_note_for_hashing, convert_newlines } from '../notes/embeddings';
+import { search_by_note, search_by_query } from '../notes/searchOrchestration';
 import type { NoteEmbedding } from '../notes/embeddings';
 import type { TextEmbeddingModel } from '../models/models';
 import type { JarvisSettings } from '../ux/settings';
@@ -156,42 +157,26 @@ export async function register_api_commands(runtime: ApiRuntime): Promise<void> 
       }
 
       try {
-        // Resolve query text and note context
-        let searchQuery: string;
-        let searchId: string;
-        let searchTitle: string;
-        let markupLanguage: number;
+        let results: NoteEmbedding[] | undefined;
 
         if (noteId) {
-          // Fetch the note to use as query context
+          // note-based search: multi-chunk MaxSim (same as panel)
           const note = await joplin.data.get(['notes', noteId],
             { fields: ['id', 'title', 'body', 'markup_language'] });
-          searchId = note.id;
-          searchTitle = note.title ?? '';
-          markupLanguage = note.markup_language ?? 1;
-          searchQuery = query?.trim() || note.body || '';
+          const noteTitle = note.title ?? '';
+          const noteBody = note.body ?? '';
           clearApiResponse(note);
-        } else {
-          searchId = '__jarvis_api__';
-          searchTitle = '';
-          markupLanguage = 1;  // Markdown
-          searchQuery = query!.trim();
-        }
 
-        const results = await find_nearest_notes(
-          [],  // no pre-loaded embeddings — let the function use the cache / compute on the fly
-          searchId,
-          markupLanguage,
-          searchTitle,
-          searchQuery,
-          runtime.model_embed,
-          searchSettings,
-          true,      // return_grouped_notes
-          undefined, // panel (no progress bar)
-          false,     // isUpdateInProgress
-          undefined, // abortController
-          true,      // headless — no interactive error dialogs
-        );
+          results = await search_by_note(noteId, noteTitle, runtime.model_embed, searchSettings);
+          if (!results) {
+            // fallback: text query search using query or note body
+            results = await search_by_query(
+              query?.trim() || noteBody, noteId, runtime.model_embed, searchSettings);
+          }
+        } else {
+          results = await search_by_query(
+            query!.trim(), '__jarvis_api__', runtime.model_embed, searchSettings);
+        }
 
         const serialised = toSerializableResults(results);
         await attachBlockText(serialised);

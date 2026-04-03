@@ -185,7 +185,7 @@ export function search_keywords(text: string, query: string): boolean {
   return regex.test(text);
 }
 
-function preprocess_query(query: string) {
+export function preprocess_query(query: string) {
   const operators = [
     'any', 'title', 'body', 'tag', 'notebook',
     'created', 'updated', 'due', 'type', 'iscompleted',

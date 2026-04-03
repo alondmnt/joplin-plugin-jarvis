@@ -10,6 +10,7 @@ import { register_api_commands } from './commands/api';
 import { load_embedding_model, load_generation_model } from './models/models';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
 import { find_nearest_notes, clear_corpus_cache } from './notes/embeddings';
+import { search_by_query } from './notes/searchOrchestration';
 import { ensure_catalog_note, get_catalog_note_id } from './notes/catalog';
 import { read_model_metadata } from './notes/catalogMetadataStore';
 import { register_panel, update_panel } from './ux/panel';
@@ -797,18 +798,9 @@ async function register_workspace_listeners(
       }
     }
     if (message.name === 'searchRelatedNote') {
-      const nearest = await find_nearest_notes(
-        runtime.model_embed.embeddings,
-        '1234',
-        1,
-        '',
-        message.query,
-        runtime.model_embed,
-        runtime.settings,
-        true,
-        runtime.panel,
-        updates.is_update_in_progress()
-      );
+      const nearest = await search_by_query(
+        message.query, '1234', runtime.model_embed, runtime.settings,
+        runtime.panel, updates.is_update_in_progress());
       // Compute capacity warning from in-memory stats (if available)
       const stats = getModelStats(runtime.model_embed.id);
       const profileIsDesktop = runtime.settings.notes_device_profile_effective === 'desktop';

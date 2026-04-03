@@ -104,8 +104,11 @@ export interface JarvisSettings {
   notes_prompt: string;
   notes_attach_prev: number;
   notes_attach_next: number;
-  notes_attach_nearest: number;
   notes_agg_similarity: string;
+  notes_keyword_weight: number;
+  notes_keyword_k: number;
+  notes_decompose_query: boolean;
+  notes_multi_chunk_search: boolean;
   notes_exclude_folders: Set<string>;
   notes_panel_title: string;
   notes_panel_user_style: string;
@@ -362,8 +365,11 @@ export async function get_settings(): Promise<JarvisSettings> {
     notes_prompt: await joplin.settings.value('notes_prompt'),
     notes_attach_prev: await joplin.settings.value('notes_attach_prev'),
     notes_attach_next: await joplin.settings.value('notes_attach_next'),
-    notes_attach_nearest: await joplin.settings.value('notes_attach_nearest'),
     notes_agg_similarity: await joplin.settings.value('notes_agg_similarity'),
+    notes_keyword_weight: await joplin.settings.value('notes_keyword_weight') / 100,
+    notes_keyword_k: await joplin.settings.value('notes_keyword_k'),
+    notes_decompose_query: await joplin.settings.value('notes_decompose_query'),
+    notes_multi_chunk_search: await joplin.settings.value('notes_multi_chunk_search'),
     notes_exclude_folders: new Set((await joplin.settings.value('notes_exclude_folders')).split(',').map(s => s.trim())),
     notes_panel_title: await joplin.settings.value('notes_panel_title'),
     notes_panel_user_style: await joplin.settings.value('notes_panel_user_style'),
@@ -969,18 +975,6 @@ export async function register_settings() {
       label: 'Notes: Number of trailing blocks to add',
       description: 'Succeeding blocks that appear after the current block in the same note. Applies to "Chat with your notes". Default: 0',
     },
-    'notes_attach_nearest': {
-      value: 0,
-      type: SettingItemType.Int,
-      minimum: 0,
-      maximum: 10,
-      step: 1,
-      section: 'jarvis.notes',
-      public: true,
-      advanced: true,
-      label: 'Notes: Number of nearest blocks to add',
-      description: 'Most similar blocks to the current block. Applies to "Chat with your notes". Default: 0',
-    },
     'notes_agg_similarity': {
       value: 'max',
       type: SettingItemType.String,
@@ -993,6 +987,46 @@ export async function register_settings() {
         'max': 'max',
         'avg': 'avg',
       }
+    },
+    'notes_keyword_weight': {
+      value: 0,
+      type: SettingItemType.Int,
+      minimum: 0,
+      maximum: 100,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Keyword search weight',
+      description: 'Weight of Joplin keyword search in hybrid retrieval. Applies to both the related notes panel (using note title) and chat (using the user query or LLM-generated keywords). Set to 0 to disable. Default: 0 (disabled)',
+    },
+    'notes_keyword_k': {
+      value: 1,
+      type: SettingItemType.Int,
+      minimum: 1,
+      maximum: 100,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Keyword search RRF k',
+      description: 'RRF smoothing constant for hybrid retrieval. Lower values (1-3) let keyword results displace semantic results more aggressively. Higher values (30-60) make the blend gentler. Default: 1',
+    },
+    'notes_decompose_query': {
+      value: false,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: LLM query decomposition',
+      description: 'Chat only: use the chat model to decompose queries into focused sub-queries with targeted keywords. Adds latency per query. Default: off',
+    },
+    'notes_multi_chunk_search': {
+      value: true,
+      type: SettingItemType.Bool,
+      section: 'jarvis.notes',
+      public: true,
+      advanced: true,
+      label: 'Notes: Multi-chunk search',
+      description: 'Related notes panel only: score each section of the current note independently for more diverse results in multi-topic notes. Default: on',
     },
     'annotate_preferred_language': {
       value: 'English',

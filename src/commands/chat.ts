@@ -1,9 +1,16 @@
 import joplin from 'api';
 import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
-import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_nearest_blocks, get_next_blocks, get_prev_blocks } from '../notes/embeddings';
+import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_next_blocks, get_prev_blocks, corpusCaches, userDataStore } from '../notes/embeddings';
+import { read_user_data_embeddings } from '../notes/userDataReader';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
-import { split_by_tokens, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
+import { split_by_tokens, preprocess_query, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
+import { decompose_query } from '../notes/queryDecomposition';
+import { keyword_rerank } from '../notes/hybridSearch';
+import { maxsim_search } from '../notes/searchOrchestration';
+import { getLogger } from '../utils/logger';
+
+const log = getLogger();
 
 export type PanelChatMessage = {
   role: 'user' | 'assistant';
@@ -180,7 +187,7 @@ async function get_chat_prompt_and_notes(
   settings: JarvisSettings,
   prompt_override?: string,
 ):
-    Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]}, NoteEmbedding[]]> {
+    Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[], last_user_prompt: string}, NoteEmbedding[]]> {
   const note = await joplin.workspace.selectedNote();
   try {
     const source_prompt = typeof prompt_override === 'string' ? prompt_override : await get_chat_prompt(model_gen);
@@ -228,12 +235,78 @@ async function get_chat_prompt_and_notes(
         note.body = note.body.replace(new RegExp(nc, 'g'), '');
       }
     }
-    const nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
+    // LLM query decomposition (when enabled, skip if user set explicit context)
+    let nearest: NoteEmbedding[] = [];
+    let decomposed = false;
+    if (settings.notes_decompose_query && !prompt.search && prompt.notes.size === 0 && !prompt.context) {
+      const source = prompt.last_user_prompt || note.title || '';
+      if (source.length > 0) {
+        const sub_queries = await decompose_query(source, model_gen);
+        if (sub_queries && sub_queries.length > 0) {
+          if (settings.notes_debug_mode) {
+            log.info(`[Hybrid] decomposed into ${sub_queries.length} sub-queries`);
+            for (const sq of sub_queries) {
+              log.info(`[Hybrid] sq: "${sq.semantic.slice(0, 60)}" | keywords: [${sq.keywords.join(', ')}]`);
+            }
+          }
+
+          // embed each sub-query and score via MaxSim
+          const query_embeddings: Float32Array[] = [];
+          for (const sq of sub_queries) {
+            query_embeddings.push(await model_embed.embed(sq.semantic, 'query'));
+          }
+          const cache = corpusCaches.get(model_embed.id);
+          const scored = maxsim_search(query_embeddings, sub_embeds, cache, note.id, settings);
+
+          if (scored.length > 0) {
+            const keywords = sub_queries
+              .map(sq => sq.keywords.filter(k => k.length > 0).join(' '))
+              .filter(k => k.length > 0)
+              .map(k => k.includes(' ') ? `any:1 ${k}` : k);
+            const reranked = await keyword_rerank(scored, keywords, settings);
+            nearest = [{id: note.id, title: 'Chat context', embeddings: reranked, similarity: null}];
+            decomposed = true;
+          }
+        }
+      }
+    }
+
+    if (!decomposed) {
+      // existing path: single find_nearest_notes + optional keyword merge
+      nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
+      if (nearest.length === 0) {
+        nearest.push({id: note.id, title: 'Chat context', embeddings: [], similarity: null});
+      }
+
+      // keyword merge (when enabled, without decomposition)
+      if (!prompt.search && prompt.notes.size === 0) {
+        const keyword_source = prompt.last_user_prompt || note.title || '';
+        const keyword_query = preprocess_query(keyword_source).slice(0, 200).trim();
+        if (keyword_query.length > 0) {
+          nearest[0].embeddings = await keyword_rerank(nearest[0].embeddings, [keyword_query], settings);
+        }
+      }
+    }
+
     if (nearest.length === 0) {
       nearest.push({id: note.id, title: 'Chat context', embeddings: [], similarity: null});
     }
 
     // post-processing: attach additional blocks to the nearest ones
+    // in userData mode, model_embed.embeddings is empty - load blocks
+    // for result notes from userData to enable prev/next/nearest attachment
+    let attachment_pool = model_embed.embeddings;
+    if (attachment_pool.length === 0 && settings.notes_db_in_user_data &&
+        (settings.notes_attach_prev > 0 || settings.notes_attach_next > 0)) {
+      const result_note_ids = [...new Set(nearest[0].embeddings.map(b => b.id))];
+      if (result_note_ids.length > 0) {
+        const loaded = await read_user_data_embeddings({
+          store: userDataStore, modelId: model_embed.id, noteIds: result_note_ids,
+        });
+        attachment_pool = loaded.flatMap(r => r.blocks);
+      }
+    }
+
     let attached: Set<string> = new Set();
     let blocks: BlockEmbedding[] = [];
     for (const embd of nearest[0].embeddings) {
@@ -245,7 +318,7 @@ async function get_chat_prompt_and_notes(
       // TODO: rethink whether we should indeed skip the entire iteration
 
       if (settings.notes_attach_prev > 0) {
-        const prev = await get_prev_blocks(embd, model_embed.embeddings, settings.notes_attach_prev);
+        const prev = await get_prev_blocks(embd, attachment_pool, settings.notes_attach_prev);
         // push in reverse order
         for (let i = prev.length - 1; i >= 0; i--) {
           const bid = `${prev[i].id}:${prev[i].line}`;
@@ -260,7 +333,7 @@ async function get_chat_prompt_and_notes(
       blocks.push(embd);
 
       if (settings.notes_attach_next > 0) {
-        const next = await get_next_blocks(embd, model_embed.embeddings, settings.notes_attach_next);
+        const next = await get_next_blocks(embd, attachment_pool, settings.notes_attach_next);
         for (let i = 0; i < next.length; i++) {
           const bid = `${next[i].id}:${next[i].line}`;
           if (attached.has(bid)) { continue; }
@@ -269,15 +342,6 @@ async function get_chat_prompt_and_notes(
         }
       }
 
-      if (settings.notes_attach_nearest > 0) {
-        const nearest = await get_nearest_blocks(embd, model_embed.embeddings, settings, settings.notes_attach_nearest);
-        for (let i = 0; i < nearest.length; i++) {
-          const bid = `${nearest[i].id}:${nearest[i].line}`;
-          if (attached.has(bid)) { continue; }
-          attached.add(bid);
-          blocks.push(nearest[i]);
-        }
-      }
     }
     nearest[0].embeddings = blocks;
 
@@ -288,7 +352,7 @@ async function get_chat_prompt_and_notes(
 }
 
 function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationModel):
-    {prompt: string, search: string, notes: Set<string>, context: string, not_context: string[]} {
+    {prompt: string, search: string, notes: Set<string>, context: string, not_context: string[], last_user_prompt: string} {
   // get global commands
   const commands = get_global_commands(note.body);
   note.body = stripJarvisBlocks(note.body);
@@ -354,7 +418,7 @@ function get_notes_prompt(prompt: string, note: any, model_gen: TextGenerationMo
     prompt += '\n' + global_match;
   }
 
-  return {prompt, search, notes, context, not_context};
+  return {prompt, search, notes, context, not_context, last_user_prompt};
 }
 
 function get_global_commands(text: string): ParsedData {

@@ -1,5 +1,6 @@
 import joplin from 'api';
 import { find_nearest_notes, update_embeddings, corpusCaches } from '../notes/embeddings';
+import { search_by_note } from '../notes/searchOrchestration';
 import { ensure_catalog_note, register_model, get_catalog_note_id } from '../notes/catalog';
 import { update_panel, update_progress_bar } from '../ux/panel';
 import { get_settings, mark_model_first_build_completed, get_model_last_sweep_time, set_model_last_sweep_time, set_model_last_full_sweep_time } from '../ux/settings';
@@ -598,14 +599,21 @@ export async function find_notes(model: TextEmbeddingModel, panel: string, expli
     selected = note.body;
   }
   let nearest;
-  try {
-    nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings, true, panel);
-  } catch (error) {
-    if (error instanceof ModelError) {
-      await joplin.views.dialogs.showMessageBox(`Error: ${error.message}`);
-      return;
+  // multi-chunk search: score each chunk of the current note independently
+  // fall back to single-vector when user has selected specific text
+  if (!selected || selected === note.body) {
+    nearest = await search_by_note(note.id, note.title, model, settings);
+  }
+  if (!nearest) {
+    try {
+      nearest = await find_nearest_notes(model.embeddings, note.id, note.markup_language, note.title, selected, model, settings, true, panel);
+    } catch (error) {
+      if (error instanceof ModelError) {
+        await joplin.views.dialogs.showMessageBox(`Error: ${error.message}`);
+        return;
+      }
+      throw error;
     }
-    throw error;
   }
 
   // Compute capacity warning from in-memory stats (if available)

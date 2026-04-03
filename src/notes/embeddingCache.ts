@@ -13,8 +13,8 @@ import { UserDataEmbStore } from './userDataStore';
 import { read_user_data_embeddings } from './userDataReader';
 import { cosine_similarity_q8, QuantizedVector } from './q8';
 import { TopKHeap } from './topK';
-import { clearObjectReferences } from '../utils';
 import { BlockEmbedding } from './embeddings';
+import { clearObjectReferences } from '../utils';
 import { setModelStats } from './modelStats';
 
 const log = getLogger();
@@ -46,19 +46,6 @@ interface BlockMetadata {
   headingLevel: number;  // For grouping/display
 }
 
-/**
- * Search result from in-memory cache.
- */
-export interface CachedSearchResult {
-  noteId: string;
-  noteHash: string;
-  title: string;
-  lineNumber: number;
-  bodyStart: number;
-  bodyLength: number;
-  headingLevel: number;
-  similarity: number;
-}
 
 /**
  * Estimate memory footprint of in-memory cache.
@@ -377,7 +364,7 @@ export class SimpleCorpusCache {
    * Pure in-memory search (10-50ms).
    * Uses TopKHeap for efficient O(n log k) ranking.
    */
-  search(query: QuantizedVector, k: number, minScore: number): CachedSearchResult[] {
+  search(query: QuantizedVector, k: number, minScore: number): BlockEmbedding[] {
     if (!this.isBuilt()) {
       log.warn('[Cache] Search called on unbuilt cache');
       return [];
@@ -408,21 +395,25 @@ export class SimpleCorpusCache {
     if (nanCount > 0) {
       log.error(`[Cache] ${nanCount} blocks produced NaN similarities during search`);
     }
-    
-    // Map heap results to cache results
-    return heap.valuesDescending().map(({ score, value: idx }) => {
-      const block = this.blocks[idx];
-      return {
-        noteId: block.noteId,
-        noteHash: block.noteHash,
-        title: block.title,
-        lineNumber: block.lineNumber,
-        bodyStart: block.bodyStart,
-        bodyLength: block.bodyLength,
-        headingLevel: block.headingLevel,
-        similarity: score,
-      };
-    });
+
+    return heap.valuesDescending().map(({ score, value: idx }) =>
+      this.blockToEmbedding(idx, score));
+  }
+
+  /** Convert internal block metadata to BlockEmbedding. */
+  private blockToEmbedding(idx: number, similarity: number): BlockEmbedding {
+    const block = this.blocks[idx];
+    return {
+      id: block.noteId,
+      hash: block.noteHash,
+      line: block.lineNumber,
+      body_idx: block.bodyStart,
+      length: block.bodyLength,
+      level: block.headingLevel,
+      title: block.title,
+      embedding: null as unknown as Float32Array,
+      similarity,
+    };
   }
 
   /**

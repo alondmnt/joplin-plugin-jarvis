@@ -4,12 +4,12 @@
  */
 
 import { getLogger } from '../utils/logger';
-import { SimpleCorpusCache, CachedSearchResult } from './embeddingCache';
+import { SimpleCorpusCache } from './embeddingCache';
+import { BlockEmbedding } from './embeddings';
 import { UserDataEmbStore } from './userDataStore';
 import { read_user_data_embeddings } from './userDataReader';
 import { cosine_similarity_q8, QuantizedVector, quantize_vector_to_q8 } from './q8';
 import { clearObjectReferences } from '../utils';
-import { BlockEmbedding } from './embeddings';
 
 const log = getLogger();
 
@@ -33,9 +33,9 @@ export interface ValidationMetrics {
 }
 
 interface RankedResult {
-  noteId: string;
-  noteHash: string;
-  lineNumber: number;
+  id: string;
+  hash: string;
+  line: number;
   similarity: number;
   rank: number;
 }
@@ -126,9 +126,9 @@ async function compute_ground_truth(
   
   // Take top-k
   const topK = scored.slice(0, k).map((item, rank) => ({
-    noteId: item.block.id,
-    noteHash: item.block.hash,
-    lineNumber: item.block.line,
+    id: item.block.id,
+    hash: item.block.hash,
+    line: item.block.line,
     similarity: item.similarity,
     rank: rank + 1,
   }));
@@ -180,22 +180,22 @@ export async function validate_cache_results(
   
   // Debug: Log first few results from each method
   if (cacheResults.length > 0 && groundTruth.length > 0) {
-    log.info(`[CacheValidator] Cache top-3: ${cacheResults.slice(0, 3).map(r => `${r.noteId.substring(0, 8)}:${r.lineNumber}`).join(', ')}`);
-    log.info(`[CacheValidator] Truth top-3: ${groundTruth.slice(0, 3).map(r => `${r.noteId.substring(0, 8)}:${r.lineNumber}`).join(', ')}`);
+    log.info(`[CacheValidator] Cache top-3: ${cacheResults.slice(0, 3).map(r => `${r.id.substring(0, 8)}:${r.line}`).join(', ')}`);
+    log.info(`[CacheValidator] Truth top-3: ${groundTruth.slice(0, 3).map(r => `${r.id.substring(0, 8)}:${r.line}`).join(', ')}`);
   }
   
   // Create lookup maps by block ID (noteId:lineNumber)
   const makeBlockId = (noteId: string, line: number) => `${noteId}:${line}`;
   
-  const cacheMap = new Map<string, { result: CachedSearchResult; rank: number }>();
+  const cacheMap = new Map<string, { result: BlockEmbedding; rank: number }>();
   cacheResults.forEach((result, idx) => {
-    const blockId = makeBlockId(result.noteId, result.lineNumber);
+    const blockId = makeBlockId(result.id, result.line);
     cacheMap.set(blockId, { result, rank: idx + 1 });
   });
   
   const truthMap = new Map<string, RankedResult>();
   groundTruth.forEach(result => {
-    const blockId = makeBlockId(result.noteId, result.lineNumber);
+    const blockId = makeBlockId(result.id, result.line);
     truthMap.set(blockId, result);
   });
   
@@ -226,8 +226,8 @@ export async function validate_cache_results(
   
   // Get top-10 by rank (not arbitrary set order!)
   // Cache results are already sorted by rank in the map
-  const cacheTop10Ids = cacheResults.slice(0, top10Count).map(r => makeBlockId(r.noteId, r.lineNumber));
-  const truthTop10Ids = groundTruth.slice(0, top10Count).map(r => makeBlockId(r.noteId, r.lineNumber));
+  const cacheTop10Ids = cacheResults.slice(0, top10Count).map(r => makeBlockId(r.id, r.line));
+  const truthTop10Ids = groundTruth.slice(0, top10Count).map(r => makeBlockId(r.id, r.line));
   
   const cacheTop10 = new Set(cacheTop10Ids);
   const truthTop10 = new Set(truthTop10Ids);
@@ -281,7 +281,7 @@ export async function validate_cache_results(
     // Create a map of all cache results by blockId for fast lookup
     const allCacheMap = new Map<string, number>(); // blockId -> similarity
     for (const cacheResult of allCacheResults) {
-      const blockId = makeBlockId(cacheResult.noteId, cacheResult.lineNumber);
+      const blockId = makeBlockId(cacheResult.id, cacheResult.line);
       allCacheMap.set(blockId, cacheResult.similarity);
     }
     
