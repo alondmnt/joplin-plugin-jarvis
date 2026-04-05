@@ -458,3 +458,37 @@ graph TD
 
 **When to update catalog metadata:**
 - Full sweeps only (not incremental sweeps)
+
+---
+
+## Multi-Model Isolation
+
+Each model stores independently in userData metadata:
+```
+models: {
+  "modelX": { epoch: 3, contentHash: "abc...", settings: {...}, ... },
+  "modelY": { epoch: 1, contentHash: "abc...", settings: {...}, ... }
+}
+```
+
+- Writing model Y never touches model X's metadata, epoch, or shards
+- Settings comparison only checks the active model's entry
+- Different embedding settings on different models/devices is expected and does not cause cross-contamination
+- Content hash is model-independent (same preprocessing pipeline for all models)
+
+---
+
+## Content Hash Stability
+
+The content hash determines whether a note needs re-embedding. It's computed from:
+
+1. Note body (after HTML→MD conversion if needed)
+2. OCR text from attached resources (sorted by resource ID)
+3. After stripping Jarvis-generated blocks
+
+Known sources of hash instability (can trigger unnecessary re-embedding):
+- **OCR text changes**: Joplin may update OCR text for resources between sweeps
+- **Note edits on other device**: synced content changes are legitimate re-embedding triggers
+- **Jarvis annotation changes**: stripped before hashing, but format changes could affect the stripped result
+
+The hash does NOT include: title, tags, settings, model info, epochs, or any Joplin system fields.

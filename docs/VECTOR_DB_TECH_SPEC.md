@@ -23,9 +23,10 @@
    - 3.2 EmbShard (Per-Note Embeddings)
    - 3.3 CatalogMetadata (Per-Model Metadata)
 4. [Algorithms](#4-algorithms)
-   - 4.1 Block Segmentation
-   - 4.2 Quantization (Q8)
-   - 4.3 In-Memory Cache
+   - 4.1 Content Hashing
+   - 4.2 Block Segmentation
+   - 4.3 Quantization (Q8)
+   - 4.4 In-Memory Cache
 5. [Search Pipeline](#5-search-pipeline)
    - Full Search Flow
    - Search Tuning Parameters
@@ -57,6 +58,7 @@ The Jarvis vector database is designed as a **sync-first, per-note embedded inde
 - **Automatic backup**: Embeddings are backed up with notes (stored in userData, not separate files)
 - **Incremental updates**: Per-note isolation allows independent updates without full rebuilds
 - **Conflict-free operation**: Content-addressed epochs prevent sync conflicts
+- **Multi-model isolation**: Each model's metadata (epoch, hash, settings) is independent; Device A writing model X never touches model Y's data
 
 ### High-Level Architecture
 
@@ -298,7 +300,28 @@ interface CatalogMetadata {
 
 ## 4. Algorithms
 
-### 4.1 Block Segmentation
+### 4.1 Content Hashing
+
+**Purpose**: Detect content changes to skip re-embedding unchanged notes.
+
+**Preprocessing pipeline** (must be deterministic for hash stability):
+1. **HTML conversion**: If `markup_language === 2`, convert HTML to Markdown via `htmlToText()`
+2. **OCR text**: Append OCR text from attached resources (sorted by resource ID for determinism)
+3. **Strip Jarvis blocks**: Remove generated summary, links, and command blocks via `stripJarvisBlocks()`
+4. **Hash**: MD5 of the preprocessed body
+
+**What is NOT included in the hash**:
+- Note title, tags, or metadata
+- Embedding settings, model version, or epoch
+- Joplin system fields (`updated_time`, `user_updated_time`)
+- userData content
+
+**Hash stability**: The hash is deterministic for the same note content. Sources of instability to watch for:
+- OCR text changes (Joplin may re-run OCR on resources)
+- Jarvis annotation changes (stripped before hashing, but if stripping is imperfect, hash may drift)
+- HTML→Markdown conversion differences across platforms
+
+### 4.2 Block Segmentation
 
 **Algorithm**: Markdown-aware splitter with heading boundaries
 
@@ -316,7 +339,7 @@ interface CatalogMetadata {
 
 ---
 
-### 4.2 Quantization (Q8)
+### 4.3 Quantization (Q8)
 
 **Algorithm**: Per-row scalar quantization to 8-bit integers
 
@@ -348,7 +371,7 @@ similarity = dot * scale_row * scale_query
 
 ---
 
-### 4.3 In-Memory Cache
+### 4.4 In-Memory Cache
 
 **Purpose**: Hold all Q8 vectors in RAM for fast brute-force search
 
