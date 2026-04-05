@@ -108,7 +108,7 @@ export async function append_ocr_text_to_body(note: any): Promise<void> {
   let ocrText = '';
 
   if (noteId) {
-    const snippets: string[] = [];
+    const resources: {id: string; title: string; text: string}[] = [];
     try {
       let page = 0;
       let resourcesPage: any;
@@ -122,7 +122,7 @@ export async function append_ocr_text_to_body(note: any): Promise<void> {
         for (const resource of items) {
           const text = typeof resource?.ocr_text === 'string' ? resource.ocr_text.trim() : '';
           if (text) {
-            snippets.push(`\n\n## resource: ${resource.title}\n\n${text}`);
+            resources.push({ id: resource.id, title: resource.title, text });
           }
         }
         const hasMore = resourcesPage?.has_more;
@@ -133,7 +133,9 @@ export async function append_ocr_text_to_body(note: any): Promise<void> {
     } catch (error) {
       log.debug(`Failed to retrieve OCR text for note ${noteId}:`, error);
     }
-    ocrText = snippets.join('\n\n');
+    // Sort by resource ID for deterministic hash across devices/sweeps
+    resources.sort((a, b) => a.id.localeCompare(b.id));
+    ocrText = resources.map(r => `\n\n## resource: ${r.title}\n\n${r.text}`).join('\n\n');
   }
 
   if (ocrText) {
