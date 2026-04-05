@@ -396,6 +396,10 @@ async function update_note(note: any,
   }
 
   // Rebuild needed: content changed OR (force=true AND userData outdated/missing AND no SQLite to backfill)
+  if (settings.notes_debug_mode) {
+    const storedHash = userDataMeta?.models?.[model.id]?.contentHash;
+    log.debug(`Re-embedding note ${formatNoteLabel(note)} - hashMatch=${hashMatch}, storedHash=${storedHash}, newHash=${hash}`);
+  }
 
   // Fetch tags ONLY if needed for embedding (after hash check determined re-embedding is needed)
   let note_tags: string[] = [];
