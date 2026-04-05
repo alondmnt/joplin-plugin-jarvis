@@ -242,7 +242,6 @@ async function update_note(note: any,
         let needsBackfill = !userDataMeta
           || !modelMeta
           || modelMeta.contentHash !== hash;
-        let needsCompaction = false;
         let shardMissing = false;
         if (!needsBackfill && userDataMeta && modelMeta && modelMeta.shards > 0) {
           let first: any = null;
@@ -254,14 +253,6 @@ async function update_note(note: any,
               if (settings.notes_debug_mode) {
                 log.debug(`Note ${note.id} has metadata but missing/invalid shard - will backfill`);
               }
-            } else {
-              const row0 = first?.meta?.[0] as any;
-              // Detect legacy rows by presence of duplicated per-row fields or blockId
-              needsCompaction = Boolean(row0?.noteId || row0?.noteHash || row0?.blockId);
-
-              // Clear base64 strings from shard after inspection
-              delete (first as any).vectorsB64;
-              delete (first as any).scalesB64;
             }
           } catch (e) {
             // Shard read failed - treat as missing/corrupt
@@ -271,9 +262,9 @@ async function update_note(note: any,
             clearObjectReferences(first);
           }
         }
-        if (needsBackfill || needsCompaction || shardMissing) {
+        if (needsBackfill || shardMissing) {
           if (settings.notes_debug_mode) {
-            log.debug(`Note ${note.id} needs backfill/compaction - needsBackfill=${needsBackfill}, needsCompaction=${needsCompaction}, shardMissing=${shardMissing}`);
+            log.debug(`Note ${note.id} needs backfill - needsBackfill=${needsBackfill}, shardMissing=${shardMissing}`);
           }
           await write_user_data_embeddings(note, old_embd, model, settings, hash, catalogId);
         }
