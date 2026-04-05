@@ -684,7 +684,7 @@ export async function register_settings() {
       section: 'jarvis.notes',
       public: true,
       advanced: true,
-      label: 'Notes: Store embeddings in note properties (experimental)',
+      label: 'Notes: Store embeddings in note properties',
       description: 'Default: false (uses local SQLite, desktop only). When enabled, stores the search index inside your notes so it syncs across devices. Required for mobile app. May increase note size and sync time.',
     },
     'notes_debug_mode': {
