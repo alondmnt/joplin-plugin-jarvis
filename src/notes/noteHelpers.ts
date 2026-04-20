@@ -158,12 +158,14 @@ export async function append_ocr_text_to_body(note: any): Promise<void> {
  * @param options.checkTags - Whether to check exclusion tags (default: true)
  * @returns Object with { excluded: boolean, reason?: string }
  */
+export type ExclusionReason = 'conflict' | 'folder' | 'tag' | 'deleted';
+
 export function should_exclude_note(
   note: { id?: string; parent_id?: string; is_conflict?: boolean; deleted_time?: number },
   noteTags?: string[] | null,
   settings?: JarvisSettings | null,
   options: { checkDeleted?: boolean; checkTags?: boolean; excludedByTag?: Set<string> } = {}
-): { excluded: boolean; reason?: string } {
+): { excluded: boolean; reason?: ExclusionReason } {
   const { checkDeleted = false, checkTags = true, excludedByTag } = options;
 
   // Normalize inputs to handle undefined/null gracefully
@@ -172,25 +174,24 @@ export function should_exclude_note(
 
   // Check conflict notes (always checked)
   if (note.is_conflict) {
-    return { excluded: true, reason: 'conflict note' };
+    return { excluded: true, reason: 'conflict' };
   }
 
   // Check excluded folders (always checked, if parent_id and excluded folders are available)
   if (note.parent_id && excludedFolders?.has(note.parent_id)) {
-    return { excluded: true, reason: 'excluded folder' };
+    return { excluded: true, reason: 'folder' };
   }
 
   // Check exclusion tags (optional, controlled by checkTags flag)
   if (checkTags) {
     // Check reverse-lookup first (if provided)
     if (excludedByTag && excludedByTag.has(note.id)) {
-      return { excluded: true, reason: 'exclusion tag' };
+      return { excluded: true, reason: 'tag' };
     }
 
     // Fall back to checking tags array (for compatibility with other flows)
     if (tags.includes('jarvis-exclude') || tags.includes('exclude.from.jarvis')) {
-      const tag = tags.includes('jarvis-exclude') ? 'jarvis-exclude' : 'exclude.from.jarvis';
-      return { excluded: true, reason: `${tag} tag` };
+      return { excluded: true, reason: 'tag' };
     }
   }
 
