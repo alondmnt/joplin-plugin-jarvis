@@ -29,7 +29,11 @@ export async function query_chat(ai: GoogleGenAI, modelId: string, prompt: Array
     const response = await chat.sendMessage({
       message: prompt.slice(-1)[0].content,
     });
-    return response.text;
+    const text = response.text;
+    if (!text) {
+      throw new Error(describeEmptyResponse(response));
+    }
+    return text;
 
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -60,7 +64,11 @@ export async function query_completion(ai: GoogleGenAI, modelId: string, prompt:
         topP: top_p,
       },
     });
-    return response.text;
+    const text = response.text;
+    if (!text) {
+      throw new Error(describeEmptyResponse(response));
+    }
+    return text;
 
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -90,7 +98,11 @@ export async function query_embedding(text: string, ai: GoogleGenAI, modelId: st
       contents: text,
       config: Object.keys(config).length > 0 ? config : undefined,
     });
-    return new Float32Array(result.embeddings[0].values);
+    const values = result?.embeddings?.[0]?.values;
+    if (!values || values.length === 0) {
+      throw new Error('empty embedding values');
+    }
+    return new Float32Array(values);
 
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -98,4 +110,25 @@ export async function query_embedding(text: string, ai: GoogleGenAI, modelId: st
     (error as any).cause = e;
     throw error;
   }
+}
+
+/**
+ * Build a reason string for a Gemini response that came back without text.
+ * Prefers promptFeedback (input-side block: safety filter etc.) over
+ * candidate finishReason (output-side: SAFETY, RECITATION, MAX_TOKENS).
+ * Falls back to a generic empty-response message when neither is present.
+ */
+function describeEmptyResponse(response: any): string {
+  const promptFeedback = response?.promptFeedback;
+  if (promptFeedback?.blockReason) {
+    const detail = promptFeedback.blockReasonMessage || promptFeedback.blockReason;
+    return `prompt blocked (${detail})`;
+  }
+
+  const finishReason = response?.candidates?.[0]?.finishReason;
+  if (finishReason && finishReason !== 'STOP') {
+    return `no text returned (finish reason: ${finishReason})`;
+  }
+
+  return 'empty response';
 }
