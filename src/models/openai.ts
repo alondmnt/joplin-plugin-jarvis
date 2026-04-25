@@ -57,24 +57,26 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
       headers: buildHeaders(api_key, url),
       body: JSON.stringify(params),
     });
-    
+
     const responseText = await response.text();
 
     try {
-      data = JSON.parse(responseText);
-    } catch (jsonError) {
-      console.error('JSON parsing failed. Raw response:', responseText);
-      throw new Error(`Invalid JSON response: ${jsonError.message}`);
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch (_jsonError) {
+      // Non-JSON body (HTML 502 from a proxy, plain text, etc.) — keep
+      // responseText so extractResponseError can surface it with HTTP status.
+      data = null;
     }
 
     // output response
-    if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
+    if (response.ok && data?.choices?.[0]?.message?.content) {
       return data.choices[0].message.content;
     }
 
-    error_message = normalizeErrorMessage(data.error);
+    error_message = extractResponseError(response, responseText, data);
 
   } catch (error) {
+    // Network failure, aborted fetch, etc. (no response object available)
     error_message = normalizeErrorMessage(error);
   }
 
@@ -90,10 +92,12 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
     throw new ModelError(`OpenAI chat failed: ${error_message}`);
   }
 
-  // find all numbers in error message
+  // find all numbers in the upstream message (strip the HTTP status prefix,
+  // otherwise the status code would be parsed as a token count)
+  const limits_source = stripStatusPrefix(error_message);
   let token_limits = null;
-  if (error_message && error_message.includes('reduce')) {
-    token_limits = [...error_message.matchAll(/([0-9]+)/g)];
+  if (limits_source && limits_source.includes('reduce')) {
+    token_limits = [...limits_source.matchAll(/([0-9]+)/g)];
   } else {
     token_limits = null;
   }
@@ -140,31 +144,30 @@ export async function query_completion(prompt: string, api_key: string,
   let data = null;
   let error_message: string | null = null;
   try {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: buildHeaders(api_key, url),
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: buildHeaders(api_key, url),
       body: JSON.stringify(params),
     });
 
     const responseText = await response.text();
 
     try {
-      data = JSON.parse(responseText);
-    } catch (jsonError) {
-      console.error('JSON parsing failed. Raw response:', responseText);
-      throw new Error(`Invalid JSON response: ${jsonError.message}`);
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch (_jsonError) {
+      data = null;
     }
 
-    // output completion
-    if (data.hasOwnProperty('choices') && (data.choices[0].text)) {
+    // output completion (legacy completions endpoint)
+    if (response.ok && data?.choices?.[0]?.text) {
       return data.choices[0].text;
     }
-    if (data.hasOwnProperty('choices') && data.choices[0].message.content) {
+    // output completion (chat-style response routed through the completions path)
+    if (response.ok && data?.choices?.[0]?.message?.content) {
       return data.choices[0].message.content;
     }
 
-    // display error message
-    error_message = normalizeErrorMessage(data.error);
+    error_message = extractResponseError(response, responseText, data);
 
   } catch (error) {
     error_message = normalizeErrorMessage(error);
@@ -181,10 +184,12 @@ export async function query_completion(prompt: string, api_key: string,
     throw new ModelError(`OpenAI completion failed: ${error_message}`);
   }
 
-  // find all numbers in error message
+  // find all numbers in the upstream message (strip the HTTP status prefix,
+  // otherwise the status code would be parsed as a token count)
+  const limits_source = stripStatusPrefix(error_message);
   let token_limits = null;
-  if (error_message && error_message.includes('reduce')) {
-    token_limits = [...error_message.matchAll(/([0-9]+)/g)];
+  if (limits_source && limits_source.includes('reduce')) {
+    token_limits = [...limits_source.matchAll(/([0-9]+)/g)];
   } else {
     token_limits = null;
   }
@@ -202,6 +207,98 @@ export async function query_completion(prompt: string, api_key: string,
   // retry
   return await query_completion(prompt, api_key, model, max_tokens,
     temperature, top_p, frequency_penalty, presence_penalty, custom_url);
+}
+
+// Maximum length of a raw response body included in user-facing error
+// messages. Larger bodies (e.g. HTML error pages) are truncated here; the
+// dialog applies its own further truncation via truncateErrorForDialog.
+const RAW_BODY_SNIPPET_MAX = 500;
+
+/**
+ * Build a user-facing error message from a (possibly failed) HTTP response.
+ *
+ * Priority of information:
+ *   1. HTTP status (when not OK) — highest signal, almost always actionable.
+ *   2. A structured message extracted from the parsed JSON body (OpenAI,
+ *      Ollama, FastAPI, and other common shapes — see pickStructuredError).
+ *   3. A truncated snippet of the raw response body, as a last resort.
+ *
+ * The goal is to surface whatever the upstream said verbatim instead of
+ * collapsing every failure to "Unknown error". We don't try to interpret
+ * or rewrite the upstream message — most reports still need a back and
+ * forth, this just shortens the loop.
+ */
+function extractResponseError(response: Response, responseText: string, data: any): string {
+  const parts: string[] = [];
+
+  if (!response.ok) {
+    const status = response.statusText
+      ? `HTTP ${response.status} ${response.statusText}`
+      : `HTTP ${response.status}`;
+    parts.push(status);
+  }
+
+  const structured = pickStructuredError(data);
+  if (structured) {
+    parts.push(structured);
+  } else if (responseText && responseText.trim()) {
+    const trimmed = responseText.trim();
+    const snippet = trimmed.length > RAW_BODY_SNIPPET_MAX
+      ? `${trimmed.slice(0, RAW_BODY_SNIPPET_MAX)}…`
+      : trimmed;
+    parts.push(snippet);
+  }
+
+  return parts.length > 0 ? parts.join(': ') : 'Unknown error';
+}
+
+/**
+ * Remove a leading "HTTP <status>[ <text>]: " prefix added by
+ * extractResponseError, returning the upstream-provided message alone.
+ * Used by the token-limit truncation heuristic so the status code is not
+ * mistaken for a token count.
+ */
+function stripStatusPrefix(message: string | null): string {
+  if (!message) return '';
+  return message.replace(/^HTTP\s+\d+(?:\s+[^:]+)?:\s*/, '');
+}
+
+/**
+ * Extract a human-readable message from a parsed error body. Handles the
+ * shapes commonly returned by OpenAI-compatible servers:
+ *   - OpenAI / Anthropic: { error: { message, type, code } }
+ *   - Ollama / simple servers: { error: "string" }
+ *   - FastAPI: { detail: "string" }
+ *   - Generic: { message: "string" }
+ * Returns null if no recognised field is found, so the caller can fall
+ * back to the raw body.
+ */
+function pickStructuredError(data: any): string | null {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
+  if (data.error) {
+    if (typeof data.error === 'string') {
+      return data.error;
+    }
+    if (typeof data.error === 'object') {
+      const msg = (data.error as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.length > 0) {
+        return msg;
+      }
+    }
+  }
+
+  if (typeof data.detail === 'string' && data.detail.length > 0) {
+    return data.detail;
+  }
+
+  if (typeof data.message === 'string' && data.message.length > 0) {
+    return data.message;
+  }
+
+  return null;
 }
 
 function normalizeErrorMessage(error: any): string {
