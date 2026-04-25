@@ -390,22 +390,22 @@ export async function query_embedding(input: string, model: string, api_key: str
         continue;
       }
 
-      let data: any;
+      let data: any = null;
       try {
-        data = JSON.parse(responseText);
-      } catch (jsonError) {
-        if (!isLastAttempt && shouldRetryResponse(response, responseText)) {
-          console.debug(`Retrying embedding request due to JSON parse error, attempt ${attempt + 1}`);
-          await sleep(200 * (attempt + 1));
-          continue;
-        }
-        console.error('JSON parsing failed. Raw response:', responseText);
-        throw new ModelError(`Invalid JSON response: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`);
+        data = responseText ? JSON.parse(responseText) : null;
+      } catch (_jsonError) {
+        // Non-JSON body — keep responseText so extractResponseError can
+        // surface it (HTML error pages, plain text from a misconfigured
+        // proxy, etc.). shouldRetryResponse already retried the retryable
+        // shapes above, so anything reaching here is final.
+        data = null;
       }
 
-      if (data?.hasOwnProperty('error')) {
-        const apiError = data.error?.message ? data.error.message : String(data.error);
-        throw new ModelError(`OpenAI embedding failed: ${apiError}`);
+      // Surface upstream errors using the shared helper: HTTP status +
+      // structured message (or raw body snippet) instead of the previous
+      // ad-hoc extraction that ignored status codes and FastAPI shapes.
+      if (!response.ok || !data || pickStructuredError(data)) {
+        throw new ModelError(`OpenAI embedding failed: ${extractResponseError(response, responseText, data)}`);
       }
 
       const embedding = data?.data?.[0]?.embedding;
