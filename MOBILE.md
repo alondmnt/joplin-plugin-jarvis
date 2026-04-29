@@ -40,7 +40,8 @@ Enabling "Store in note properties" stores embeddings inside your notes instead:
 **Trade-offs:**
 - Increases database size (~10% with default settings, varies with model and block size)
 - Increases sync time
-- Experimental feature
+
+**Recommendation:** Disable note history (Settings → Note history) or decrease the number of days kept. Each revision keeps a full copy of the note's properties, including the embeddings Jarvis stores there. So editing a single word triggers a re-embedding and adds another full copy of the embeddings to history — considerably more data than the text change itself. Trimming history keeps the database size moderate.
 
 ## Setup
 
