@@ -20,6 +20,13 @@ function buildHeaders(api_key: string, url: string): Record<string, string> {
     headers['api-key'] = api_key;
   }
 
+  // Anthropic blocks browser-origin requests by default. Joplin mobile runs
+  // plugins inside a WebView that enforces CORS, so without this opt-in the
+  // request fails with "Failed to fetch" before any response body is seen.
+  if (url && url.includes('api.anthropic.com')) {
+    headers['anthropic-dangerous-direct-browser-access'] = 'true';
+  }
+
   return headers;
 }
 
