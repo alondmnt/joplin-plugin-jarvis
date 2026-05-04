@@ -1295,35 +1295,55 @@ export class TextGenerationModel {
     // const chat_entries = [{role: "assistant", content: chat}]
     await joplin.views.dialogs.setHtml(await dialogPreview, `
       <style>
-        .chat {
-          color: white;
-          display: flex;
-          flex-direction: column;
-          padding: 10px;
-          border: 1px solid #ccc;
-          border-radius: 5px;
-          margin: 5px;
+        .jarvis-preview-wrap {
+          max-height: 100vh;
+          width: 100vw;
+          overflow-y: auto;
+          background: var(--joplin-background-color);
+          color: var(--joplin-color);
           font-family: Avenir, Arial, sans-serif;
-          font-size: --var(joplin-font-size);
+          font-size: var(--joplin-font-size);
+          padding: 5px;
+          box-sizing: border-box;
         }
-        .system {
-          background-color: #4e4e4e;
+        .jarvis-preview-row {
+          margin-bottom: 5px;
+          padding: 5px 8px;
+          border-radius: 3px;
+          line-height: 1.45;
+          word-break: break-word;
         }
-        .user {
-          background-color: #4f8a4f;
+        .jarvis-preview-role {
+          display: block;
+          font-weight: 700;
+          font-size: 0.85em;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+          opacity: 0.75;
+          margin-bottom: 3px;
         }
-        .assistant {
-          background-color: #4c6e7e;
+        .jarvis-preview-row.system {
+          border-left: 3px solid #8a8a8a;
+          background: rgba(127, 127, 127, 0.10);
         }
-        .context {
-          background-color: #61467b;
+        .jarvis-preview-row.user {
+          border-left: 3px solid #5b9bd5;
+          background: rgba(91, 155, 213, 0.08);
+        }
+        .jarvis-preview-row.assistant {
+          border-left: 3px solid #d4a054;
+          background: rgba(212, 160, 84, 0.08);
+        }
+        .jarvis-preview-row.context {
+          border-left: 3px solid #9876b8;
+          background: rgba(152, 118, 184, 0.08);
         }
       </style>
-      <div style="max-height: 100vh; width: 100vw; overflow-y: auto;">
+      <div class="jarvis-preview-wrap">
       ${chat_entries.map((entry) => {
         return `
-          <div class="chat ${entry.role}">
-            <b>${entry.role}</b>
+          <div class="jarvis-preview-row ${entry.role}">
+            <span class="jarvis-preview-role">${entry.role}</span>
             ${entry.content.replace(/\n/g, '<br>')}
           </div>
         `;
