@@ -1,9 +1,45 @@
+# [v0.13.0](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.0)
+*Released on 2026-05-04T14:06:57Z*
+
+- graduated: **note properties database** out of experimental (still opt-in) (#62)
+- added: **chat panel for notes** (#69, by @developerzohaib786)
+    - see screenshot
+- added: chat / notes mode toggle in the chat panel (Shift+Tab)
+- added: **hybrid retrieval** (semantic + keyword) for chat with your notes (default: on)
+- added: **LLM query decomposition** for chat with your notes (default: on)
+- added: multi-chunk search for the related notes panel (default: on)
+    - returns multiple blocks per note ranked by MaxSim, with keyword reranking on the search box
+- added: **inter-plugin API** (#72)
+    - other plugins can call `jarvis.api.status` and `jarvis.api.search` to query Jarvis programmatically
+    - see `docs/INTER_PLUGIN_API.md` for the reference
+- added: settings: `Chat: Panel visible`, `Notes: Panel visible`, `Notes: Keyword search weight`, `Notes: Keyword search RRF k`, `Notes: LLM query decomposition`, `Notes: Multi-chunk search`
+- removed: setting `Notes: Number of nearest blocks to add`
+- improved: **reference-style note citations**
+- improved: upgraded models list (gpt-5.5, claude-opus-4-7, claude-sonnet-4-6, gemini-embedding-2)
+- improved: migrated to the new Google GenAI SDK (closes #64)
+- improved: OpenAI-compatible endpoints accept `api-key` auth for Azure-style gateways (#66, by @developerzohaib786)
+- improved: removed model communication test on startup (closes #65)
+- improved: chat context grouping by note and sorted by original order
+- improved: error surfacing
+- improved: notes context preview dialog aligned with chat panel style
+- fixed: Anthropic models on mobile (opt in to browser access for the WebView)
+- fixed: block attachment (prev/next/nearest) inactive in note properties database mode (#71)
+- fixed: folder-excluded notes triggered a sync ping-pong in note properties database mode
+- fixed: model dropdown labels reordered for readability on small screens
+- perf: bulk-fetch settings via `joplin.settings.values()`
+
+<img width="286" height="382" alt="jarvis-chat-panel" src="https://github.com/user-attachments/assets/d17fe679-9e51-4f4f-ac29-6ecda1c072e0" />
+
+**Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.12.0...v0.13.0
+
+---
+
 # [v0.12.0](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.12.0)
 *Released on 2025-12-15T06:17:36Z*
 
 - added: **mobile support** (#62)
   - all code migrated, and most commands accessible on mobile / web
-  - new database based on note properties [setup guide](https://github.com/alondmnt/joplin-plugin-jarvis/blob/master/MOBILE.md)
+  - new database based on note properties ([setup guide](https://github.com/alondmnt/joplin-plugin-jarvis/blob/master/MOBILE.md))
     - syncs between devices and backed up with notes
     - more memory efficient with in-memory cache and Q8 quantization
   - device profile setting with platform-aware tuning
