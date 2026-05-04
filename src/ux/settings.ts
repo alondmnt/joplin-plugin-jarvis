@@ -169,8 +169,9 @@ export const model_max_tokens: { [model: string] : number; } = {
   // OpenAI GPT-5 (current)
   'gpt-5-nano': 128000,
   'gpt-5-mini': 128000,
-  'gpt-5.4': 128000,
+  'gpt-5.5': 128000,
   // OpenAI legacy
+  'gpt-5.4': 128000,
   'gpt-5.3': 128000,
   'gpt-5.2': 128000,
   'gpt-5.1': 128000,
@@ -191,10 +192,11 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gemini-2.0-flash-lite': 8192,
   'gemini-2.0-flash': 8192,
   'gemini-2.0-pro': 8192,
-  // Anthropic Claude 4.6 (current)
-  'claude-opus-4-6': 64000,
+  // Anthropic Claude (current)
+  'claude-opus-4-7': 64000,
   'claude-sonnet-4-6': 64000,
   // Anthropic Claude legacy
+  'claude-opus-4-6': 64000,
   'claude-opus-4-5': 64000,
   'claude-sonnet-4-5': 64000,
   'claude-haiku-4-5': 64000,
@@ -488,10 +490,10 @@ export async function register_settings() {
         'openai-custom': 'OpenAI-compatible custom model (e.g., Ollama, Claude)',
         'gpt-5-nano':'gpt-5-nano / OpenAI (in:400K, out:128K, cheapest reasoning)',
         'gpt-5-mini':'gpt-5-mini / OpenAI (in:400K, out:128K)',
-        'gpt-5.4': 'gpt-5.4 / OpenAI (in:400K, out:128K, strongest reasoning)',
+        'gpt-5.5': 'gpt-5.5 / OpenAI (in:1M, out:128K, strongest reasoning)',
         'claude-haiku-4-5': 'claude-haiku-4.5 / Anthropic (in:200K, out:64K, cheapest)',
         'claude-sonnet-4-6': 'claude-sonnet-4.6 / Anthropic (in:200K, out:64K)',
-        'claude-opus-4-6': 'claude-opus-4.6 / Anthropic (in:200K, out:64K, strongest)',
+        'claude-opus-4-7': 'claude-opus-4.7 / Anthropic (in:200K, out:64K, strongest)',
         'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite / Google AI (in:1M, out:64K)',
         'gemini-2.5-flash': 'gemini-2.5-flash / Google AI (in:1M, out:64K)',
         'gemini-2.5-pro': 'gemini-2.5-pro / Google AI (in:1M, out:64K)',

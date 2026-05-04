@@ -1553,7 +1553,7 @@ export class AnthropicGeneration extends OpenAIGeneration {
       return;
     }
     this.model = this.id;  // anything other than null
-    if (this.id.includes('opus') || this.id.includes('4-5') || this.id.includes('4-6')) {
+    if (this.id.includes('opus') || this.id.includes('4-5') || this.id.includes('4-6') || this.id.includes('4-7')) {
       // Claude 4.5+ models and Opus cannot accept both temperature and top_p
       this.top_p = null;
     }
