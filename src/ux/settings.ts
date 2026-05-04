@@ -535,7 +535,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Chat: Custom model is a conversation model',
-      description: 'Whether to use the conversation API or the legacy completion API. Default: false',
+      description: 'Whether to use the conversation API or the legacy completion API. Default: true',
     },
     'chat_openai_endpoint': {
       value: '',
