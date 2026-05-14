@@ -200,6 +200,18 @@
       handleBackendMessage(response);
     } catch (error) {
       removeThinking(thinking);
+      // Roll back the optimistic user push so a failed turn doesn't leave
+      // two consecutive user roles in history (which strict chat templates
+      // such as Gemma reject on the next send).
+      if (history.length > 0 && history[history.length - 1].role === 'user') {
+        history.pop();
+      }
+      // Restore the typed prompt so the user can retry without retyping —
+      // unless they already started typing the next prompt while waiting.
+      if (chatInput && !chatInput.value.trim()) {
+        chatInput.value = prompt;
+        webviewApi.postMessage({ type: 'draftChange', draft: prompt });
+      }
       const message = error instanceof Error ? error.message : 'Unknown error';
       appendMessage('assistant', `Chat failed: ${message}`);
     } finally {
