@@ -165,6 +165,24 @@
 
     const text = typeof message.text === 'string' ? message.text : '';
     const html = typeof message.html === 'string' ? message.html : '';
+
+    if (message.error === true) {
+      // Backend caught a failure and surfaced it as text. Don't pollute
+      // history with the error or the failed user turn — show the error
+      // in the DOM as a transient message and restore the prompt to the
+      // input so the user can retry without retyping.
+      let restored = null;
+      if (history.length > 0 && history[history.length - 1].role === 'user') {
+        restored = history.pop().content;
+      }
+      if (restored !== null && chatInput && !chatInput.value.trim()) {
+        chatInput.value = restored;
+        webviewApi.postMessage({ type: 'draftChange', draft: restored });
+      }
+      appendMessage('assistant', text, html);
+      return;
+    }
+
     history.push({ role: 'assistant', content: text });
     appendMessage('assistant', text, html);
   }

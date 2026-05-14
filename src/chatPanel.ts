@@ -151,7 +151,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         await runtime.model_embed.initialize();
       }
       if (!runtime.model_gen?.model || !runtime.model_embed?.model) {
-        return { type: 'response', text: 'Jarvis models are not initialized yet. Please try again in a moment.' };
+        return { type: 'response', error: true, text: 'Jarvis models are not initialized yet. Please try again in a moment.' };
       }
 
       try {
@@ -170,7 +170,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         return { type: 'response', text, html };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
-        return { type: 'response', text: `Chat failed: ${msg}` };
+        return { type: 'response', error: true, text: `Chat failed: ${msg}` };
       }
     }
 
@@ -185,7 +185,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         await runtime.model_gen.initialize();
       }
       if (!runtime.model_gen?.model) {
-        return { type: 'response', text: 'Jarvis model is not initialised yet. Please try again in a moment.' };
+        return { type: 'response', error: true, text: 'Jarvis model is not initialised yet. Please try again in a moment.' };
       }
 
       try {
@@ -204,7 +204,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         return { type: 'response', text, html };
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
-        return { type: 'response', text: `Chat failed: ${msg}` };
+        return { type: 'response', error: true, text: `Chat failed: ${msg}` };
       }
     }
 
