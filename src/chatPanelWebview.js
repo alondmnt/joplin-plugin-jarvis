@@ -84,13 +84,15 @@
 
   // Undo an optimistic user turn: pop it from history, remove its DOM
   // bubble, and restore the typed prompt to the input (unless the user
-  // started typing the next prompt while waiting).
+  // started typing the next prompt while waiting). Bails out if there
+  // is no trailing user turn to roll back, so the DOM and history can't
+  // drift if an exception fires after an assistant entry was added.
   function rollbackFailedTurn() {
     resolveElements();
-    let restored = null;
-    if (history.length > 0 && history[history.length - 1].role === 'user') {
-      restored = history.pop().content;
+    if (history.length === 0 || history[history.length - 1].role !== 'user') {
+      return;
     }
+    const restored = history.pop().content;
     if (chatLog) {
       const userRows = chatLog.querySelectorAll('.jarvis-chat-row.user');
       const lastUser = userRows[userRows.length - 1];
@@ -98,7 +100,7 @@
         lastUser.parentNode.removeChild(lastUser);
       }
     }
-    if (restored !== null && chatInput && !chatInput.value.trim()) {
+    if (chatInput && !chatInput.value.trim()) {
       chatInput.value = restored;
       webviewApi.postMessage({ type: 'draftChange', draft: restored });
     }
