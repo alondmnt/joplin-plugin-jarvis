@@ -1280,7 +1280,21 @@ export class TextGenerationModel {
       chat.push({ role: current_role, content: current_message });
     }
 
-    return chat;
+    // Collapse consecutive same-role entries. Notes can contain two User: or
+    // two Jarvis: blocks in a row (e.g. after a failed turn, or a draft the
+    // user split across blocks), and strict chat templates such as Gemma's
+    // require user/assistant alternation and reject the request otherwise.
+    const collapsed: ChatEntry[] = [];
+    for (const entry of chat) {
+      const last = collapsed[collapsed.length - 1];
+      if (last && last.role === entry.role) {
+        last.content = `${last.content}\n\n${entry.content}`.trim();
+      } else {
+        collapsed.push(entry);
+      }
+    }
+
+    return collapsed;
   }
 
   async _preview_chat(chat: string) {
