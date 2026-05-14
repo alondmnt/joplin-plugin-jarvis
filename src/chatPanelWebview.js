@@ -82,6 +82,28 @@
     if (el && el.parentNode) el.parentNode.removeChild(el);
   }
 
+  // Undo an optimistic user turn: pop it from history, remove its DOM
+  // bubble, and restore the typed prompt to the input (unless the user
+  // started typing the next prompt while waiting).
+  function rollbackFailedTurn() {
+    resolveElements();
+    let restored = null;
+    if (history.length > 0 && history[history.length - 1].role === 'user') {
+      restored = history.pop().content;
+    }
+    if (chatLog) {
+      const userRows = chatLog.querySelectorAll('.jarvis-chat-row.user');
+      const lastUser = userRows[userRows.length - 1];
+      if (lastUser && lastUser.parentNode) {
+        lastUser.parentNode.removeChild(lastUser);
+      }
+    }
+    if (restored !== null && chatInput && !chatInput.value.trim()) {
+      chatInput.value = restored;
+      webviewApi.postMessage({ type: 'draftChange', draft: restored });
+    }
+  }
+
   function setSending(isSending) {
     resolveElements();
     if (sendButton) {
@@ -167,18 +189,10 @@
     const html = typeof message.html === 'string' ? message.html : '';
 
     if (message.error === true) {
-      // Backend caught a failure and surfaced it as text. Don't pollute
-      // history with the error or the failed user turn — show the error
-      // in the DOM as a transient message and restore the prompt to the
-      // input so the user can retry without retyping.
-      let restored = null;
-      if (history.length > 0 && history[history.length - 1].role === 'user') {
-        restored = history.pop().content;
-      }
-      if (restored !== null && chatInput && !chatInput.value.trim()) {
-        chatInput.value = restored;
-        webviewApi.postMessage({ type: 'draftChange', draft: restored });
-      }
+      // Backend caught a failure and surfaced it as text. Roll back the
+      // failed user turn so it doesn't pollute history or the visible
+      // panel, then show the error as a transient assistant message.
+      rollbackFailedTurn();
       appendMessage('assistant', text, html);
       return;
     }
@@ -218,18 +232,7 @@
       handleBackendMessage(response);
     } catch (error) {
       removeThinking(thinking);
-      // Roll back the optimistic user push so a failed turn doesn't leave
-      // two consecutive user roles in history (which strict chat templates
-      // such as Gemma reject on the next send).
-      if (history.length > 0 && history[history.length - 1].role === 'user') {
-        history.pop();
-      }
-      // Restore the typed prompt so the user can retry without retyping —
-      // unless they already started typing the next prompt while waiting.
-      if (chatInput && !chatInput.value.trim()) {
-        chatInput.value = prompt;
-        webviewApi.postMessage({ type: 'draftChange', draft: prompt });
-      }
+      rollbackFailedTurn();
       const message = error instanceof Error ? error.message : 'Unknown error';
       appendMessage('assistant', `Chat failed: ${message}`);
     } finally {
