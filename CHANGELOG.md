@@ -1,17 +1,32 @@
+# [v0.13.1](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.1)
+*Released on 2026-05-15T01:59:41Z*
+
+- fixed: chat panel rejected by strict templates (e.g. Gemma) — duplicate consecutive user messages after a failed turn
+- fixed: empty assistant turn injected by the chat parser when the input begins with a `---` separator (the default chat prefix)
+- fixed: failed chat panel sends leaving the user bubble + history out of sync; DOM and history now roll back together and the typed prompt is restored to the input
+- fixed: chat panel error responses polluting conversation history sent to the model
+- improved: leading `---` divider dropped from saved chats (nothing to divide above the first turn)
+
+**Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.13.0...v0.13.1
+
+---
+
 # [v0.13.0](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.0)
 *Released on 2026-05-04T14:06:57Z*
 
-- graduated: **note properties database** out of experimental (still opt-in) (#62)
+<img width="286" height="382" alt="jarvis-chat-panel" src="https://github.com/user-attachments/assets/d17fe679-9e51-4f4f-ac29-6ecda1c072e0" />
+
+- graduated: **note properties database** out of experimental (still opt-in)
 - added: **chat panel for notes** (#69, by @developerzohaib786)
     - see screenshot
-- added: chat / notes mode toggle in the chat panel (Shift+Tab)
+    - added: chat / notes mode toggle in the chat panel (Shift+Tab)
 - added: **hybrid retrieval** (semantic + keyword) for chat with your notes (default: on)
 - added: **LLM query decomposition** for chat with your notes (default: on)
 - added: multi-chunk search for the related notes panel (default: on)
     - returns multiple blocks per note ranked by MaxSim, with keyword reranking on the search box
 - added: **inter-plugin API** (#72)
     - other plugins can call `jarvis.api.status` and `jarvis.api.search` to query Jarvis programmatically
-    - see `docs/INTER_PLUGIN_API.md` for the reference
+    - see `docs/API.md` for the reference
 - added: settings: `Chat: Panel visible`, `Notes: Panel visible`, `Notes: Keyword search weight`, `Notes: Keyword search RRF k`, `Notes: LLM query decomposition`, `Notes: Multi-chunk search`
 - removed: setting `Notes: Number of nearest blocks to add`
 - improved: **reference-style note citations**
@@ -27,8 +42,6 @@
 - fixed: folder-excluded notes triggered a sync ping-pong in note properties database mode
 - fixed: model dropdown labels reordered for readability on small screens
 - perf: bulk-fetch settings via `joplin.settings.values()`
-
-<img width="286" height="382" alt="jarvis-chat-panel" src="https://github.com/user-attachments/assets/d17fe679-9e51-4f4f-ac29-6ecda1c072e0" />
 
 **Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.12.0...v0.13.0
 
