@@ -22,9 +22,13 @@ export type PanelChatMessage = {
  *  note bodies. This makes _parse_chat handle panel history identically to
  *  editor conversations. */
 export function format_as_note_chat(history: PanelChatMessage[], settings: JarvisSettings): string {
-  return history.map((msg) => {
+  return history.map((msg, i) => {
     const prefix = msg.role === 'assistant' ? settings.chat_prefix : settings.chat_suffix;
-    return `${prefix}${msg.content.trim()}`;
+    // Strip the leading `---` from the very first turn — there's nothing
+    // above it to divide, and the empty divider line otherwise feeds into
+    // _parse_chat's first_role heuristic on a subsequent round-trip.
+    const final_prefix = i === 0 ? prefix.replace(/^\s*---\s*\n/, '\n\n') : prefix;
+    return `${final_prefix}${msg.content.trim()}`;
   }).join('');
 }
 
