@@ -2,7 +2,7 @@ import joplin from 'api';
 import MarkdownIt from 'markdown-it';
 import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
 import type { JarvisSettings } from './ux/settings';
-import { chat_with_notes_panel, format_as_note_chat, type PanelChatMessage } from './commands/chat';
+import { chat_with_note_panel, chat_with_notes_panel, format_as_note_chat, type PanelChatMessage } from './commands/chat';
 import { clearObjectReferences } from './utils';
 
 const md = new MarkdownIt({ linkify: true, breaks: true });
@@ -71,15 +71,17 @@ function local_timestamp(date: Date): string {
     `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+type ChatMode = 'chat' | 'note' | 'collection';
+
 const panelCache: {
   history: CachedMessage[];
-  useNotes: boolean;
+  chatMode: ChatMode;
   draft: string;
   noteId: string;
   createdAt: string;
 } = {
   history: [],
-  useNotes: true,
+  chatMode: 'collection',
   draft: '',
   noteId: '',
   createdAt: '',
@@ -93,7 +95,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
   <div class="jarvis-chat-panel">
 <div id="chat-log" class="jarvis-chat-log" aria-live="polite"></div>
     <div class="jarvis-chat-input-wrap">
-      <span id="chat-mode" class="jarvis-chat-mode" title="Toggle Notes/Chat mode (Shift+Tab)">Notes</span>
+      <span id="chat-mode" class="jarvis-chat-mode" title="Switch mode (Shift+Tab)">Collection</span>
       <textarea id="chat-input" class="jarvis-chat-input" placeholder="Ask Jarvis about your notes..." rows="2"></textarea>
     </div>
     <div class="jarvis-chat-actions">
@@ -113,7 +115,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
       return {
         type: 'restore',
         history: panelCache.history,
-        useNotes: panelCache.useNotes,
+        chatMode: panelCache.chatMode,
         draft: panelCache.draft || '',
         platform: get_context().settings.notes_device_platform || 'desktop',
       };
@@ -128,7 +130,9 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
     }
 
     if (message.type === 'modeChange') {
-      panelCache.useNotes = !!message.useNotes;
+      if (message.chatMode === 'chat' || message.chatMode === 'note' || message.chatMode === 'collection') {
+        panelCache.chatMode = message.chatMode;
+      }
       return { type: 'ack' };
     }
 
@@ -205,6 +209,34 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'response', error: true, text: `Chat failed: ${msg}` };
+      }
+    }
+
+    if (message.type === 'chatWithNote') {
+      const prompt = typeof message.prompt === 'string' ? message.prompt.trim() : '';
+      if (!prompt) {
+        return { type: 'response', text: 'Please enter a prompt.' };
+      }
+
+      const runtime = get_context();
+      if (runtime.model_gen?.model === null && typeof runtime.model_gen?.initialize === 'function') {
+        await runtime.model_gen.initialize();
+      }
+      if (!runtime.model_gen?.model) {
+        return { type: 'response', error: true, text: 'Jarvis model is not initialised yet. Please try again in a moment.' };
+      }
+
+      try {
+        const history = sanitize_history(message.history);
+        panelCache.history = cache_history(history);
+        if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
+        const text = await chat_with_note_panel(history, runtime.model_gen, runtime.settings);
+        const html = md.render(text);
+        panelCache.history.push({ role: 'assistant', content: text, html });
+        return { type: 'response', text, html };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        return { type: 'response', error: true, text: msg };
       }
     }
 

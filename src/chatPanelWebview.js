@@ -1,8 +1,18 @@
 (() => {
+  const MODES = {
+    chat:       { label: 'Chat',       placeholder: 'Chat with Jarvis...',          messageType: 'chat' },
+    note:       { label: 'Note',       placeholder: 'Ask about the current note...', messageType: 'chatWithNote' },
+    collection: { label: 'Collection', placeholder: 'Ask Jarvis about your notes...', messageType: 'chatWithNotes' },
+  };
+  // Rotation order: collection (default) → note → chat → collection. Click and
+  // Shift+Tab both advance through this cycle.
+  const MODE_ORDER = ['collection', 'note', 'chat'];
+  const nextMode = (mode) => MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length];
+
   const history = [];
   let initialized = false;
   let requestInFlight = false;
-  let useNotes = true;
+  let chatMode = 'collection';
   let chatLog = null;
   let chatInput = null;
   let sendButton = null;
@@ -10,6 +20,13 @@
   let newButton = null;
   let modeButton = null;
   let draftTimer = null;
+
+  function applyMode(mode) {
+    resolveElements();
+    const cfg = MODES[mode] || MODES.collection;
+    if (modeButton) modeButton.textContent = cfg.label;
+    if (chatInput) chatInput.placeholder = cfg.placeholder;
+  }
 
   function resolveElements() {
     if (!chatLog) {
@@ -146,10 +163,9 @@
     }
 
     // restore mode
-    if (typeof message.useNotes === 'boolean') {
-      useNotes = message.useNotes;
-      if (modeButton) modeButton.textContent = useNotes ? 'Notes' : 'Chat';
-      if (chatInput) chatInput.placeholder = useNotes ? 'Ask Jarvis about your notes...' : 'Chat with Jarvis...';
+    if (typeof message.chatMode === 'string' && MODES[message.chatMode]) {
+      chatMode = message.chatMode;
+      applyMode(chatMode);
     }
 
     // restore draft
@@ -226,7 +242,7 @@
 
     try {
       const response = await withTimeout(webviewApi.postMessage({
-        type: useNotes ? 'chatWithNotes' : 'chat',
+        type: (MODES[chatMode] || MODES.collection).messageType,
         prompt,
         history,
       }), 120000);
@@ -289,13 +305,9 @@
         return;
       }
       if (target.id === 'chat-mode') {
-        useNotes = !useNotes;
-        target.textContent = useNotes ? 'Notes' : 'Chat';
-        resolveElements();
-        if (chatInput) {
-          chatInput.placeholder = useNotes ? 'Ask Jarvis about your notes...' : 'Chat with Jarvis...';
-        }
-        webviewApi.postMessage({ type: 'modeChange', useNotes });
+        chatMode = nextMode(chatMode);
+        applyMode(chatMode);
+        webviewApi.postMessage({ type: 'modeChange', chatMode });
       }
     });
 
@@ -333,11 +345,9 @@
       }
       if (event.key === 'Tab' && event.shiftKey) {
         event.preventDefault();
-        useNotes = !useNotes;
-        resolveElements();
-        if (modeButton) modeButton.textContent = useNotes ? 'Notes' : 'Chat';
-        if (chatInput) chatInput.placeholder = useNotes ? 'Ask Jarvis about your notes...' : 'Chat with Jarvis...';
-        webviewApi.postMessage({ type: 'modeChange', useNotes });
+        chatMode = nextMode(chatMode);
+        applyMode(chatMode);
+        webviewApi.postMessage({ type: 'modeChange', chatMode });
       }
     });
 

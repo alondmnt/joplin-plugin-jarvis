@@ -78,6 +78,38 @@ export async function chat_with_notes_panel(
   return `${completion}\n\n${result.note_links}`.trim();
 }
 
+/** Panel chat scoped to the currently open note. The note body is prepended to
+ *  the panel history and parsed as a prior conversation turn (via _parse_chat's
+ *  first_role heuristic), mirroring `chat_with_jarvis` invoked at the end of a
+ *  note. Each reply is tagged with a clickable link to the source note. */
+export async function chat_with_note_panel(
+  history: PanelChatMessage[],
+  model_gen: TextGenerationModel,
+  settings: JarvisSettings,
+): Promise<string> {
+  const note = await joplin.workspace.selectedNote();
+  if (!note) {
+    throw new Error('Open a note to chat about it, or switch mode with Shift+Tab.');
+  }
+  try {
+    const title = note.title || 'Untitled';
+    const note_body = stripJarvisBlocks(note.body ?? '');
+    const chat_block = format_as_note_chat(history, settings);
+    const composed = `${note_body}\n${chat_block}`;
+    const truncated = split_by_tokens(
+      [composed], model_gen, model_gen.memory_tokens, 'last',
+    )[0].join(' ');
+    const raw = (await model_gen.chat(truncated)) || '';
+    const completion = raw
+      .replace(model_gen.model_prefix, '')
+      .replace(model_gen.user_prefix, '')
+      .trim();
+    return `${completion}\n\n[${title}](:/${note.id})`;
+  } finally {
+    clearObjectReferences(note);
+  }
+}
+
 type NotesChatPipelineResult = {
   completion: string;
   note_links: string;
