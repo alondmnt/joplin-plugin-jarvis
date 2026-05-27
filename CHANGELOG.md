@@ -1,3 +1,16 @@
+# [v0.13.2](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.2)
+*Released on 2026-05-27T00:56:29Z*
+
+- added: **Note mode** in the chat panel — scopes the chat to the currently open note, threaded with the panel's history (equivalent to `chat_with_jarvis` from the end of the note, driven from the panel)
+    - the mode toggle becomes a 3-state rotation (click or Shift+Tab): **Collection → Note → Chat**
+    - each reply is tagged with a clickable link back to the source note; the note tracked updates per turn as you switch notes
+    - sending in Note mode with no note open is blocked with an actionable message
+- renamed: **Notes** mode → **Collection** mode (RAG over your whole note collection), to distinguish it from the new Note mode
+
+**Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.13.1...v0.13.2
+
+---
+
 # [v0.13.1](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.1)
 *Released on 2026-05-15T01:59:41Z*
 
