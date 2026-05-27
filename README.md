@@ -6,7 +6,7 @@ Jarvis (Joplin Assistant Running a Very Intelligent System) is an AI note-taking
 
 Community discussion: https://discourse.joplinapp.org/t/28316
 
-<img src="img/jarvis-research.gif" width="450">
+<img src="img/jarvis-chat-panel.png" width="300">
 
 ## Usage
 
