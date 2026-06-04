@@ -140,7 +140,11 @@ async function run_notes_chat_pipeline(
     prompt_override_for_retrieval = format_as_note_chat(context_slice, settings);
   }
 
-  const [prompt, nearest] = await get_chat_prompt_and_notes(model_embed, model_gen, settings, prompt_override_for_retrieval);
+  // the editor command reads the prompt from the note itself, so it requires
+  // one; the panel path (history provided) ignores the editor note entirely
+  const require_note = history === undefined;
+  const [prompt, nearest] = await get_chat_prompt_and_notes(
+    model_embed, model_gen, settings, prompt_override_for_retrieval, require_note);
   if (!nearest.length || nearest[0].embeddings.length === 0) {
     return null;
   }
@@ -217,16 +221,30 @@ export async function get_chat_prompt(model_gen: TextGenerationModel): Promise<s
   return prompt;
 }
 
+/** Parse the chat prompt and retrieve the nearest note chunks for it.
+ *  The selected note provides incidental context: its title and tags nudge
+ *  the query embedding, its id is excluded from results, and its body is
+ *  scanned for global jarvis command blocks. When require_note is false
+ *  (panel collection chat), a stub note is used instead, so results do not
+ *  depend on whichever note happens to be open in the editor. */
 async function get_chat_prompt_and_notes(
   model_embed: TextEmbeddingModel,
   model_gen: TextGenerationModel,
   settings: JarvisSettings,
   prompt_override?: string,
+  require_note: boolean = true,
 ):
     Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[], last_user_prompt: string}, NoteEmbedding[]]> {
-  const note = await joplin.workspace.selectedNote();
+  // the panel collection chat ignores the editor's selected note entirely:
+  // the stub keeps the query embedding free of the note's title and tags,
+  // lets the open note appear in results, and drops its global jarvis
+  // commands (markup_language 1 = markdown)
+  let note = require_note ? await joplin.workspace.selectedNote() : null;
   if (!note) {
-    throw new Error('No note selected. Please open a note before using chat.');
+    if (require_note) {
+      throw new Error('No note selected. Please open a note before using chat.');
+    }
+    note = { id: '', title: '', body: '', markup_language: 1 };
   }
   try {
     const source_prompt = typeof prompt_override === 'string' ? prompt_override : await get_chat_prompt(model_gen);
