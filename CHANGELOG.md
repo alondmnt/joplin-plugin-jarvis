@@ -1,3 +1,12 @@
+# [v0.13.3](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.3)
+*Released on 2026-06-04T15:13:21Z*
+
+- fixed: panel collection chat no longer depends on the editor's selected note (its title and tags skewed the search query, and it failed with "No note selected" when no note was open)
+
+**Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.13.2...v0.13.3
+
+---
+
 # [v0.13.2](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.2)
 *Released on 2026-05-27T00:56:29Z*
 
