@@ -15,6 +15,7 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | [Jan](#offline-chat-model-with-jan) | Yes | Yes | Yes | Easy | Yes | No |
 | [Xinference](#offline-chat--embedding-model-with-xinference) | Yes | Yes | Yes | Intermediate | Yes | Yes |
 | [GPT4All](#offline-chat-model-with-gpt4all) | Yes | Yes | Yes | Hard | Yes | No |
+| [Mistral AI](#chat-with-mistral-ai) | No | Yes | No | Easy | Yes | Yes |
 | [OpenRouter](#openrouter) | No | No | No | Easy | Yes | No |
 
 ### Offline chat model with Ollama 
@@ -127,6 +128,34 @@ Here is an example of how to set up GPT4All as a local server:
 | Chat: OpenAI (or compatible) custom model ID | Yes | ggml-model-gpt4all-falcon-q4_0 |
 | Chat: Custom model is a conversation model | Yes | No |
 | Chat: Custom model API endpoint | Yes | http://127.0.0.1:4891/v1/completions |
+
+### Chat with Mistral AI
+
+Mistral's API is OpenAI-compatible, so it works with Jarvis via the custom model settings.
+
+1. Create an API key at [console.mistral.ai](https://console.mistral.ai) (a free tier is available)
+2. Set up Jarvis as follows
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Model: OpenAI API Key | No | Your Mistral API key |
+| Chat: Model | No | (online) OpenAI or compatible: custom model |
+| Chat: OpenAI (or compatible) custom model ID | Yes | mistral-small-latest (or mistral-large-latest) |
+| Chat: Custom model is a conversation model | Yes | Yes |
+| Chat: Custom model API endpoint | Yes | https://api.mistral.ai/v1/chat/completions |
+| Chat: Max tokens | Yes | 32768 |
+
+### Note embeddings with Mistral AI
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Model: OpenAI API Key | No | Your Mistral API key |
+| Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
+| Notes: OpenAI / Ollama (or compatible) custom model ID | Yes | mistral-embed |
+| Notes: OpenAI / Ollama (or compatible) API endpoint | Yes | https://api.mistral.ai/v1/embeddings |
+| Notes: Max tokens | Yes | 8192 |
+
+Note that switching the notes model will rebuild the note database (all notes are re-embedded), and that embeddings of your notes will be sent to Mistral's servers, same as with OpenAI embeddings.
 
 ### OpenRouter
 
