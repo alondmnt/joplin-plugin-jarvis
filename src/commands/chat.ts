@@ -78,10 +78,10 @@ export async function chat_with_notes_panel(
   return `${completion}\n\n${result.note_links}`.trim();
 }
 
-/** Panel chat scoped to the currently open note. The note body is prepended to
- *  the panel history and parsed as a prior conversation turn (via _parse_chat's
- *  first_role heuristic), mirroring `chat_with_jarvis` invoked at the end of a
- *  note. Each reply is tagged with a clickable link to the source note. */
+/** Panel chat scoped to the currently open note. The current note is wrapped as
+ *  explicit user-provided context so chat models don't mistake it for prior
+ *  assistant history. Each reply is tagged with a clickable link to the source
+ *  note. */
 export async function chat_with_note_panel(
   history: PanelChatMessage[],
   model_gen: TextGenerationModel,
@@ -95,7 +95,28 @@ export async function chat_with_note_panel(
     const title = note.title || 'Untitled';
     const note_body = stripJarvisBlocks(note.body ?? '');
     const chat_block = format_as_note_chat(history, settings);
-    const composed = `${note_body}\n${chat_block}`;
+    const user_prefix = model_gen.user_prefix
+      .replace(/^\s*---\s*\n/, '')
+      .trimStart();
+
+    const composed = `${user_prefix}Current Joplin note
+===
+Title: ${title}
+
+${note_body}
+===
+
+Conversation / user request
+===
+${chat_block}
+===
+
+Instructions
+===
+Use the Current Joplin note above as context. If the user asks to summarise this note, summarise that note. Do not ask for a URL or ask the user to paste the note text.
+===
+`;
+
     const truncated = split_by_tokens(
       [composed], model_gen, model_gen.memory_tokens, 'last',
     )[0].join(' ');
