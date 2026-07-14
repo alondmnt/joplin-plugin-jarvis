@@ -1,6 +1,7 @@
 # Jarvis Guide
 
 - [Setup a custom model](#setup-a-custom-model)
+- [Chat with Joplin AI](#chat-with-joplin-ai)
 - [Annotate note with Jarvis](#annotate-note-with-jarvis)
 - [Chat with your notes](#chat-with-your-notes)
 
@@ -168,6 +169,24 @@ Here is an example of how to set up Claude V2 via [OpenRouter](https://openroute
 | Chat: OpenAI (or compatible) custom model ID | Yes | anthropic/claude-2 |
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | https://openrouter.ai/api/v1/chat/completions |
+
+## Chat with Joplin AI
+
+Joplin 3.7 and newer (desktop) include a built-in AI feature (beta) with its own provider and model, configured in Joplin's own settings. Jarvis can chat through whichever model you've set up there, so you don't need to enter an API key in Jarvis.
+
+1. In Joplin, open **Settings → AI**, enable AI, and pick a provider and model (Joplin Cloud AI, an OpenAI-compatible endpoint, or Anthropic). For cloud providers, also allow remote access.
+2. Set up Jarvis as follows
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Chat: Model | No | Joplin AI (built-in, configured in Joplin → Settings → AI) |
+
+Notes:
+
+- This provider is desktop-only and requires Joplin 3.7 or newer (the AI beta). If it's unavailable, Jarvis pops up a message when the model loads.
+- The model, provider, and API key are all controlled in Joplin, not in Jarvis. Configuration errors (AI disabled, remote access not allowed, missing key) point you back to **Joplin → Settings → AI**.
+- The chat temperature is passed through (Jarvis's 0-20 scale is mapped to Joplin's 0-1); other Jarvis model parameters don't apply.
+- This affects the chat model only. Note embeddings (related notes, chat with your notes) still use the model set under **Notes: Semantic similarity model**.
 
 ## Annotate note with Jarvis
 
