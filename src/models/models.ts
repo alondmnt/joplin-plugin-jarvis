@@ -1679,8 +1679,9 @@ export class JoplinAIGeneration extends TextGenerationModel {
       settings.chat_timeout);
     this.base_chat = [{role: 'system', content: settings.chat_system_message}];
 
-    // Joplin's ChatOptions.temperature is on a 0-1 scale; Jarvis exposes 0-20.
-    this.temperature = settings.temperature / 20;
+    // Joplin's ChatOptions.temperature is on a 0-1 scale; settings.temperature
+    // is already the 0-2 value (raw 0-20 slider divided by 10 at load).
+    this.temperature = settings.temperature / 2;
 
     // rate limiting
     this.requests_per_second = 10;
@@ -1705,6 +1706,14 @@ export class JoplinAIGeneration extends TextGenerationModel {
 
   async _chat(prompt: ChatEntry[]): Promise<string> {
     return joplinAI.query_chat(prompt, this.temperature);
+  }
+
+  async _complete(prompt: string): Promise<string> {
+    // Joplin AI is always a chat model, so route completions (annotate, ask,
+    // autocomplete, research, query decomposition) through the chat path,
+    // mirroring OpenAIGeneration. Without this the base _complete throws
+    // 'Not implemented' for every non-chat command.
+    return this._chat([...this.base_chat, {role: 'user', content: prompt}]);
   }
 }
 
