@@ -10,6 +10,7 @@ import JoplinSettings from './JoplinSettings';
 import JoplinContentScripts from './JoplinContentScripts';
 import JoplinClipboard from './JoplinClipboard';
 import JoplinWindow from './JoplinWindow';
+import JoplinAi from './JoplinAi';
 import BasePlatformImplementation from '../BasePlatformImplementation';
 import JoplinImaging from './JoplinImaging';
 /**
@@ -37,6 +38,7 @@ export default class Joplin {
     private contentScripts_;
     private clipboard_;
     private window_;
+    private ai_;
     private implementation_;
     constructor(implementation: BasePlatformImplementation, plugin: Plugin, store: any);
     get data(): JoplinData;
@@ -57,6 +59,13 @@ export default class Joplin {
     get views(): JoplinViews;
     get interop(): JoplinInterop;
     get settings(): JoplinSettings;
+    /**
+     * Access to AI features: chat completions and semantic search over the
+     * local embeddings index. See {@link JoplinAi}.
+     *
+     * <span class="platform-desktop">desktop</span>
+     */
+    get ai(): JoplinAi;
     /**
      * It is not possible to bundle native packages with a plugin, because they
      * need to work cross-platforms. Instead access to certain useful native
