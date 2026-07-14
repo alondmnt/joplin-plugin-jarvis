@@ -1,3 +1,12 @@
+# [v0.13.4](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.4)
+*Released on 2026-07-14*
+
+- added: **Joplin AI** as a chat provider — chats through the model configured in Joplin's own **Settings → AI** (Joplin Cloud AI, an OpenAI-compatible endpoint, or Anthropic), so no API key is needed in Jarvis. Select it as the second option in **Chat: Model**. Desktop-only, and requires Joplin 3.7+ with the AI beta enabled. See the [guide](https://github.com/alondmnt/joplin-plugin-jarvis/blob/master/GUIDE.md#chat-with-joplin-ai).
+
+**Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.13.3...v0.13.4
+
+---
+
 # [v0.13.3](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.3)
 *Released on 2026-06-04T15:13:21Z*
 
