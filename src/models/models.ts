@@ -95,6 +95,7 @@ import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, Mod
 import * as openai from './openai';
 import * as google from './google';
 import * as ollama from './ollama';
+import * as joplinAI from './joplinAI';
 import { BlockEmbedding } from '../notes/embeddings';  // maybe move definition to this file
 import { clear_deleted_notes, connect_to_db, get_all_embeddings, init_db } from '../notes/db';
 
@@ -310,6 +311,9 @@ export async function load_generation_model(settings: JarvisSettings): Promise<T
 
   } else if (settings.model.startsWith('gemini')) {
     model = new GeminiGeneration(settings);
+
+  } else if (settings.model === 'joplin-ai') {
+    model = new JoplinAIGeneration(settings);
 
   } else {
     console.error(`Unknown model: ${settings.model}`);
@@ -1660,6 +1664,47 @@ export class GeminiGeneration extends TextGenerationModel {
   async _complete(prompt: string): Promise<string> {
     return google.query_completion(
       this.model, this.id, prompt, this.temperature, this.top_p);
+  }
+}
+
+export class JoplinAIGeneration extends TextGenerationModel {
+  constructor(settings: JarvisSettings) {
+    super('Joplin AI',
+      settings.max_tokens,
+      'chat',
+      settings.memory_tokens,
+      settings.notes_context_tokens,
+      settings.chat_suffix,
+      settings.chat_prefix,
+      settings.chat_timeout);
+    this.base_chat = [{role: 'system', content: settings.chat_system_message}];
+
+    // Joplin's ChatOptions.temperature is on a 0-1 scale; Jarvis exposes 0-20.
+    this.temperature = settings.temperature / 20;
+
+    // rate limiting
+    this.requests_per_second = 10;
+    this.last_request_time = 0;
+  }
+
+  async _load_model() {
+    // The provider and API key live in Joplin's own settings, so there is
+    // nothing to load or validate here beyond the API being present. Config
+    // errors (AI disabled, remote not allowed, missing key) only surface on
+    // the first chat() call and are handled in joplinAI.query_chat.
+    if (!(await joplinAI.isAvailable())) {
+      joplin.views.dialogs.showMessageBox(
+        'Joplin AI is not available. It requires Joplin 3.7 or newer (desktop) ' +
+        'with AI enabled in Settings → AI. See the Jarvis guide for details.');
+      this.model = null;
+      return;
+    }
+    this.model = 'Joplin AI';  // truthy sentinel; the active model is chosen in Joplin
+    console.log(this.id);
+  }
+
+  async _chat(prompt: ChatEntry[]): Promise<string> {
+    return joplinAI.query_chat(prompt, this.temperature);
   }
 }
 
