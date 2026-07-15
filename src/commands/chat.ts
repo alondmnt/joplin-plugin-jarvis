@@ -78,10 +78,24 @@ export async function chat_with_notes_panel(
   return `${completion}\n\n${result.note_links}`.trim();
 }
 
-/** Panel chat scoped to the currently open note. The note body is prepended to
- *  the panel history and parsed as a prior conversation turn (via _parse_chat's
- *  first_role heuristic), mirroring `chat_with_jarvis` invoked at the end of a
- *  note. Each reply is tagged with a clickable link to the source note. */
+/** Panel chat scoped to the currently open note. The conversation is placed
+ *  first and unfenced so _parse_chat reads it as real turns (it opens with a
+ *  `**User:**` marker, so the note can't be misread as a prior assistant turn),
+ *  then the note body is appended as fenced `Current Joplin note` context that
+ *  lands on the final user turn. This mirrors the collection-mode shape in
+ *  run_notes_chat_pipeline, which local instruction-following models (e.g.
+ *  Ollama llama3.2:3b) reliably treat as document context rather than as prior
+ *  assistant history. Each reply is tagged with a clickable link to the note.
+ *
+ *  The note and the conversation are each bounded by their own token budget
+ *  (context_tokens vs memory_tokens) so they don't compete for space, and the
+ *  `===` fences are assembled after truncation so trimming can never drop a
+ *  fence marker.
+ *
+ *  Known limitation: a note body that contains a bare `===` line (a setext H1
+ *  underline or a manual divider) flips fence parity mid-note. This is usually
+ *  benign; it only mis-parses the note when a `**User:**`/`**Jarvis:**` marker
+ *  appears in the re-exposed region below it. Shared with run_notes_chat_pipeline. */
 export async function chat_with_note_panel(
   history: PanelChatMessage[],
   model_gen: TextGenerationModel,
@@ -93,13 +107,36 @@ export async function chat_with_note_panel(
   }
   try {
     const title = note.title || 'Untitled';
-    const note_body = stripJarvisBlocks(note.body ?? '');
-    const chat_block = format_as_note_chat(history, settings);
-    const composed = `${note_body}\n${chat_block}`;
-    const truncated = split_by_tokens(
-      [composed], model_gen, model_gen.memory_tokens, 'last',
+    // bound the note by its own context budget (keeping the top when trimming)
+    // so it never competes with the conversation for memory_tokens
+    const note_body = split_by_tokens(
+      [stripJarvisBlocks(note.body ?? '')], model_gen, model_gen.context_tokens, 'first',
     )[0].join(' ');
-    const raw = (await model_gen.chat(truncated)) || '';
+    // conversation first and unfenced: it opens with a `**User:**` marker, so
+    // _parse_chat reads it as real turns rather than triggering the first_role
+    // heuristic that misattributed the note as an assistant turn
+    const chat_block = split_by_tokens(
+      [format_as_note_chat(history, settings)], model_gen, model_gen.memory_tokens, 'last',
+    )[0].join(' ');
+    // assemble the `===` fences after truncation so a trim can't drop a fence;
+    // the fenced note lands on the final user turn as explicit document context
+    const composed = `${chat_block}
+===
+End of conversation
+===
+
+Current Joplin note
+===
+Title: ${title}
+
+${note_body}
+===
+
+Instructions
+===
+Use the Current Joplin note above as context. If the user asks you to summarise or answer questions about this note, use that note directly. Do not ask the user for a URL or to paste the note text.
+===`;
+    const raw = (await model_gen.chat(composed)) || '';
     const completion = raw
       .replace(model_gen.model_prefix, '')
       .replace(model_gen.user_prefix, '')
