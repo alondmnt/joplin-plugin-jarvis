@@ -59,11 +59,22 @@ export function split_by_tokens(
   split_by: string = ' ',  // can be null to split by characters
 ): Array<Array<string>> {
 
+  // A budget below one token can never hold any content, and preprocess would
+  // recurse forever trying to shrink a part to fit it. Return a single empty
+  // selection so callers' `[0].join(...)` yields '' instead of hanging. This
+  // happens when a caller derives the budget as `max_tokens - prompt_tokens`
+  // and the prompt already exceeds the context.
+  if (max_tokens < 1) { return [[]]; }
+
   // preprocess parts to ensure each part is smaller than max_tokens
   function preprocess(part: string): Array<string> {
     const token_count = model.count_tokens(part);
 
     if (token_count <= max_tokens) { return [part]; }
+
+    // A single character can't be split further; accept it even if its
+    // estimated token count still exceeds the budget, so recursion terminates.
+    if (part.length <= 1) { return [part]; }
 
     // split the part in half
     let part_arr: any = part;
