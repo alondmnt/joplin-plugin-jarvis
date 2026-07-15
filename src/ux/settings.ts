@@ -487,6 +487,7 @@ export async function register_settings() {
       description: 'The model to ask / chat / research with Jarvis. All predefined models are ONLINE, but custom OFFLINE models are supported. Default: gpt-5-mini',
       options: {
         'none': 'None (disable generation features)',
+        'joplin-ai': 'Joplin AI (built-in, configured in Joplin → Settings → AI)',
         'openai-custom': 'OpenAI-compatible custom model (e.g., Ollama, Claude)',
         'gpt-5-nano':'gpt-5-nano / OpenAI (in:400K, out:128K, cheapest reasoning)',
         'gpt-5-mini':'gpt-5-mini / OpenAI (in:400K, out:128K)',

@@ -938,3 +938,93 @@ export enum ContentScriptType {
 	 */
 	CodeMirrorPlugin = 'codeMirrorPlugin',
 }
+
+// =================================================================
+// AI types
+// =================================================================
+
+export type ChatMessageRole = 'system' | 'user' | 'assistant';
+
+/**
+ * A single message in a chat conversation.
+ */
+export interface ChatMessage {
+	role: ChatMessageRole;
+	content: string;
+}
+
+/**
+ * Optional parameters for a chat call. The active model and provider are
+ * controlled by the user in the Joplin settings — plugins cannot pick a model.
+ */
+export interface ChatOptions {
+	/** Sampling temperature, typically between 0 and 1. Provider default if omitted. */
+	temperature?: number;
+	/** Maximum number of tokens to generate. Provider default if omitted. */
+	maxTokens?: number;
+}
+
+/**
+ * Result of a chat call.
+ */
+export interface ChatResult {
+	/** The assistant's text response. */
+	text: string;
+}
+
+/**
+ * Relevance preset for semantic search. Maps internally to model-specific
+ * `(k, minScore)` tuning — the preset is the public contract so plugins keep
+ * working when the bundled embedding model changes.
+ */
+export type SearchRelevance = 'strict' | 'normal' | 'loose';
+
+/**
+ * Where to look for matches.
+ *
+ * - `all`: every indexed note (default).
+ * - `note`: a single note (rarely useful directly — mainly an internal
+ *   building block).
+ * - `folder`: all notes in the given folder (a "notebook" in the UI).
+ * - `tag`: all notes tagged with the given tag.
+ *
+ * Trashed and conflict notes are always excluded.
+ */
+export type SearchScope =
+	| { type: 'all' }
+	| { type: 'note'; noteId: string }
+	| { type: 'folder'; folderId: string }
+	| { type: 'tag'; tagId: string };
+
+/**
+ * What to search for: free text (embedded internally), or an existing note
+ * whose stored chunks are reused as the query — useful for "related notes",
+ * tag suggestions, and graph-style use cases without a second embedding pass.
+ */
+export type SearchQuery =
+	| { text: string }
+	| { noteId: string };
+
+/**
+ * Parameters for {@link JoplinAi.search}.
+ */
+export interface SearchOptions {
+	query: SearchQuery;
+	scope?: SearchScope;
+	relevance?: SearchRelevance;
+}
+
+/**
+ * A single hit from {@link JoplinAi.search}.
+ */
+export interface SearchResult {
+	noteId: string;
+	chunkIndex: number;
+	chunkText: string;
+	/**
+	 * Cosine similarity in `[0, 1]`. Higher means more similar. Plugins should
+	 * use this for ranking but not as an absolute threshold — that's what the
+	 * `relevance` preset is for.
+	 */
+	score: number;
+}
