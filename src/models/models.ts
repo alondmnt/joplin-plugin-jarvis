@@ -284,6 +284,14 @@ function resolveAdapterKey(modelId: string): string | null {
 }
 
 const COMM_TEST_ON_LOAD = false;  // disable to speed up startup and avoid wasting API calls (#65)
+// Fallback completion budget for when `max_tokens` (the model's context length)
+// minus the prompt leaves no positive room. A non-positive `max_tokens` is
+// rejected by the API as an invalid parameter (not a context-length error, so
+// query_completion's reduce-and-retry never triggers). This is only used for
+// that non-positive case and is capped at max_tokens at the call site, so valid
+// near-limit budgets pass through unchanged and the request never exceeds the
+// context; an oversized prompt then self-heals via the reduce-and-retry. (#84)
+const MIN_COMPLETION_TOKENS = 256;
 const test_prompt = 'I am conducting a communitcation test. I need you to reply with a single word and absolutely nothing else: "Ack".';
 const dialogPreview = joplin.views.dialogs.create('joplin.preview.dialog');
 
@@ -1548,8 +1556,13 @@ export class OpenAIGeneration extends TextGenerationModel {
     if (this.type == 'chat') {
       return this._chat([...this.base_chat, {role: 'user', content: prompt}]);
     }
+    // keep the requested budget = max_tokens - prompt when positive (so valid
+    // near-limit prompts are unchanged); only when that is non-positive fall
+    // back to a small floor, capped at max_tokens so the request never exceeds
+    // the context. An oversized prompt then self-heals via reduce-and-retry.
+    const budget = this.max_tokens - this.count_tokens(prompt);
     return await openai.query_completion(prompt, this.api_key, this.id,
-      this.max_tokens - this.count_tokens(prompt),
+      budget > 0 ? budget : Math.min(MIN_COMPLETION_TOKENS, this.max_tokens),
       this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty,
       this.endpoint);
   }
