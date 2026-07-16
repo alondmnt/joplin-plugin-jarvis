@@ -1195,6 +1195,15 @@ export class TextGenerationModel {
     return estimateTokens(text);
   }
 
+  // strip the role prefixes this model wraps around a reply (chat() returns
+  // model_prefix + text + user_prefix), leaving the bare completion text
+  clean_completion(text: string): string {
+    return (text || '')
+      .replace(this.model_prefix, '')
+      .replace(this.user_prefix, '')
+      .trim();
+  }
+
   // rate limiter
   async limit_rate() {
     const request_promise = new Promise((resolve, reject) => {
