@@ -486,3 +486,17 @@ export function stripJarvisBlocks(text: string): string {
     .replace(jarvisLinksPattern, '')
     .replace(jarvisCmdPattern, '');
 }
+
+/** Blank out lines that are exactly the chat fence delimiter (`===`, matching
+ *  _parse_chat's `line.trim() === fence` test) so untrusted content embedded
+ *  inside a fenced context section — a note body, retrieved note text, or a
+ *  user-set instruction prompt — can't flip fence parity and expose the rest of
+ *  the section to role-parsing. A bare `===` is almost always a setext H1
+ *  underline or a manual divider; blanking it drops only the divider and keeps
+ *  the surrounding text. Apply to anything interpolated between `===` fences. */
+export function neutralize_chat_fences(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => (line.trim() === '===' ? '' : line))
+    .join('\n');
+}

@@ -4,7 +4,7 @@ import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_tex
 import { read_user_data_embeddings } from '../notes/userDataReader';
 import { update_panel } from '../ux/panel';
 import { get_settings, JarvisSettings, ref_notes_prefix, search_notes_cmd, user_notes_cmd, context_cmd, notcontext_cmd } from '../ux/settings';
-import { split_by_tokens, preprocess_query, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
+import { split_by_tokens, preprocess_query, clearApiResponse, clearObjectReferences, stripJarvisBlocks, neutralize_chat_fences } from '../utils';
 import { decompose_query } from '../notes/queryDecomposition';
 import { keyword_rerank } from '../notes/hybridSearch';
 import { maxsim_search } from '../notes/searchOrchestration';
@@ -90,12 +90,10 @@ export async function chat_with_notes_panel(
  *  The note and the conversation are each bounded by their own token budget
  *  (context_tokens vs memory_tokens) so they don't compete for space, and the
  *  `===` fences are assembled after truncation so trimming can never drop a
- *  fence marker.
- *
- *  Known limitation: a note body that contains a bare `===` line (a setext H1
- *  underline or a manual divider) flips fence parity mid-note. This is usually
- *  benign; it only mis-parses the note when a `**User:**`/`**Jarvis:**` marker
- *  appears in the re-exposed region below it. Shared with run_notes_chat_pipeline. */
+ *  fence marker. Every dynamic value placed between the `===` fences (the
+ *  conversation, note title and note body) is run through neutralize_chat_fences
+ *  so a bare `===` in note content can't flip the parser's global fence parity
+ *  and re-expose the note to role-parsing. */
 export async function chat_with_note_panel(
   history: PanelChatMessage[],
   model_gen: TextGenerationModel,
@@ -108,15 +106,18 @@ export async function chat_with_note_panel(
   try {
     const title = note.title || 'Untitled';
     // bound the note by its own context budget (keeping the top when trimming)
-    // so it never competes with the conversation for memory_tokens
+    // so it never competes with the conversation for memory_tokens; neutralise
+    // bare `===` lines so the note body can't flip the context fence's parity
     const note_body = split_by_tokens(
-      [stripJarvisBlocks(note.body ?? '')], model_gen, model_gen.context_tokens, 'first',
+      [neutralize_chat_fences(stripJarvisBlocks(note.body ?? ''))], model_gen, model_gen.context_tokens, 'first',
     )[0].join(' ');
     // conversation first and unfenced: it opens with a `**User:**` marker, so
     // _parse_chat reads it as real turns rather than triggering the first_role
-    // heuristic that misattributed the note as an assistant turn
+    // heuristic that misattributed the note as an assistant turn. neutralise
+    // bare `===` lines too: _parse_chat's fence state is global, so a divider in
+    // a conversation message would otherwise flip parity before the note's fence
     const chat_block = split_by_tokens(
-      [format_as_note_chat(history, settings)], model_gen, model_gen.memory_tokens, 'last',
+      [neutralize_chat_fences(format_as_note_chat(history, settings))], model_gen, model_gen.memory_tokens, 'last',
     )[0].join(' ');
     // assemble the `===` fences after truncation so a trim can't drop a fence;
     // the fenced note lands on the final user turn as explicit document context
@@ -127,7 +128,7 @@ End of conversation
 
 Current Joplin note
 ===
-Title: ${title}
+Title: ${neutralize_chat_fences(title)}
 
 ${note_body}
 ===
@@ -202,19 +203,19 @@ async function run_notes_chat_pipeline(
     : prompt.prompt;
 
   const completion = (await model_gen.chat(`
-  ${pipeline_prompt}
+  ${neutralize_chat_fences(pipeline_prompt)}
   ===
   End of user prompt
   ===
 
   User Notes
   ===
-  ${note_text}
+  ${neutralize_chat_fences(note_text)}
   ===
 
   Instructions
   ===
-  ${instruct}
+  ${neutralize_chat_fences(instruct)}
   ===
   `, preview)) || '';
 
