@@ -1,6 +1,9 @@
 export const RELEASE_NOTES = {
-  version: 'v0.13.0',
-  notes: `v0.13.0:
+  version: 'v0.13.4',
+  notes: `v0.13.4:
+- added: Joplin AI as a chat provider
+
+v0.13.0:
 - added: chat panel for notes
   - chat / notes mode toggle (Shift+Tab)
 - added: hybrid retrieval, query decomposition, multi-chunk search
