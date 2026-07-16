@@ -1,7 +1,12 @@
 # [v0.13.4](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.4)
-*Released on 2026-07-14*
+*Released on 2026-07-16T13:59:09Z*
 
-- added: **Joplin AI** as a chat provider — chats through the model configured in Joplin's own **Settings → AI** (Joplin Cloud AI, an OpenAI-compatible endpoint, or Anthropic), so no API key is needed in Jarvis. Select it as the second option in **Chat: Model**. Desktop-only, and requires Joplin 3.7+ with the AI beta enabled. See the [guide](https://github.com/alondmnt/joplin-plugin-jarvis/blob/master/GUIDE.md#chat-with-joplin-ai).
+- added: **Joplin AI** as a chat provider
+  - chats through the model configured in Joplin's own **Settings → AI** so no API key is needed in Jarvis. Desktop-only, and requires Joplin 3.7+ with the AI beta enabled. See the [guide](https://github.com/alondmnt/joplin-plugin-jarvis/blob/master/GUIDE.md#chat-with-joplin-ai).
+- fixed: sidebar **Note mode** now passes the open note as explicit context, so local chat models (e.g. Ollama) summarise and answer about it instead of replying that no note was provided
+- fixed: a note (or instruction prompt) containing a bare `===` line no longer breaks how the model reads the note as context
+- fixed: completion-type custom models no longer fail on long prompts (the response token budget could go negative and be rejected by the API)
+- fixed: note title/summary annotation could hang when the prompt exceeded the model's context
 
 **Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.13.3...v0.13.4
 
@@ -19,7 +24,7 @@
 # [v0.13.2](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.2)
 *Released on 2026-05-27T00:56:29Z*
 
-- added: **Note mode** in the chat panel — scopes the chat to the currently open note, threaded with the panel's history (equivalent to `chat_with_jarvis` from the end of the note, driven from the panel)
+- added: **Note mode** in the chat panel which scopes the chat to the currently open note, threaded with the panel's history (equivalent to **Chat with Jarvis** from the end of the note, only from the panel)
     - the mode toggle becomes a 3-state rotation (click or Shift+Tab): **Collection → Note → Chat**
     - each reply is tagged with a clickable link back to the source note; the note tracked updates per turn as you switch notes
     - sending in Note mode with no note open is blocked with an actionable message
