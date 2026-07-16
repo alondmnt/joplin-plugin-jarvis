@@ -198,11 +198,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
         const full_prompt = format_as_note_chat(history, runtime.settings);
 
-        const raw = await runtime.model_gen.chat(full_prompt);
-        const text = (raw || '')
-          .replace(runtime.model_gen.model_prefix, '')
-          .replace(runtime.model_gen.user_prefix, '')
-          .trim();
+        const text = runtime.model_gen.clean_completion(await runtime.model_gen.chat(full_prompt));
         const html = md.render(text);
         panelCache.history.push({ role: 'assistant', content: text, html });
         return { type: 'response', text, html };

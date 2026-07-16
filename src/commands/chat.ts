@@ -70,10 +70,7 @@ export async function chat_with_notes_panel(
     return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
   }
 
-  const completion = result.completion
-    .replace(model_gen.model_prefix, '')
-    .replace(model_gen.user_prefix, '')
-    .trim();
+  const completion = model_gen.clean_completion(result.completion);
 
   return `${completion}\n\n${result.note_links}`.trim();
 }
@@ -136,11 +133,7 @@ Instructions
 ===
 Use the Current Joplin note above as context. If the user asks you to summarise or answer questions about this note, use that note directly. Do not ask the user for a URL or to paste the note text.
 ===`;
-    const raw = (await model_gen.chat(composed)) || '';
-    const completion = raw
-      .replace(model_gen.model_prefix, '')
-      .replace(model_gen.user_prefix, '')
-      .trim();
+    const completion = model_gen.clean_completion(await model_gen.chat(composed));
     return `${completion}\n\n[${title}](:/${note.id})`;
   } finally {
     clearObjectReferences(note);
