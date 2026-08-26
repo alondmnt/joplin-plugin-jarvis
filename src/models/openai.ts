@@ -30,6 +30,34 @@ function buildHeaders(api_key: string, url: string): Record<string, string> {
   return headers;
 }
 
+/**
+ * Request parameters whose OpenAI default is 0, which makes sending them
+ * explicitly a no-op.
+ */
+const NO_OP_ZERO_PARAMS = ['frequency_penalty', 'presence_penalty'];
+
+/**
+ * Drop request parameters that carry no information: unset values, and the
+ * penalties above when left at their default of 0.
+ *
+ * Not every OpenAI-compatible provider ignores fields it doesn't implement.
+ * Google's Gemini compatibility layer, for one, rejects the whole request with
+ * `Unknown name "frequency_penalty"`, so a default Jarvis chat fails against it
+ * on a parameter that was never going to change the output. Omitting the
+ * no-op value keeps the request portable and is equivalent everywhere else.
+ *
+ * Mutates `params` in place.
+ */
+function strip_inert_params(params: Record<string, any>): void {
+  for (const key of Object.keys(params)) {
+    if (params[key] === null || params[key] === undefined) {
+      delete params[key];
+    } else if (params[key] === 0 && NO_OP_ZERO_PARAMS.includes(key)) {
+      delete params[key];
+    }
+  }
+}
+
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,
     api_key: string, model: string, max_tokens: number, temperature: number, top_p: number,
@@ -50,11 +78,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
     frequency_penalty: frequency_penalty,
     presence_penalty: presence_penalty,
   }
-  for (const key of Object.keys(params)) {
-    if (params[key] === null || params[key] === undefined) {
-      delete params[key];
-    }
-  }
+  strip_inert_params(params);
 
   let data = null;
   let error_message: string | null = null;
@@ -142,11 +166,7 @@ export async function query_completion(prompt: string, api_key: string,
     frequency_penalty: frequency_penalty,
     presence_penalty: presence_penalty,
   }
-  for (const key of Object.keys(params)) {
-    if (params[key] === null || params[key] === undefined) {
-      delete params[key];
-    }
-  }
+  strip_inert_params(params);
 
   let data = null;
   let error_message: string | null = null;
