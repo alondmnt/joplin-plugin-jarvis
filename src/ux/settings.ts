@@ -184,11 +184,15 @@ export const model_max_tokens: { [model: string] : number; } = {
   'gpt-4-turbo': 16384,
   'gpt-4': 8192,
   'gpt-3.5-turbo': 16384,
-  // Google Gemini 2.5 (current)
-  'gemini-2.5-flash-lite': 65536,
-  'gemini-2.5-flash': 65536,
+  // Google Gemini (current)
+  'gemini-3.5-flash-lite': 65536,
+  'gemini-3.7-flash': 65536,
   'gemini-2.5-pro': 65536,
   // Google Gemini legacy
+  'gemini-3.6-flash': 65536,
+  'gemini-3.5-flash': 65536,
+  'gemini-2.5-flash-lite': 65536,
+  'gemini-2.5-flash': 65536,
   'gemini-2.0-flash-lite': 8192,
   'gemini-2.0-flash': 8192,
   'gemini-2.0-pro': 8192,
@@ -495,8 +499,8 @@ export async function register_settings() {
         'claude-haiku-4-5': 'claude-haiku-4.5 / Anthropic (in:200K, out:64K, cheapest)',
         'claude-sonnet-4-6': 'claude-sonnet-4.6 / Anthropic (in:200K, out:64K)',
         'claude-opus-4-7': 'claude-opus-4.7 / Anthropic (in:200K, out:64K, strongest)',
-        'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite / Google AI (in:1M, out:64K)',
-        'gemini-2.5-flash': 'gemini-2.5-flash / Google AI (in:1M, out:64K)',
+        'gemini-3.5-flash-lite': 'gemini-3.5-flash-lite / Google AI (in:1M, out:64K)',
+        'gemini-3.7-flash': 'gemini-3.7-flash / Google AI (in:1M, out:64K)',
         'gemini-2.5-pro': 'gemini-2.5-pro / Google AI (in:1M, out:64K)',
         'Hugging Face': 'Hugging Face',
       }
