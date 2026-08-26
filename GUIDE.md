@@ -170,6 +170,27 @@ Here is an example of how to set up Claude V2 via [OpenRouter](https://openroute
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | https://openrouter.ai/api/v1/chat/completions |
 
+### Chat with Google Gemini
+
+Jarvis has a built-in Gemini provider (select a `gemini-*` model under **Chat: Model**), and that is the recommended way to use Gemini. If you'd rather go through Google's [OpenAI-compatible endpoint](https://ai.google.dev/gemini-api/docs/openai) - to reach a model that isn't in the dropdown, for instance - set it up like this:
+
+| Setting | Advanced | Value |
+|---------|----------|-------|
+| Model: OpenAI API Key | No | Your Google AI Studio API key |
+| Chat: Model | No | (online) OpenAI or compatible: custom model |
+| Chat: OpenAI (or compatible) custom model ID | Yes | gemini-2.5-flash (or gemini-2.5-pro) |
+| Chat: Custom model is a conversation model | Yes | Yes |
+| Chat: Custom model API endpoint | Yes | https://generativelanguage.googleapis.com/v1beta/openai/chat/completions |
+| Chat: Max tokens | Yes | 65536 |
+
+Three things that commonly go wrong here:
+
+- **Your Google API key goes in the `Model: OpenAI API Key` field.** There is no separate field for it. The custom-model settings all read that one key regardless of which provider you point them at, so a Google AI Studio key entered anywhere else (including Jarvis's own Google API key setting, which only feeds the built-in Gemini provider) will not be used here.
+- **The endpoint must be the full path.** Google's docs advertise the *base* URL, `https://generativelanguage.googleapis.com/v1beta/openai/`. Jarvis posts the endpoint exactly as you enter it, so append `chat/completions` yourself. The base URL on its own returns HTTP 404.
+- **The model ID must be one Google actually serves.** An unrecognised ID also returns HTTP 404, from the correct endpoint, which makes the two mistakes look identical.
+
+For note embeddings, use the built-in provider rather than this endpoint: pick `gemini-embedding-001` under **Notes: Semantic similarity model**. Jarvis tags any model ID containing `gemini` with a retrieval task type, which the native API expects but the OpenAI-compatible embeddings endpoint rejects.
+
 ## Chat with Joplin AI
 
 Joplin 3.7 and newer (desktop) include a built-in AI feature (beta) with its own provider and model, configured in Joplin's own settings. Jarvis can chat through whichever model you've set up there, so you don't need to enter an API key in Jarvis.
