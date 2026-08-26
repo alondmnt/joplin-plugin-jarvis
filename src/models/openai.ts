@@ -297,10 +297,25 @@ function stripStatusPrefix(message: string | null): string {
  *   - Ollama / simple servers: { error: "string" }
  *   - FastAPI: { detail: "string" }
  *   - Generic: { message: "string" }
+ *   - Google: [ { error: { message, code, status } } ] (the same shapes,
+ *     wrapped in an array)
  * Returns null if no recognised field is found, so the caller can fall
  * back to the raw body.
  */
 function pickStructuredError(data: any): string | null {
+  if (Array.isArray(data)) {
+    // Google's OpenAI-compatibility layer wraps its error object in an array.
+    // Take the first entry that yields a message rather than only data[0], so
+    // a leading empty element doesn't hide the real error.
+    for (const entry of data) {
+      const message = pickStructuredError(entry);
+      if (message) {
+        return message;
+      }
+    }
+    return null;
+  }
+
   if (!data || typeof data !== 'object') {
     return null;
   }
