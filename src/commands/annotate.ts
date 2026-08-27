@@ -5,6 +5,30 @@ import { JarvisSettings } from '../ux/settings';
 import { get_all_tags, split_by_tokens, clearApiResponse, clearObjectReferences, stripJarvisBlocks } from '../utils';
 
 
+/**
+ * The note text to annotate, trimmed to whatever the context ceiling leaves
+ * after the instruction prompt, or null when it leaves nothing.
+ *
+ * Both inputs are user-controlled - `Chat: Max context tokens` is a setting and
+ * the annotation prompts are editable - so they can be configured into
+ * conflict. split_by_tokens answers a non-positive budget with an empty
+ * selection, and annotating an empty note produces a plausible-looking title
+ * that then overwrites the real one, so the caller must stop rather than fall
+ * through to the model.
+ */
+async function note_text_within_budget(model_gen: TextGenerationModel, note_body: string,
+    prompt: string, overhead: number, what: string): Promise<string | null> {
+  const budget = model_gen.max_tokens - model_gen.count_tokens(prompt) - overhead;
+  if (budget < 1) {
+    await joplin.views.dialogs.showMessageBox(
+      `Jarvis: the ${what} instruction is longer than the context budget ` +
+      `(Chat: Max context tokens = ${model_gen.max_tokens}), leaving no room for the note. ` +
+      `Raise that setting or shorten the instruction.`);
+    return null;
+  }
+  return split_by_tokens([stripJarvisBlocks(note_body)], model_gen, budget, 'first')[0].join(' ');
+}
+
 export async function annotate_title(model_gen: TextGenerationModel,
   settings: JarvisSettings, text: string = '') {
   // generate a title for the current note
@@ -17,8 +41,10 @@ export async function annotate_title(model_gen: TextGenerationModel,
 
   try {
     if (text.length === 0) {
-      const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.title) - 30;
-      text = split_by_tokens([stripJarvisBlocks(note.body)], model_gen, text_tokens, 'first')[0].join(' ');
+      const within_budget = await note_text_within_budget(
+        model_gen, note.body, settings.prompts.title, 30, 'title');
+      if (within_budget === null) { return; }
+      text = within_budget;
     }
     // get the first number or date in the current title
     let title = note.title.match(/^[\d-/.]+/);
@@ -50,8 +76,9 @@ export async function annotate_summary(model_gen: TextGenerationModel,
     const summary_end = '<!-- jarvis-summary-end -->';
     const find_summary = new RegExp(`${summary_start}[\\s\\S]*?${summary_end}`);
 
-    const text_tokens = model_gen.max_tokens - model_gen.count_tokens(settings.prompts.summary) - 80;
-    const text = split_by_tokens([stripJarvisBlocks(note.body)], model_gen, text_tokens, 'first')[0].join(' ');
+    const text = await note_text_within_budget(
+      model_gen, note.body, settings.prompts.summary, 80, 'summary');
+    if (text === null) { return; }
 
     const prompt = `Note content\n===\n${text}\n===\n\nInstruction\n===\n${settings.prompts.summary.replace('{preferred_language}', settings.annotate_preferred_language)}\n===\n\nNote summary\n===\n`;
 
