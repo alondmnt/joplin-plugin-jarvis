@@ -217,6 +217,13 @@ function parse_dropdown_value(setting: string, name: string): string {
   }
 }
 
+/**
+ * Default for `max_tokens`. Exported so the model classes can tell a ceiling
+ * the user chose from one they simply never touched - the two need different
+ * treatment for a model whose real context window is unknown.
+ */
+export const DEFAULT_MAX_CONTEXT_TOKENS = 200000;
+
 export async function get_settings(): Promise<JarvisSettings> {
   // Bulk-fetch all plugin settings in a single API call
   const v = await joplin.settings.values(registeredSettingKeys);
@@ -529,7 +536,7 @@ export async function register_settings() {
       description: 'The temperature of the model. 0 is the least creative. 20 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text. Default: 3',
     },
     'max_tokens': {
-      value: 200000,
+      value: DEFAULT_MAX_CONTEXT_TOKENS,
       type: SettingItemType.Int,
       minimum: 128,
       maximum: 1048576,
