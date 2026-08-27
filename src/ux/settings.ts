@@ -222,7 +222,7 @@ function parse_dropdown_value(setting: string, name: string): string {
  * the user chose from one they simply never touched - the two need different
  * treatment for a model whose real context window is unknown.
  */
-export const DEFAULT_MAX_CONTEXT_TOKENS = 199936;  // 128 * 1562, so the default lands on the setting's step
+export const DEFAULT_MAX_CONTEXT_TOKENS = 200192;  // 128 * 1564, so the default lands on the setting's step
 
 export async function get_settings(): Promise<JarvisSettings> {
   // Bulk-fetch all plugin settings in a single API call
@@ -535,7 +535,7 @@ export async function register_settings() {
       section: 'jarvis.chat',
       public: true,
       label: 'Chat: Max context tokens',
-      description: 'The most context Jarvis will send in a single request, used by research and note annotation. This is a spending and latency ceiling, not the model\'s limit: most current models accept far more, and this keeps a request from growing without bound. Lower it for a local model with a smaller context window. Default: 199936',
+      description: 'The most context Jarvis will send in a single request, used by research and note annotation. This is a spending and latency ceiling, not the model\'s limit: most current models accept far more, and this keeps a request from growing without bound. Lower it for a local model with a smaller context window. Default: 200192',
     },
     'memory_tokens': {
       value: 512,
