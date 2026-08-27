@@ -105,9 +105,17 @@ export async function chat_with_note_panel(
     // bound the note by its own context budget (keeping the top when trimming)
     // so it never competes with the conversation for memory_tokens; neutralise
     // bare `===` lines so the note body can't flip the context fence's parity
-    const note_body = split_by_tokens(
+    const note_chunks = split_by_tokens(
       [neutralize_chat_fences(stripJarvisBlocks(note.body ?? ''))], model_gen, model_gen.context_tokens, 'first',
-    )[0].join(' ');
+    );
+    const note_body = note_chunks[0].join(' ');
+    // split_by_tokens returns every chunk it made, so more than one means the
+    // note did not fit. Say so inside the fence: the heading claims to be the
+    // note, and a model given the opening third of a document under that
+    // heading will answer about the rest with the same confidence.
+    const note_cut = note_chunks.length > 1
+      ? '\n\n[This note was truncated to fit the context budget. The text above is only its beginning - raise "Notes: Context tokens" in the settings to include more.]'
+      : '';
     // conversation first and unfenced: it opens with a `**User:**` marker, so
     // _parse_chat reads it as real turns rather than triggering the first_role
     // heuristic that misattributed the note as an assistant turn. neutralise
@@ -127,12 +135,12 @@ Current Joplin note
 ===
 Title: ${neutralize_chat_fences(title)}
 
-${note_body}
+${note_body}${note_cut}
 ===
 
 Instructions
 ===
-Use the Current Joplin note above as context. If the user asks you to summarise or answer questions about this note, use that note directly. Do not ask the user for a URL or to paste the note text.
+Use the Current Joplin note above as context. If the user asks you to summarise or answer questions about this note, use that note directly. Do not ask the user for a URL or to paste the note text. If the note is marked as truncated, say so when the answer depends on the part you cannot see.
 ===`;
     const completion = model_gen.clean_completion(await model_gen.chat(composed));
     return `${completion}\n\n[${title}](:/${note.id})`;
