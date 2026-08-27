@@ -1597,10 +1597,12 @@ export class AnthropicGeneration extends OpenAIGeneration {
       return;
     }
     this.model = this.id;  // anything other than null
-    if (this.id.includes('opus') || this.id.includes('4-5') || this.id.includes('4-6') || this.id.includes('4-7')) {
-      // Claude 4.5+ models and Opus cannot accept both temperature and top_p
-      this.top_p = null;
-    }
+    // Claude rejects temperature and top_p together from 4.5 on, which covers
+    // every model still served. Enumerating versions here meant editing this
+    // line each release and missing whatever it did not predict - 4.8 and the
+    // Claude 5 line both slipped through. Dropping top_p costs an optional
+    // sampling knob and keeps temperature, which is the one Jarvis exposes.
+    this.top_p = null;
 
     if (COMM_TEST_ON_LOAD) {
       try {
