@@ -1513,7 +1513,10 @@ export class OpenAIGeneration extends TextGenerationModel {
       settings.chat_suffix,
       settings.chat_prefix,
       settings.chat_timeout);
-    if (!this.id.startsWith('o')) {
+    // OpenAI's o-series takes no system message. Match the digit too: a bare
+    // 'o' prefix also caught custom model IDs like olmo, orca and openhermes,
+    // silently dropping the system prompt for anything served under one.
+    if (!/^o\d/.test(this.id)) {
       this.base_chat = [{role: 'system', content: settings.chat_system_message}];
     }
     if ((settings.model === 'openai-custom') && (settings.chat_openai_endpoint.length > 0)) {
