@@ -222,7 +222,7 @@ function parse_dropdown_value(setting: string, name: string): string {
  * the user chose from one they simply never touched - the two need different
  * treatment for a model whose real context window is unknown.
  */
-export const DEFAULT_MAX_CONTEXT_TOKENS = 200000;
+export const DEFAULT_MAX_CONTEXT_TOKENS = 199936;  // 128 * 1562, so the default lands on the setting's step
 
 export async function get_settings(): Promise<JarvisSettings> {
   // Bulk-fetch all plugin settings in a single API call
@@ -524,7 +524,7 @@ export async function register_settings() {
       section: 'jarvis.chat',
       public: true,
       label: 'Chat: Temperature',
-      description: 'The temperature of the model. 0 is the least creative. 20 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text. Default: 3',
+      description: 'The temperature of the model. 0 is the least creative. 20 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text. Ignored by models that only accept their own default sampling settings, such as Anthropic models. Default: 3',
     },
     'max_tokens': {
       value: DEFAULT_MAX_CONTEXT_TOKENS,
@@ -535,7 +535,7 @@ export async function register_settings() {
       section: 'jarvis.chat',
       public: true,
       label: 'Chat: Max context tokens',
-      description: 'The most context Jarvis will send in a single request, used by research and note annotation. This is a spending and latency ceiling, not the model\'s limit: most current models accept far more, and 200000 keeps a request from growing without bound. Lower it for a local model with a smaller context window. Default: 200000',
+      description: 'The most context Jarvis will send in a single request, used by research and note annotation. This is a spending and latency ceiling, not the model\'s limit: most current models accept far more, and this keeps a request from growing without bound. Lower it for a local model with a smaller context window. Default: 199936',
     },
     'memory_tokens': {
       value: 512,
@@ -546,7 +546,7 @@ export async function register_settings() {
       section: 'jarvis.chat',
       public: true,
       label: 'Chat: Memory tokens',
-      description: 'The context length to keep in memory when chatting with Jarvis. Higher values may result in more coherent conversations. Must be lower than 45% of max_tokens. Default: 512',
+      description: 'The context length to keep in memory when chatting with Jarvis. Higher values may result in more coherent conversations. Default: 512',
     },
     'top_p': {
       value: 100,
@@ -557,7 +557,7 @@ export async function register_settings() {
       section: 'jarvis.chat',
       public: true,
       label: 'Chat: Top P',
-      description: 'An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p (between 0 and 100) probability mass. So 10 means only the tokens comprising the top 10% probability mass are considered. Default: 100',
+      description: 'An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p (between 0 and 100) probability mass. So 10 means only the tokens comprising the top 10% probability mass are considered. Ignored by models that only accept their own default sampling settings, such as Anthropic models. Default: 100',
     },
     'frequency_penalty': {
       value: 0,
