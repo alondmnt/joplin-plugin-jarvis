@@ -1618,12 +1618,6 @@ export class AnthropicGeneration extends OpenAIGeneration {
       }
     }
   }
-
-  async _chat(prompt: ChatEntry[]): Promise<string> {
-    return openai.query_chat(prompt, this.api_key, this.id,
-      this.max_tokens, this.temperature, this.top_p, this.frequency_penalty,
-      this.presence_penalty, this.endpoint);
-  }
 }
 
 export class GeminiGeneration extends TextGenerationModel {
