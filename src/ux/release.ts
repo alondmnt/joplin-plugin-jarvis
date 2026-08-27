@@ -4,7 +4,8 @@ export const RELEASE_NOTES = {
 - improved: upgraded models (gpt-5.6, claude-opus-5, claude-sonnet-5, gemini-3.7-flash)
   - the default chat model is now gpt-5.6-luna
 - improved: one tunable context budget replaces the built-in per-model table
-  - Chat: Max tokens renamed to Chat: Max context tokens
+  - Chat: Max tokens is now Research: Max context tokens (it bounds research and annotation, not chat)
+  - Notes: Max tokens is now Notes: Max block size (tokens)
 - improved: sampling settings left to the model where it rejects them (Claude)
 - improved: clearer error messages from Google endpoints
 - fixed: Gemini through a custom OpenAI-compatible endpoint failed on every chat
