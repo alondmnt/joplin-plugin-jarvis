@@ -1450,8 +1450,10 @@ export class HuggingFaceGeneration extends TextGenerationModel {
 
   async _complete(prompt: string): Promise<string> {
     try {
+      // max_length caps the generated text, so it takes the completion cap
+      // rather than max_tokens, which is the input ceiling.
       const params = {
-        max_length: this.max_tokens,
+        max_length: COMPLETION_MAX_TOKENS,
       };
       const result = await this.model.textGeneration({
         model: this.id,
