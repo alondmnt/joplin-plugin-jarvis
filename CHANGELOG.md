@@ -1,3 +1,21 @@
+# [v0.14.0](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.14.0)
+*Released on 2026-08-27T03:42:10Z*
+
+- improved: upgraded models - **gpt-5.6** (luna, terra, sol), **Claude 5** (Opus, Sonnet), **Gemini 3** (3.7 Flash, 3.5 Flash-Lite)
+  - the default chat model is now **gpt-5.6-luna**, replacing gpt-5-mini at a slightly lower price
+- improved: **Chat: Max tokens** is now **Chat: Max context tokens**, a single ceiling on how much context Jarvis sends. It replaces a built-in table of per-model limits that needed updating with every model release, and that held each model's output limit rather than its context window, so research and annotation used a fraction of what the models accept
+  - if you run a local or custom model, check this setting: Jarvis cannot detect a model's context window, and the new default (200192) is sized for cloud models
+- improved: sampling settings are left to the model where it rejects them. Claude 5 refuses any non-default temperature or top_p, so Jarvis no longer sends either to Anthropic models
+- improved: errors from Google endpoints now show the message instead of raw JSON
+- fixed: **Gemini through a custom OpenAI-compatible endpoint** failed with HTTP 400 on every chat. Jarvis sent `frequency_penalty`, which Google's compatibility layer rejects outright ([report](https://discourse.joplinapp.org/t/unable-to-connect-jarvis-to-google-api/50757), [guide](https://github.com/alondmnt/joplin-plugin-jarvis/blob/master/GUIDE.md#chat-with-google-gemini))
+- fixed: note title annotation could overwrite your title using an empty note, when the instruction prompt was longer than the context budget
+- fixed: chat panel **Note mode** now tells the model when a long note was truncated, instead of passing off the first part as the whole note. **Notes: Context tokens** now goes up to 131072
+- fixed: custom models whose ID starts with "o" (olmo, orca, openhermes) silently lost the system message
+
+**Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.13.4...v0.14.0
+
+---
+
 # [v0.13.4](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.13.4)
 *Released on 2026-07-16T13:59:09Z*
 
