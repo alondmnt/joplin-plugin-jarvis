@@ -154,7 +154,7 @@ Mistral's API is OpenAI-compatible, so it works with Jarvis via the custom model
 | Notes: Semantic similarity model | No | (online) OpenAI or compatible: custom model |
 | Notes: OpenAI / Ollama (or compatible) custom model ID | Yes | mistral-embed |
 | Notes: OpenAI / Ollama (or compatible) API endpoint | Yes | https://api.mistral.ai/v1/embeddings |
-| Notes: Max tokens | Yes | 8192 |
+| Notes: Max block size (tokens) | Yes | 8192 |
 
 Note that switching the notes model will rebuild the note database (all notes are re-embedded), and that embeddings of your notes will be sent to Mistral's servers, same as with OpenAI embeddings.
 

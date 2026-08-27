@@ -692,8 +692,8 @@ export async function register_settings() {
       step: 128,
       section: 'jarvis.notes',
       public: true,
-      label: 'Notes: Max tokens',
-      description: 'The maximal context to include in a single note chunk. The preferred value will depend on the capabilities of the semantic similarity model. Default: 512',
+      label: 'Notes: Max block size (tokens)',
+      description: 'The largest block of note text Jarvis will embed as one unit. Longer blocks are split to fit; shorter ones are left whole. Match it to what the semantic similarity model handles well. Changing it re-embeds every note, because the block size is part of what identifies an index. Default: 512',
     },
     'notes_context_tokens': {
       value: 2048,
