@@ -542,6 +542,8 @@ async function get_scidir_info(paper: PaperInfo,
         }
         paper['text'] = split_by_tokens(
           paper['text'].trim().split('\n'),
+          // as in wikipedia.ts: a quarter of the ceiling is left for the
+          // instruction prompt wrapped around this text, not for the response
           model_gen, 0.75*model_gen.max_tokens)[0].join('\n');
         paper.text_source = 'full';
         paper.full_text_retrieved = true;

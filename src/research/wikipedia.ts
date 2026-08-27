@@ -154,6 +154,11 @@ async function get_best_page(model_gen: TextGenerationModel,
         if (!page['excerpt']) { continue; }
 
         const this_tokens = model_gen.count_tokens(page['excerpt']);
+        // headroom for the scaffolding this list is embedded in, not for the
+        // response: max_tokens is an input ceiling and nothing derives an
+        // output cap from it. The excerpts carry only a numbered-list header,
+        // so a tenth is enough - the summarisation prompts below wrap far more
+        // around their text and leave a quarter.
         if (token_sum + this_tokens > 0.9 * model_gen.max_tokens) {
           console.debug(`stopping at ${i + 1} pages due to max_tokens`);
           break;
@@ -206,6 +211,9 @@ async function get_page_summary(model_gen: TextGenerationModel,
     do not remove useful information that already exists, and ensure the summary emphasises its role as contextual background rather than primary evidence. explicitly close the RelevanceToQuestions field by stating it is for background context only.`;
 
   let summary = 'empty summary.';
+  // a quarter of the ceiling is left for the instruction prompt above, which
+  // is wrapped around every chunk. See the note at the excerpt loop: this is
+  // room for the prompt, not for the completion.
   const summary_steps = split_by_tokens(
     page['text'].split('\n'), model_gen, 0.75*model_gen.max_tokens);
   for (let i=0; i<summary_steps.length; i++) {
