@@ -144,7 +144,7 @@ Mistral's API is OpenAI-compatible, so it works with Jarvis via the custom model
 | Chat: OpenAI (or compatible) custom model ID | Yes | mistral-small-latest (or mistral-large-latest) |
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | https://api.mistral.ai/v1/chat/completions |
-| Chat: Max context tokens | Yes | 32768 |
+| Research: Max context tokens | Yes | 32768 |
 
 ### Note embeddings with Mistral AI
 

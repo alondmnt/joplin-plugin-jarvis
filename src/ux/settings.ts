@@ -525,10 +525,10 @@ export async function register_settings() {
       minimum: 128,
       maximum: 1048576,
       step: 128,
-      section: 'jarvis.chat',
+      section: 'jarvis.research',
       public: true,
-      label: 'Chat: Max context tokens',
-      description: 'The most context Jarvis will send in a single request, used by research and note annotation. This is a ceiling on spending and latency, not a description of the model: current cloud models accept far more. Jarvis cannot detect a model\'s real context window, so set this yourself for an offline or custom model - research budgets papers as a fraction of it and summarises each in its own request, so leaving it high means many more calls than a small model can make use of. Default: 200192',
+      label: 'Research: Max context tokens',
+      description: 'The most context Jarvis will send in a single request. This bounds research and note annotation; chat is bounded separately by "Chat: Memory tokens" and "Notes: Context tokens". It is a ceiling on spending and latency, not a description of the model: current cloud models accept far more. Jarvis cannot detect a model\'s real context window, so set this yourself for an offline or custom model - research budgets papers as a fraction of it and summarises each in its own request, so leaving it high means many more calls than a small model can make use of. Default: 200192',
     },
     'memory_tokens': {
       value: 512,
