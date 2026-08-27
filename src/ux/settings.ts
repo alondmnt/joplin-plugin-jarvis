@@ -158,62 +158,6 @@ export interface JarvisSettings {
   chat_suffix: string;
 };
 
-export const model_max_tokens: { [model: string] : number; } = {
-  // OpenAI reasoning models
-  'o4-mini': 100000,
-  'o4': 100000,
-  'o3-mini': 100000,
-  'o3': 100000,
-  'o1-mini': 100000,
-  'o1': 100000,
-  // OpenAI GPT-5 (current)
-  'gpt-5.6-luna': 128000,
-  'gpt-5.6-terra': 128000,
-  'gpt-5.6-sol': 128000,
-  // OpenAI legacy
-  'gpt-5.5': 128000,
-  'gpt-5-mini': 128000,
-  'gpt-5-nano': 128000,
-  'gpt-5.4': 128000,
-  'gpt-5.3': 128000,
-  'gpt-5.2': 128000,
-  'gpt-5.1': 128000,
-  'gpt-5': 128000,
-  'gpt-4.1-nano': 32768,
-  'gpt-4.1-mini': 32768,
-  'gpt-4.1': 32768,
-  'gpt-4o-mini': 16384,
-  'gpt-4o': 16384,
-  'gpt-4-turbo': 16384,
-  'gpt-4': 8192,
-  'gpt-3.5-turbo': 16384,
-  // Google Gemini (current)
-  'gemini-3.5-flash-lite': 65536,
-  'gemini-3.7-flash': 65536,
-  'gemini-2.5-pro': 65536,
-  // Google Gemini legacy
-  'gemini-3.6-flash': 65536,
-  'gemini-3.5-flash': 65536,
-  'gemini-2.5-flash-lite': 65536,
-  'gemini-2.5-flash': 65536,
-  'gemini-2.0-flash-lite': 8192,
-  'gemini-2.0-flash': 8192,
-  'gemini-2.0-pro': 8192,
-  // Anthropic Claude (current)
-  'claude-opus-4-7': 64000,
-  'claude-sonnet-4-6': 64000,
-  // Anthropic Claude legacy
-  'claude-opus-4-6': 64000,
-  'claude-opus-4-5': 64000,
-  'claude-sonnet-4-5': 64000,
-  'claude-haiku-4-5': 64000,
-  'claude-opus-4-1': 32000,
-  'claude-opus-4-0': 32000,
-  'claude-sonnet-4-0': 64000,
-  'claude-3-7-sonnet': 64000,
-  'claude-3-5-sonnet': 8000,
-  'claude-3-5-haiku': 8000,
-};
 
 export const search_engines: { [engine: string] : string; } = {
   'Semantic Scholar': 'Semantic Scholar',
@@ -286,8 +230,7 @@ export async function get_settings(): Promise<JarvisSettings> {
     model_id = model_id.replace(/-preview$/, '');  // remove the preview suffix
     model_id = model_id.replace(/-exp$/, '');  // remove the exp suffix
   }
-  // if model is in model_max_tokens, use its value, otherwise use the settings value
-  const max_tokens = model_max_tokens[model_id] || v['max_tokens'] as number;
+  const max_tokens = v['max_tokens'] as number;
 
   const annotate_tags_method = v['annotate_tags_method'] as string;
 
@@ -586,15 +529,15 @@ export async function register_settings() {
       description: 'The temperature of the model. 0 is the least creative. 20 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text. Default: 3',
     },
     'max_tokens': {
-      value: 2048,
+      value: 200000,
       type: SettingItemType.Int,
       minimum: 128,
-      maximum: 32768,
+      maximum: 1048576,
       step: 128,
       section: 'jarvis.chat',
       public: true,
-      label: 'Chat: Max tokens',
-      description: 'The maximal context length of the selected text generation / chat model. This parameter is only used for custom models where the default context length is unknown. Default: 2048',
+      label: 'Chat: Max context tokens',
+      description: 'The most context Jarvis will send in a single request, used by research and note annotation. This is a spending and latency ceiling, not the model\'s limit: most current models accept far more, and 200000 keeps a request from growing without bound. Lower it for a local model with a smaller context window. Default: 200000',
     },
     'memory_tokens': {
       value: 512,

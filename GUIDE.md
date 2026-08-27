@@ -144,7 +144,7 @@ Mistral's API is OpenAI-compatible, so it works with Jarvis via the custom model
 | Chat: OpenAI (or compatible) custom model ID | Yes | mistral-small-latest (or mistral-large-latest) |
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | https://api.mistral.ai/v1/chat/completions |
-| Chat: Max tokens | Yes | 32768 |
+| Chat: Max context tokens | Yes | 32768 |
 
 ### Note embeddings with Mistral AI
 
@@ -181,7 +181,6 @@ Jarvis has a built-in Gemini provider (select a `gemini-*` model under **Chat: M
 | Chat: OpenAI (or compatible) custom model ID | Yes | gemini-2.5-flash (or gemini-2.5-pro) |
 | Chat: Custom model is a conversation model | Yes | Yes |
 | Chat: Custom model API endpoint | Yes | https://generativelanguage.googleapis.com/v1beta/openai/chat/completions |
-| Chat: Max tokens | Yes | 65536 |
 
 Three things that commonly go wrong here:
 
