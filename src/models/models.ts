@@ -1470,8 +1470,11 @@ export class HuggingFaceGeneration extends TextGenerationModel {
 
   async _complete(prompt: string): Promise<string> {
     try {
-      // max_length caps the generated text, so it takes the completion cap
-      // rather than max_tokens, which is the input ceiling.
+      // Caps what the model generates, so it takes the completion cap rather
+      // than max_tokens, which is the input ceiling. Note the HF schema names
+      // this max_new_tokens; max_length reaches the endpoint only through the
+      // parameter bag's index signature, and its transformers meaning is
+      // prompt + generated on decoder-only models.
       const params = {
         max_length: COMPLETION_MAX_TOKENS,
       };
