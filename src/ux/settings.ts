@@ -228,15 +228,6 @@ export async function get_settings(): Promise<JarvisSettings> {
   // Bulk-fetch all plugin settings in a single API call
   const v = await joplin.settings.values(registeredSettingKeys);
 
-  let model_id = v['model'] as string;
-  if (model_id == 'openai-custom') {
-    model_id = v['chat_openai_model_id'] as string;
-    model_id = model_id.replace(/-\d{4}.*$/, '');  // remove the date suffix
-    model_id = model_id.replace(/-\d{2}-\d{2}.*$/, '');  // remove the date suffix
-    model_id = model_id.replace(/-latest$/, '');  // remove the latest suffix
-    model_id = model_id.replace(/-preview$/, '');  // remove the preview suffix
-    model_id = model_id.replace(/-exp$/, '');  // remove the exp suffix
-  }
   const max_tokens = v['max_tokens'] as number;
 
   const annotate_tags_method = v['annotate_tags_method'] as string;
