@@ -1584,6 +1584,15 @@ export class AnthropicGeneration extends OpenAIGeneration {
     // Anthropic models are always chat models
     this.type = 'chat';
 
+    // Claude returns a 400 for any non-default temperature, top_p or top_k on
+    // the current models - Opus 5, Sonnet 5, Opus 4.7 and later - on every
+    // request, whether or not thinking is used. No value means "the default";
+    // only omitting the field does. Older Claude models are happy with the
+    // defaults too, so sending neither is correct for everything reachable
+    // here, and needs no per-version list to stay correct.
+    this.temperature = null;
+    this.top_p = null;
+
     // Rate limiting for Anthropic API
     this.requests_per_second = 10;
     this.last_request_time = 0;
@@ -1597,13 +1606,6 @@ export class AnthropicGeneration extends OpenAIGeneration {
       return;
     }
     this.model = this.id;  // anything other than null
-    // Claude rejects temperature and top_p together from 4.5 on, which covers
-    // every model still served. Enumerating versions here meant editing this
-    // line each release and missing whatever it did not predict - 4.8 and the
-    // Claude 5 line both slipped through. Dropping top_p costs an optional
-    // sampling knob and keeps temperature, which is the one Jarvis exposes.
-    this.top_p = null;
-
     if (COMM_TEST_ON_LOAD) {
       try {
         const response = await this.complete(test_prompt);
