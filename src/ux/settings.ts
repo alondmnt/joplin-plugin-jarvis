@@ -217,13 +217,6 @@ function parse_dropdown_value(setting: string, name: string): string {
   }
 }
 
-/**
- * Default for `max_tokens`. Exported so the model classes can tell a ceiling
- * the user chose from one they simply never touched - the two need different
- * treatment for a model whose real context window is unknown.
- */
-export const DEFAULT_MAX_CONTEXT_TOKENS = 200192;  // 128 * 1564, so the default lands on the setting's step
-
 export async function get_settings(): Promise<JarvisSettings> {
   // Bulk-fetch all plugin settings in a single API call
   const v = await joplin.settings.values(registeredSettingKeys);
@@ -527,7 +520,7 @@ export async function register_settings() {
       description: 'The temperature of the model. 0 is the least creative. 20 is the most creative. Higher values produce more creative results, but can also result in more nonsensical text. Ignored by models that only accept their own default sampling settings, such as Anthropic models. Default: 3',
     },
     'max_tokens': {
-      value: DEFAULT_MAX_CONTEXT_TOKENS,
+      value: 200192,
       type: SettingItemType.Int,
       minimum: 128,
       maximum: 1048576,
@@ -535,7 +528,7 @@ export async function register_settings() {
       section: 'jarvis.chat',
       public: true,
       label: 'Chat: Max context tokens',
-      description: 'The most context Jarvis will send in a single request, used by research and note annotation. This is a spending and latency ceiling, not the model\'s limit: most current models accept far more, and this keeps a request from growing without bound. Lower it for a local model with a smaller context window. Default: 200192',
+      description: 'The most context Jarvis will send in a single request, used by research and note annotation. This is a ceiling on spending and latency, not a description of the model: current cloud models accept far more. Jarvis cannot detect a model\'s real context window, so set this yourself for an offline or custom model - research budgets papers as a fraction of it and summarises each in its own request, so leaving it high means many more calls than a small model can make use of. Default: 200192',
     },
     'memory_tokens': {
       value: 512,

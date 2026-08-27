@@ -90,7 +90,7 @@ function estimateTokens(text: string): number {
 }
 
 import { HfInference } from '@huggingface/inference'
-import { JarvisSettings, clear_model_first_build_completed, DEFAULT_MAX_CONTEXT_TOKENS } from '../ux/settings';
+import { JarvisSettings, clear_model_first_build_completed } from '../ux/settings';
 import { consume_rate_limit, timeout_with_retry, escape_regex, replace_last, ModelError, truncateErrorForDialog } from '../utils';
 import * as openai from './openai';
 import * as google from './google';
@@ -291,26 +291,6 @@ const COMM_TEST_ON_LOAD = false;  // disable to speed up startup and avoid wasti
 // an output the size of the whole context window. A flat cap is plenty for a
 // completion and keeps the request independent of the context setting. (#84)
 const COMPLETION_MAX_TOKENS = 4096;
-
-// Context ceiling for a model whose real window we cannot discover: Hugging
-// Face models and anything reached through openai-custom (Ollama, LM Studio, a
-// local gateway). The default ceiling is sized for frontier models at roughly
-// 1M tokens, and letting it reach these paths is not merely wasteful - research
-// budgets papers as a fraction of it and summarises each one in its own
-// request, so an unreachable ceiling buys a much longer and costlier run
-// against a model that cannot use the context anyway.
-const LOCAL_MODEL_MAX_TOKENS = 8192;
-
-/**
- * The context ceiling to apply to a model of unknown size. An explicit setting
- * is always the user's to make, so only substitute while the ceiling is still
- * at its default.
- */
-function local_model_max_tokens(settings: JarvisSettings): number {
-  return settings.max_tokens === DEFAULT_MAX_CONTEXT_TOKENS
-    ? LOCAL_MODEL_MAX_TOKENS
-    : settings.max_tokens;
-}
 const test_prompt = 'I am conducting a communitcation test. I need you to reply with a single word and absolutely nothing else: "Ack".';
 const dialogPreview = joplin.views.dialogs.create('joplin.preview.dialog');
 
@@ -1422,7 +1402,7 @@ export class HuggingFaceGeneration extends TextGenerationModel {
 
   constructor(settings: JarvisSettings) {
     super(settings.chat_hf_model_id,
-      local_model_max_tokens(settings),
+      settings.max_tokens,
       'completion',
       settings.memory_tokens,
       settings.notes_context_tokens,
@@ -1526,7 +1506,7 @@ export class OpenAIGeneration extends TextGenerationModel {
       }
     }
     super(model_id,
-      settings.model === 'openai-custom' ? local_model_max_tokens(settings) : settings.max_tokens,
+      settings.max_tokens,
       type,
       settings.memory_tokens,
       settings.notes_context_tokens,
