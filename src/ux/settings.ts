@@ -452,7 +452,7 @@ export async function register_settings() {
       public: true,
       advanced: true,
       label: 'Chat: Timeout (sec)',
-      description: 'The maximal time to wait for a response from the model in seconds. Default: 60',
+      description: 'The maximal time to wait for a response from the model in seconds. Set to 0 to disable. Default: 60',
     },
     'chat_system_message': {
       value: 'You are Jarvis, the helpful assistant, and I am User.',

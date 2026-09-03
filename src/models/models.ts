@@ -1127,7 +1127,10 @@ export class TextGenerationModel {
     this.requests_per_second = null;
     this.last_request_time = 0;
 
-    this.timeout = timeout * 1000;  // convert to miliseconds
+    // 0 disables the timeout, matching notes_embed_timeout. Without this a
+    // 0 setting armed a 0ms timer that always won the race, so every request
+    // failed instantly.
+    this.timeout = (timeout > 0) ? timeout * 1000 : 0;  // convert to miliseconds
   }
 
   // parent method
@@ -1155,7 +1158,8 @@ export class TextGenerationModel {
 
       if (this.type === 'chat') {
         const chat_prompt = this._parse_chat(prompt);
-        timeout_with_retry(this.timeout, () => this._chat(chat_prompt, abortSignal))
+        const runner = () => this._chat(chat_prompt, abortSignal);
+        (this.timeout > 0 ? timeout_with_retry(this.timeout, runner) : runner())
           .then(resolve)
           .catch(reject);
       } else {
@@ -1183,7 +1187,8 @@ export class TextGenerationModel {
         reject(new Error('Model completion operation cancelled'));
       });
 
-      timeout_with_retry(this.timeout, () => this._complete(prompt, abortSignal))
+      const runner = () => this._complete(prompt, abortSignal);
+      (this.timeout > 0 ? timeout_with_retry(this.timeout, runner) : runner())
         .then(resolve)
         .catch(reject);
     });
