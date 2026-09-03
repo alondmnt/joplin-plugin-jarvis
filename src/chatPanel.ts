@@ -106,7 +106,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
   </div>
   `);
 
-  await joplin.views.panels.onMessage(panel, async (message: any) => {
+  const handle_panel_message = async (message: any) => {
     if (!message || typeof message !== 'object') {
       return { type: 'response', text: 'Invalid panel message.' };
     }
@@ -281,6 +281,19 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
     }
 
     return { type: 'response', text: 'Unsupported panel message type.' };
+  };
+
+  // A rejected handler leaves the webview's postMessage promise unsettled, so
+  // the panel would stay disabled with nothing left to wait for. Model
+  // initialisation and openItem can both throw outside the per-message
+  // try/catch blocks, so every failure has to come back as a response.
+  await joplin.views.panels.onMessage(panel, async (message: any) => {
+    try {
+      return await handle_panel_message(message);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      return { type: 'response', error: true, text: `Jarvis panel error: ${msg}` };
+    }
   });
 
   return panel;
