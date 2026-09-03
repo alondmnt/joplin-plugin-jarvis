@@ -104,7 +104,7 @@ async function get_wikipedia_search_query(model_gen: TextGenerationModel,
     generate a single search query for Wikipedia that will help find relevant articles to introduce the topics in the prompt below.
     keep the query under 300 characters and limit punctuation.
     return only the search query, without any explanation.
-    PROMPT:\n${prompt}`, abortSignal);
+    PROMPT:\n${prompt}`, { abortSignal });
   return response.trim();
 }
 
@@ -176,7 +176,7 @@ async function get_best_page(model_gen: TextGenerationModel,
       }
     }
 
-    const response = await model_gen.complete(prompt, abortSignal);
+    const response = await model_gen.complete(prompt, { abortSignal });
     const index = response.match(/\d+/);
     if (index) {
       return await pages[parseInt(index[0])];
@@ -226,13 +226,13 @@ async function get_page_summary(model_gen: TextGenerationModel,
        SECTION: ${text}
        QUESTIONS: ${questions}
        SUMMARY: ${summary}
-       RESPONSE:`, abortSignal);
+       RESPONSE:`, { abortSignal });
   }
   const decision = await model_gen.complete(
     `decide if the following summary is relevant to any of the research questions below.
     only if it is not relevant to any of them, return "NOT RELEVANT", and explain why.
     SUMMARY:\n${summary}
-    QUESTIONS:\n${questions}`, abortSignal);
+    QUESTIONS:\n${questions}`, { abortSignal });
 
   if ((decision.includes('NOT RELEVANT')) || (summary.trim().length == 0)) {
     return page;

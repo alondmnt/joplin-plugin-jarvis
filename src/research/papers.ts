@@ -226,7 +226,7 @@ async function get_search_queries(model_gen: TextGenerationModel, prompt: string
     1. [search query]
     2. [search query]
     3. [search query]
-    `, abortSignal);
+    `, { abortSignal });
 
   const query = response.split(/# Research questions|# Queries/gi);
 
@@ -389,7 +389,7 @@ async function get_paper_summary(model_gen: TextGenerationModel, paper: PaperInf
       QUESTIONS:\n${questions}
       STUDY:\n${paper['text']}`;
 
-    const response = await model_gen.complete(prompt, abortSignal);
+    const response = await model_gen.complete(prompt, { abortSignal });
     model_gen.temperature = user_temp;
 
     if (response.includes('NOT RELEVANT') || (response.trim().length == 0)) {

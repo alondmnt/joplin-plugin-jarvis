@@ -143,15 +143,25 @@
     }
   }
 
+  // Send doubles as Stop while a request is running: the button has to stay
+  // enabled for that, so the guard against a second send is requestInFlight in
+  // the click handler rather than a disabled button.
   function setSending(isSending) {
     resolveElements();
     if (sendButton) {
-      sendButton.disabled = isSending;
-      sendButton.textContent = isSending ? 'Sending...' : 'Send';
+      sendButton.disabled = false;
+      sendButton.textContent = isSending ? 'Stop' : 'Send';
     }
     if (chatInput) {
       chatInput.disabled = isSending;
     }
+  }
+
+  function stopPrompt() {
+    if (!requestInFlight) {
+      return;
+    }
+    webviewApi.postMessage({ type: 'cancelChat' });
   }
 
   function withTimeout(promise, ms) {
@@ -312,7 +322,11 @@
         return;
       }
       if (target.id === 'chat-send') {
-        sendPrompt();
+        if (requestInFlight) {
+          stopPrompt();
+        } else {
+          sendPrompt();
+        }
         return;
       }
       if (target.id === 'chat-save') {

@@ -626,7 +626,7 @@ export class TextEmbeddingModel {
 
         const runner = () => this._calc_embedding(prepared.payload, prepared.context);
         const embeddingPromise = (this.embed_timeout && this.embed_timeout > 0)
-            ? timeout_with_retry(this.embed_timeout, runner, undefined, { interactive: false })
+            ? timeout_with_retry(this.embed_timeout, runner, { interactive: false })
             : runner();
 
         embeddingPromise
@@ -1088,6 +1088,22 @@ interface ChatEntry {
   content: string;
 }
 
+/** Cross-cutting modifiers for a single chat() / complete() call.
+ *
+ *  One bag rather than a trailing parameter per modifier: the two that exist
+ *  are already awkward positionally, and a caller that wants the second but
+ *  not the first would otherwise pass a placeholder.
+ *
+ *  `interactive` decides where a timeout is reported. Left unset it keeps the
+ *  retry dialog, which is right for the editor commands - several of them
+ *  (ask, complete) don't catch a ModelError at all, so a thrown timeout would
+ *  vanish. A caller with its own error surface, like the chat panel, sets it
+ *  false. */
+export interface ModelCallOptions {
+  abortSignal?: AbortSignal;
+  interactive?: boolean;
+}
+
 export class TextGenerationModel {
   // model
   public model: any = null;
@@ -1138,7 +1154,8 @@ export class TextGenerationModel {
     await this._load_model();  // model-specific initialization
   }
 
-  async chat(prompt: string, preview: boolean=false, abortSignal?: AbortSignal): Promise<string> {
+  async chat(prompt: string, preview: boolean=false, opts: ModelCallOptions = {}): Promise<string> {
+    const { abortSignal, interactive } = opts;
     if (abortSignal?.aborted) {
       throw new Error('Model chat operation cancelled');
     }
@@ -1159,14 +1176,14 @@ export class TextGenerationModel {
       if (this.type === 'chat') {
         const chat_prompt = this._parse_chat(prompt);
         const runner = () => this._chat(chat_prompt, abortSignal);
-        (this.timeout > 0 ? timeout_with_retry(this.timeout, runner) : runner())
+        (this.timeout > 0 ? timeout_with_retry(this.timeout, runner, { interactive }) : runner())
           .then(resolve)
           .catch(reject);
       } else {
         prompt = this._parse_chat(prompt, true).map((message: ChatEntry) => {
           return `${message.role}${message.content}`;
         }).join('') + this.model_prefix;
-        this.complete(prompt, abortSignal)
+        this.complete(prompt, opts)
           .then(resolve)
           .catch(reject);
       }
@@ -1175,7 +1192,8 @@ export class TextGenerationModel {
     });
   }
 
-  async complete(prompt: string, abortSignal?: AbortSignal): Promise<string> {
+  async complete(prompt: string, opts: ModelCallOptions = {}): Promise<string> {
+    const { abortSignal, interactive } = opts;
     if (abortSignal?.aborted) {
       throw new Error('Model completion operation cancelled');
     }
@@ -1188,7 +1206,7 @@ export class TextGenerationModel {
       });
 
       const runner = () => this._complete(prompt, abortSignal);
-      (this.timeout > 0 ? timeout_with_retry(this.timeout, runner) : runner())
+      (this.timeout > 0 ? timeout_with_retry(this.timeout, runner, { interactive }) : runner())
         .then(resolve)
         .catch(reject);
     });

@@ -21,6 +21,7 @@ const log = getLogger();
 export async function decompose_query(
   query: string,
   model_gen: TextGenerationModel,
+  abortSignal?: AbortSignal,
 ): Promise<{semantic: string, keywords: string[]}[] | null> {
   const prompt = `Decompose this question into 1-3 focused search sub-queries.
 For each, output on a separate line:
@@ -35,7 +36,7 @@ Rules:
 Question: ${query}`;
 
   try {
-    const response = await with_timeout(10_000, model_gen.complete(prompt));
+    const response = await with_timeout(10_000, model_gen.complete(prompt, { abortSignal }));
     if (!response) { return null; }
 
     const results: {semantic: string, keywords: string[]}[] = [];
