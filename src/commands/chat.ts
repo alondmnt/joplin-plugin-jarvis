@@ -1,5 +1,5 @@
 import joplin from 'api';
-import { TextEmbeddingModel, TextGenerationModel } from '../models/models';
+import { TextEmbeddingModel, TextGenerationModel, type ModelCallOptions } from '../models/models';
 import { BlockEmbedding, NoteEmbedding, extract_blocks_links, extract_blocks_text, find_nearest_notes, get_next_blocks, get_prev_blocks, corpusCaches, userDataStore } from '../notes/embeddings';
 import { read_user_data_embeddings } from '../notes/userDataReader';
 import { update_panel } from '../ux/panel';
@@ -64,9 +64,9 @@ export async function chat_with_notes_panel(
   model_embed: TextEmbeddingModel,
   model_gen: TextGenerationModel,
   settings: JarvisSettings,
-  abortSignal?: AbortSignal,
+  opts?: ModelCallOptions,
 ): Promise<string> {
-  const result = await run_notes_chat_pipeline(prompt_text, model_embed, model_gen, settings, history, false, abortSignal);
+  const result = await run_notes_chat_pipeline(prompt_text, model_embed, model_gen, settings, history, false, opts);
   if (!result) {
     return 'No notes found. Perhaps try to rephrase your question, or start a new chat note for fresh context.';
   }
@@ -96,7 +96,7 @@ export async function chat_with_note_panel(
   history: PanelChatMessage[],
   model_gen: TextGenerationModel,
   settings: JarvisSettings,
-  abortSignal?: AbortSignal,
+  opts?: ModelCallOptions,
 ): Promise<string> {
   const note = await joplin.workspace.selectedNote();
   if (!note) {
@@ -144,7 +144,7 @@ Instructions
 ===
 Use the Current Joplin note above as context. If the user asks you to summarise or answer questions about this note, use that note directly. Do not ask the user for a URL or to paste the note text. If the note is marked as truncated, say so when the answer depends on the part you cannot see.
 ===`;
-    const completion = model_gen.clean_completion(await model_gen.chat(composed, false, { abortSignal }));
+    const completion = model_gen.clean_completion(await model_gen.chat(composed, false, opts));
     return `${completion}\n\n[${title}](:/${note.id})`;
   } finally {
     clearObjectReferences(note);
@@ -165,7 +165,7 @@ async function run_notes_chat_pipeline(
   settings: JarvisSettings,
   history?: PanelChatMessage[],
   preview: boolean = false,
-  abortSignal?: AbortSignal,
+  opts?: ModelCallOptions,
 ): Promise<NotesChatPipelineResult | null> {
   if (model_embed.model === null) {
     return null;
@@ -186,7 +186,7 @@ async function run_notes_chat_pipeline(
   // one; the panel path (history provided) ignores the editor note entirely
   const require_note = history === undefined;
   const [prompt, nearest] = await get_chat_prompt_and_notes(
-    model_embed, model_gen, settings, prompt_override_for_retrieval, require_note, abortSignal);
+    model_embed, model_gen, settings, prompt_override_for_retrieval, require_note, opts);
   if (!nearest.length || nearest[0].embeddings.length === 0) {
     return null;
   }
@@ -221,7 +221,7 @@ async function run_notes_chat_pipeline(
   ===
   ${neutralize_chat_fences(instruct)}
   ===
-  `, preview, { abortSignal })) || '';
+  `, preview, opts)) || '';
 
   // normalise citation format: [note 1], [Note1], etc. → [1]
   const normalised = completion.replace(/\[note\s*(\d+)\]/gi, '[$1]');
@@ -275,7 +275,7 @@ async function get_chat_prompt_and_notes(
   settings: JarvisSettings,
   prompt_override?: string,
   require_note: boolean = true,
-  abortSignal?: AbortSignal,
+  opts?: ModelCallOptions,
 ):
     Promise<[{prompt: string, search: string, notes: Set<string>, context: string, not_context: string[], last_user_prompt: string}, NoteEmbedding[]]> {
   // the panel collection chat ignores the editor's selected note entirely:
@@ -341,7 +341,7 @@ async function get_chat_prompt_and_notes(
     if (settings.notes_decompose_query && !prompt.search && prompt.notes.size === 0 && !prompt.context) {
       const source = prompt.last_user_prompt || note.title || '';
       if (source.length > 0) {
-        const sub_queries = await decompose_query(source, model_gen, abortSignal);
+        const sub_queries = await decompose_query(source, model_gen, opts);
         if (sub_queries && sub_queries.length > 0) {
           if (settings.notes_debug_mode) {
             log.info(`[Hybrid] decomposed into ${sub_queries.length} sub-queries`);
