@@ -104,6 +104,23 @@ const panelCache: {
   createdAt: '',
 };
 
+/** The request the panel is currently serving, if any.
+ *
+ *  Joplin does not serialise panel onMessage handlers - each message is
+ *  dispatched independently and runs while an earlier handler is still
+ *  awaiting - so two chat requests can interleave. Both assign panelCache.history
+ *  on entry and push their reply on exit, which leaves the cache reflecting
+ *  whichever finished last. One request at a time keeps the cache
+ *  single-writer.
+ *
+ *  The realistic trigger is a panel re-mount rather than a fast second click:
+ *  the fresh webview has no idea a request is in flight, so its own
+ *  requestInFlight guard is clear. */
+let in_flight = false;
+
+/** Message types that run a model request, and so contend for panelCache. */
+const CHAT_MESSAGES = new Set(['chatWithNotes', 'chat', 'chatWithNote']);
+
 export async function initialize_chat_panel(get_context: () => ChatPanelContext): Promise<string> {
   const panel = await joplin.views.panels.create('jarvis_chat_panel');
   await joplin.views.panels.addScript(panel, 'chatPanel.css');
@@ -308,11 +325,22 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
   // initialisation and openItem can both throw outside the per-message
   // try/catch blocks, so every failure has to come back as a response.
   await joplin.views.panels.onMessage(panel, async (message: any) => {
+    const is_chat = CHAT_MESSAGES.has(message?.type);
+    if (is_chat) {
+      if (in_flight) {
+        return { type: 'response', error: true, text: 'Jarvis is still working on the previous request.' };
+      }
+      in_flight = true;
+    }
     try {
       return await handle_panel_message(message);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       return { type: 'response', error: true, text: `Jarvis panel error: ${msg}` };
+    } finally {
+      // clears on every path, including a throw that escaped the per-message
+      // handler, so a failed turn can't leave the panel refusing every request
+      if (is_chat) { in_flight = false; }
     }
   });
 
