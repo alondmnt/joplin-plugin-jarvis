@@ -1,3 +1,19 @@
+# [v0.14.1](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.14.1)
+*Released on 2026-09-03T14:44:57Z*
+
+- added: let the chat panel stop a running request
+- added: log collection chat phase timings under debug mode
+- fixed: stop the chat panel timing out before the query finishes ([report](https://discourse.joplinapp.org/t/28316/203))
+- fixed: report a panel model timeout in the chat log, not a modal
+- fixed: refuse a second panel chat while one is running
+- fixed: drop a failed panel turn from the backend cache
+- fixed: treat a chat timeout of 0 as disabled, not instant failure
+- fixed: always return a panel response so the chat can't hang
+
+**Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.14.0...v0.14.1
+
+---
+
 # [v0.14.0](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.14.0)
 *Released on 2026-08-27T03:42:10Z*
 
