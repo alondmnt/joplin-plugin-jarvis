@@ -82,6 +82,21 @@ function rollback_cached_turn(): void {
   }
 }
 
+/** Roll a failed turn back and shape its response.
+ *
+ *  A turn the user stopped is not a failure to report as one, so it gets its
+ *  own text and skips the "Chat failed" prefix. `prefix` is off for note mode,
+ *  whose errors are already written for the user ("Open a note to chat
+ *  about it"). */
+function fail_turn(error: unknown, abortSignal?: AbortSignal, prefix: boolean = true) {
+  rollback_cached_turn();
+  if (abortSignal?.aborted) {
+    return { type: 'response', error: true, text: 'Stopped.' };
+  }
+  const msg = error instanceof Error ? error.message : 'Unknown error';
+  return { type: 'response', error: true, text: prefix ? `Chat failed: ${msg}` : msg };
+}
+
 function local_timestamp(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
@@ -115,8 +130,13 @@ const panelCache: {
  *
  *  The realistic trigger is a panel re-mount rather than a fast second click:
  *  the fresh webview has no idea a request is in flight, so its own
- *  requestInFlight guard is clear. */
-let in_flight = false;
+ *  requestInFlight guard is clear.
+ *
+ *  Holding the controller rather than a flag is what lets cancelChat reach the
+ *  running request. Aborting rejects the model wrapper, which unlocks the panel
+ *  and leaves panelCache consistent; it does not stop the HTTP request, because
+ *  no provider threads the signal into its fetch yet (#93 tier 2). */
+let in_flight: AbortController | null = null;
 
 /** Message types that run a model request, and so contend for panelCache. */
 const CHAT_MESSAGES = new Set(['chatWithNotes', 'chat', 'chatWithNote']);
@@ -140,7 +160,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
   </div>
   `);
 
-  const handle_panel_message = async (message: any) => {
+  const handle_panel_message = async (message: any, abortSignal?: AbortSignal) => {
     if (!message || typeof message !== 'object') {
       return { type: 'response', text: 'Invalid panel message.' };
     }
@@ -202,14 +222,13 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
           runtime.model_embed,
           runtime.model_gen,
           runtime.settings,
+          abortSignal,
         );
         const html = md.render(text);
         panelCache.history.push({ role: 'assistant', content: text, html });
         return { type: 'response', text, html };
       } catch (error) {
-        rollback_cached_turn();
-        const msg = error instanceof Error ? error.message : 'Unknown error';
-        return { type: 'response', error: true, text: `Chat failed: ${msg}` };
+        return fail_turn(error, abortSignal);
       }
     }
 
@@ -233,14 +252,12 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
         const full_prompt = format_as_note_chat(history, runtime.settings);
 
-        const text = runtime.model_gen.clean_completion(await runtime.model_gen.chat(full_prompt));
+        const text = runtime.model_gen.clean_completion(await runtime.model_gen.chat(full_prompt, false, abortSignal));
         const html = md.render(text);
         panelCache.history.push({ role: 'assistant', content: text, html });
         return { type: 'response', text, html };
       } catch (error) {
-        rollback_cached_turn();
-        const msg = error instanceof Error ? error.message : 'Unknown error';
-        return { type: 'response', error: true, text: `Chat failed: ${msg}` };
+        return fail_turn(error, abortSignal);
       }
     }
 
@@ -262,14 +279,12 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         const history = sanitize_history(message.history);
         panelCache.history = cache_history(history);
         if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
-        const text = await chat_with_note_panel(history, runtime.model_gen, runtime.settings);
+        const text = await chat_with_note_panel(history, runtime.model_gen, runtime.settings, abortSignal);
         const html = md.render(text);
         panelCache.history.push({ role: 'assistant', content: text, html });
         return { type: 'response', text, html };
       } catch (error) {
-        rollback_cached_turn();
-        const msg = error instanceof Error ? error.message : 'Unknown error';
-        return { type: 'response', error: true, text: msg };
+        return fail_turn(error, abortSignal, false);
       }
     }
 
@@ -325,22 +340,31 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
   // initialisation and openItem can both throw outside the per-message
   // try/catch blocks, so every failure has to come back as a response.
   await joplin.views.panels.onMessage(panel, async (message: any) => {
+    // cancelChat has to be answered while a chat handler is still awaiting, so
+    // it is handled before the in-flight guard rather than inside it
+    if (message?.type === 'cancelChat') {
+      in_flight?.abort();
+      return { type: 'ack' };
+    }
+
     const is_chat = CHAT_MESSAGES.has(message?.type);
+    let controller: AbortController | null = null;
     if (is_chat) {
       if (in_flight) {
-        return { type: 'response', error: true, text: 'Jarvis is still working on the previous request.' };
+        return { type: 'response', error: true, text: 'Jarvis is still working on the previous request. Press Stop to cancel it.' };
       }
-      in_flight = true;
+      controller = new AbortController();
+      in_flight = controller;
     }
     try {
-      return await handle_panel_message(message);
+      return await handle_panel_message(message, controller?.signal);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       return { type: 'response', error: true, text: `Jarvis panel error: ${msg}` };
     } finally {
       // clears on every path, including a throw that escaped the per-message
       // handler, so a failed turn can't leave the panel refusing every request
-      if (is_chat) { in_flight = false; }
+      if (in_flight === controller) { in_flight = null; }
     }
   });
 
