@@ -9,6 +9,26 @@
   const MODE_ORDER = ['collection', 'note', 'chat'];
   const nextMode = (mode) => MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length];
 
+  // Liveness backstops, not deadlines. The deadline belongs to the model, which
+  // applies "Chat: Timeout (sec)" per request; these only exist so a backend
+  // that never answers can't leave the panel disabled forever.
+  //
+  // Sized to clear the slowest run that completes on its own. A collection
+  // query is a whole pipeline rather than one request (query embedding, a
+  // similarity scan over the corpus, an optional query-decomposition
+  // completion, then the answer), so two model requests at up to 600s each
+  // plus the scan. Anything derived from the per-request timeout would fire
+  // mid-query on a large corpus.
+  //
+  // One path still exceeds it: on a model timeout, timeout_with_retry offers
+  // an interactive retry and recurses with no cap, so each OK adds another
+  // request. Bounding that means letting the panel opt out of the modal, which
+  // is a signature change on the model's chat() and belongs in its own change.
+  //
+  // Save only writes a note, so it needs far less room.
+  const SEND_LIVENESS_MS = 30 * 60 * 1000;
+  const SAVE_LIVENESS_MS = 2 * 60 * 1000;
+
   const history = [];
   let initialized = false;
   let requestInFlight = false;
@@ -137,7 +157,10 @@
   function withTimeout(promise, ms) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        reject(new Error('Request timed out.'));
+        // No action to advise: reloading the panel repaints from the backend
+        // cache mid-request and New Chat leaves the reply to land on an empty
+        // one, because neither cancels the request. Report the state instead.
+        reject(new Error('Jarvis stopped responding. The request may still be running in the background.'));
       }, ms);
 
       Promise.resolve(promise)
@@ -245,7 +268,7 @@
         type: (MODES[chatMode] || MODES.collection).messageType,
         prompt,
         history,
-      }), 120000);
+      }), SEND_LIVENESS_MS);
       removeThinking(thinking);
       handleBackendMessage(response);
     } catch (error) {
@@ -268,7 +291,7 @@
       const response = await withTimeout(webviewApi.postMessage({
         type: 'savePanelChatToNote',
         history,
-      }), 30000);
+      }), SAVE_LIVENESS_MS);
       handleBackendMessage(response);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
