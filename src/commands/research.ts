@@ -118,7 +118,7 @@ export async function do_research(model_gen: TextGenerationModel, prompt: string
     if (only_search) { return; }
 
     const full_prompt = build_prompt(papers, await wiki_search, search);
-    const research = await model_gen.complete(full_prompt, abortController.signal);
+    const research = await model_gen.complete(full_prompt, { abortSignal: abortController.signal });
     await joplin.commands.execute('replaceSelection', '\n## Review\n\n' + research.trim());
 
   } catch (error) {

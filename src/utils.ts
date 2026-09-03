@@ -21,7 +21,6 @@ interface TimeoutOptions {
 export async function timeout_with_retry(
     msecs: number,
     promise_func: () => Promise<any>,
-    default_value: any = '',
     options: TimeoutOptions = {}): Promise<any> {
 
   const interactive = options.interactive ?? true;
@@ -36,7 +35,7 @@ export async function timeout_with_retry(
       const choice = await joplin.views.dialogs.showMessageBox(`Error: Request timeout (${msecs / 1000} sec).\nPress OK to retry.`);
       if (choice === 0) {
         // OK button
-        return await timeout_with_retry(msecs, promise_func);
+        return await timeout_with_retry(msecs, promise_func, options);
       }
       // Cancel button
       throw new ModelError('Operation cancelled by user');

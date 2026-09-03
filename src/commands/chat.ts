@@ -144,7 +144,7 @@ Instructions
 ===
 Use the Current Joplin note above as context. If the user asks you to summarise or answer questions about this note, use that note directly. Do not ask the user for a URL or to paste the note text. If the note is marked as truncated, say so when the answer depends on the part you cannot see.
 ===`;
-    const completion = model_gen.clean_completion(await model_gen.chat(composed, false, abortSignal));
+    const completion = model_gen.clean_completion(await model_gen.chat(composed, false, { abortSignal }));
     return `${completion}\n\n[${title}](:/${note.id})`;
   } finally {
     clearObjectReferences(note);
@@ -221,7 +221,7 @@ async function run_notes_chat_pipeline(
   ===
   ${neutralize_chat_fences(instruct)}
   ===
-  `, preview, abortSignal)) || '';
+  `, preview, { abortSignal })) || '';
 
   // normalise citation format: [note 1], [Note1], etc. → [1]
   const normalised = completion.replace(/\[note\s*(\d+)\]/gi, '[$1]');
