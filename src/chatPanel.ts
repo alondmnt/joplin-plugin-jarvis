@@ -65,6 +65,23 @@ function cache_history(history: {role: string; content: string}[]): CachedMessag
   }));
 }
 
+/** Drop a failed turn from the cache, mirroring the webview's
+ *  rollbackFailedTurn. The cache is written before the model is called, so a
+ *  turn that fails would otherwise outlive the frontend's own rollback and
+ *  reappear the next time the panel re-mounts and restores from it.
+ *
+ *  Only call this where the cache write for the failed turn has already
+ *  happened. The other error paths that return `error: true` - the
+ *  model-not-initialised checks, and the wrapper around the whole handler -
+ *  run before that write, so the cache still holds the last completed
+ *  exchange and there is nothing to undo. */
+function rollback_cached_turn(): void {
+  const last = panelCache.history[panelCache.history.length - 1];
+  if (last?.role === 'user') {
+    panelCache.history.pop();
+  }
+}
+
 function local_timestamp(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
@@ -173,6 +190,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         panelCache.history.push({ role: 'assistant', content: text, html });
         return { type: 'response', text, html };
       } catch (error) {
+        rollback_cached_turn();
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'response', error: true, text: `Chat failed: ${msg}` };
       }
@@ -203,6 +221,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         panelCache.history.push({ role: 'assistant', content: text, html });
         return { type: 'response', text, html };
       } catch (error) {
+        rollback_cached_turn();
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'response', error: true, text: `Chat failed: ${msg}` };
       }
@@ -231,6 +250,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         panelCache.history.push({ role: 'assistant', content: text, html });
         return { type: 'response', text, html };
       } catch (error) {
+        rollback_cached_turn();
         const msg = error instanceof Error ? error.message : 'Unknown error';
         return { type: 'response', error: true, text: msg };
       }
