@@ -1,6 +1,6 @@
 import joplin from 'api';
 import MarkdownIt from 'markdown-it';
-import type { TextEmbeddingModel, TextGenerationModel } from './models/models';
+import type { TextEmbeddingModel, TextGenerationModel, ModelCallOptions } from './models/models';
 import type { JarvisSettings } from './ux/settings';
 import { chat_with_note_panel, chat_with_notes_panel, format_as_note_chat, type PanelChatMessage } from './commands/chat';
 import { clearObjectReferences } from './utils';
@@ -161,6 +161,10 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
   `);
 
   const handle_panel_message = async (message: any, abortSignal?: AbortSignal) => {
+    // the panel reports a timeout in the chat log, so the model must not raise
+    // its own retry dialog: an app-modal from a plugin process lands away from
+    // where the user is looking, and its retry recursion has no cap
+    const model_opts: ModelCallOptions = { abortSignal, interactive: false };
     if (!message || typeof message !== 'object') {
       return { type: 'response', text: 'Invalid panel message.' };
     }
@@ -222,7 +226,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
           runtime.model_embed,
           runtime.model_gen,
           runtime.settings,
-          abortSignal,
+          model_opts,
         );
         const html = md.render(text);
         panelCache.history.push({ role: 'assistant', content: text, html });
@@ -252,7 +256,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
         const full_prompt = format_as_note_chat(history, runtime.settings);
 
-        const text = runtime.model_gen.clean_completion(await runtime.model_gen.chat(full_prompt, false, { abortSignal }));
+        const text = runtime.model_gen.clean_completion(await runtime.model_gen.chat(full_prompt, false, model_opts));
         const html = md.render(text);
         panelCache.history.push({ role: 'assistant', content: text, html });
         return { type: 'response', text, html };
@@ -279,7 +283,7 @@ export async function initialize_chat_panel(get_context: () => ChatPanelContext)
         const history = sanitize_history(message.history);
         panelCache.history = cache_history(history);
         if (!panelCache.createdAt) panelCache.createdAt = local_timestamp(new Date());
-        const text = await chat_with_note_panel(history, runtime.model_gen, runtime.settings, abortSignal);
+        const text = await chat_with_note_panel(history, runtime.model_gen, runtime.settings, model_opts);
         const html = md.render(text);
         panelCache.history.push({ role: 'assistant', content: text, html });
         return { type: 'response', text, html };

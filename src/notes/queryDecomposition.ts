@@ -5,7 +5,7 @@
  * each with a semantic component (for embedding search) and keyword terms
  * (for Joplin keyword search).
  */
-import { TextGenerationModel } from '../models/models';
+import { TextGenerationModel, type ModelCallOptions } from '../models/models';
 import { with_timeout } from '../utils';
 import { getLogger } from '../utils/logger';
 
@@ -21,7 +21,7 @@ const log = getLogger();
 export async function decompose_query(
   query: string,
   model_gen: TextGenerationModel,
-  abortSignal?: AbortSignal,
+  opts?: ModelCallOptions,
 ): Promise<{semantic: string, keywords: string[]}[] | null> {
   const prompt = `Decompose this question into 1-3 focused search sub-queries.
 For each, output on a separate line:
@@ -36,7 +36,7 @@ Rules:
 Question: ${query}`;
 
   try {
-    const response = await with_timeout(10_000, model_gen.complete(prompt, { abortSignal }));
+    const response = await with_timeout(10_000, model_gen.complete(prompt, opts));
     if (!response) { return null; }
 
     const results: {semantic: string, keywords: string[]}[] = [];
