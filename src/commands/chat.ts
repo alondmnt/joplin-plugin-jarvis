@@ -185,8 +185,14 @@ async function run_notes_chat_pipeline(
   // the editor command reads the prompt from the note itself, so it requires
   // one; the panel path (history provided) ignores the editor note entirely
   const require_note = history === undefined;
+  // Phase timing for #92: a collection query is retrieval (which includes the
+  // decomposition completion) plus the answer call, and it is not obvious from
+  // the outside which dominates on a large corpus. Timed unconditionally - two
+  // Date.now() calls - and only logged under debug mode.
+  const retrieval_start = Date.now();
   const [prompt, nearest] = await get_chat_prompt_and_notes(
     model_embed, model_gen, settings, prompt_override_for_retrieval, require_note, abortSignal);
+  const retrieval_ms = Date.now() - retrieval_start;
   if (!nearest.length || nearest[0].embeddings.length === 0) {
     return null;
   }
@@ -206,6 +212,7 @@ async function run_notes_chat_pipeline(
     ? format_as_note_chat(safe_history, settings)
     : prompt.prompt;
 
+  const answer_start = Date.now();
   const completion = (await model_gen.chat(`
   ${neutralize_chat_fences(pipeline_prompt)}
   ===
@@ -222,6 +229,10 @@ async function run_notes_chat_pipeline(
   ${neutralize_chat_fences(instruct)}
   ===
   `, preview, abortSignal)) || '';
+  if (settings.notes_debug_mode) {
+    const answer_ms = Date.now() - answer_start;
+    log.info(`[Timing] retrieval ${retrieval_ms}ms + answer ${answer_ms}ms = ${retrieval_ms + answer_ms}ms total`);
+  }
 
   // normalise citation format: [note 1], [Note1], etc. → [1]
   const normalised = completion.replace(/\[note\s*(\d+)\]/gi, '[$1]');
@@ -341,7 +352,11 @@ async function get_chat_prompt_and_notes(
     if (settings.notes_decompose_query && !prompt.search && prompt.notes.size === 0 && !prompt.context) {
       const source = prompt.last_user_prompt || note.title || '';
       if (source.length > 0) {
+        const decompose_start = Date.now();
         const sub_queries = await decompose_query(source, model_gen, abortSignal);
+        if (settings.notes_debug_mode) {
+          log.info(`[Timing] decomposition ${Date.now() - decompose_start}ms`);
+        }
         if (sub_queries && sub_queries.length > 0) {
           if (settings.notes_debug_mode) {
             log.info(`[Hybrid] decomposed into ${sub_queries.length} sub-queries`);
