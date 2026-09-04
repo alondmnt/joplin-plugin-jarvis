@@ -365,10 +365,17 @@ async function get_chat_prompt_and_notes(
             }
           }
 
-          // embed each sub-query and score via MaxSim
+          // embed each sub-query and score via MaxSim. These are sequential
+          // round trips and they dominate retrieval once the corpus cache is
+          // warm, so they carry the abort: embed() rejects on it, which is what
+          // lets Stop land during retrieval rather than at the next model call.
+          const embed_start = Date.now();
           const query_embeddings: Float32Array[] = [];
           for (const sq of sub_queries) {
-            query_embeddings.push(await model_embed.embed(sq.semantic, 'query'));
+            query_embeddings.push(await model_embed.embed(sq.semantic, 'query', opts?.abortSignal));
+          }
+          if (settings.notes_debug_mode) {
+            log.info(`[Timing] sub-query embedding ${Date.now() - embed_start}ms (${sub_queries.length} queries)`);
           }
           const cache = corpusCaches.get(model_embed.id);
           const scored = maxsim_search(query_embeddings, sub_embeds, cache, note.id, settings);
