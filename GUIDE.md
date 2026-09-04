@@ -44,6 +44,10 @@ Any model that has an OpenAI-compatible API can (probably) be set up to work wit
 | Notes: OpenAI / Ollama (or compatible) custom model ID | Yes | MODELNAME |
 | Notes: OpenAI / Ollama (or compatible) API endpoint | Yes | http://127.0.0.1:11434/api/embed |
 
+If you use Ollama for both chat and embeddings, make sure it can keep two models loaded at once. Jarvis uses both within a single chat turn, so if only one can be resident, Ollama unloads one to load the other on every answer and each response pays for an extra model load. Check that `OLLAMA_MAX_LOADED_MODELS` is not set to `1`, and that both models fit in memory together.
+
+The `UNTIL` column in `ollama ps` is the `keep_alive` countdown for an idle model, not a queue wait, so a model sitting there for a few minutes after a query has finished is normal.
+
 ### Offline chat model with LM Studio
 
 1. Download [LM Studio](https://lmstudio.ai/)
