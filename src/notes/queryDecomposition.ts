@@ -57,6 +57,10 @@ Question: ${query}`;
 
     return results.length > 0 ? results : null;
   } catch (error) {
+    // An abort is not a decomposition failure. Returning null for it would
+    // report "no sub-queries" and send the caller into its full fallback
+    // retrieval, so a Stop pressed here would be paid for twice.
+    if (opts?.abortSignal?.aborted) { throw error; }
     log.info(`[Hybrid] decomposition failed: ${error.message || error}`);
     return null;
   }

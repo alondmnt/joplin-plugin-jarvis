@@ -393,6 +393,13 @@ async function get_chat_prompt_and_notes(
       }
     }
 
+    // One guard rather than an abort parameter on every step below: the
+    // fallback re-runs the whole retrieval, so anything upstream that swallowed
+    // an abort would otherwise have the user pay for it a second time.
+    if (opts?.abortSignal?.aborted) {
+      throw new Error('Chat retrieval cancelled');
+    }
+
     if (!decomposed) {
       // existing path: single find_nearest_notes + optional keyword merge
       nearest = await find_nearest_notes(sub_embeds, note.id, note.markup_language, note.title, note.body, model_embed, settings, false);
