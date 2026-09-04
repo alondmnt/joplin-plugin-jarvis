@@ -36,7 +36,9 @@ Rules:
 Question: ${query}`;
 
   try {
-    const response = await with_timeout(10_000, model_gen.complete(prompt, opts));
+    const response = await with_timeout(10_000,
+      (signal) => model_gen.complete(prompt, { ...opts, abortSignal: signal }),
+      opts?.abortSignal);
     if (!response) { return null; }
 
     const results: {semantic: string, keywords: string[]}[] = [];

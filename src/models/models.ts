@@ -626,11 +626,13 @@ export class TextEmbeddingModel {
 
         // The listener above rejects this promise on abort; the signal also
         // goes into the transport so the request itself is cancelled rather
-        // than left running server-side after nobody is waiting for it.
-        const runner = () => this._calc_embedding(prepared.payload, prepared.context, abortSignal);
+        // than left running server-side after nobody is waiting for it. Under
+        // a timeout that signal comes from with_timeout, which folds in
+        // abortSignal, so the deadline cancels the request as well.
+        const runner = (signal?: AbortSignal) => this._calc_embedding(prepared.payload, prepared.context, signal);
         const embeddingPromise = (this.embed_timeout && this.embed_timeout > 0)
-            ? timeout_with_retry(this.embed_timeout, runner, { interactive: false })
-            : runner();
+            ? timeout_with_retry(this.embed_timeout, runner, { interactive: false, signal: abortSignal })
+            : runner(abortSignal);
 
         embeddingPromise
             .then(result => {
@@ -1180,8 +1182,10 @@ export class TextGenerationModel {
 
       if (this.type === 'chat') {
         const chat_prompt = this._parse_chat(prompt);
-        const runner = () => this._chat(chat_prompt, abortSignal);
-        (this.timeout > 0 ? timeout_with_retry(this.timeout, runner, { interactive }) : runner())
+        const runner = (signal?: AbortSignal) => this._chat(chat_prompt, signal);
+        (this.timeout > 0
+          ? timeout_with_retry(this.timeout, runner, { interactive, signal: abortSignal })
+          : runner(abortSignal))
           .then(resolve)
           .catch(reject);
       } else {
@@ -1210,8 +1214,10 @@ export class TextGenerationModel {
         reject(new Error('Model completion operation cancelled'));
       });
 
-      const runner = () => this._complete(prompt, abortSignal);
-      (this.timeout > 0 ? timeout_with_retry(this.timeout, runner, { interactive }) : runner())
+      const runner = (signal?: AbortSignal) => this._complete(prompt, signal);
+      (this.timeout > 0
+        ? timeout_with_retry(this.timeout, runner, { interactive, signal: abortSignal })
+        : runner(abortSignal))
         .then(resolve)
         .catch(reject);
     });

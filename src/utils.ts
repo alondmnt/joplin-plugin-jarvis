@@ -5,27 +5,65 @@ const createDOMPurify = require("dompurify");
 const TurndownModule = require("turndown");
 const turndownGfmModule = require("turndown-plugin-gfm");
 
-export function with_timeout(msecs: number, promise: Promise<any>): Promise<any> {
-  const timeout = new Promise((resolve, reject) => {
-    setTimeout(() => {
+/**
+ * Run an operation under a deadline, cancelling it when the deadline passes.
+ *
+ * `run` receives a signal that aborts on timeout, and also when `external`
+ * aborts, so the two sources of cancellation are combined here rather than at
+ * every call site. Cancelling matters as much as giving up waiting: a merely
+ * abandoned request leaves the server generating a result nobody will read,
+ * and on a local model that holds the runner, so the next request queues
+ * behind work already written off.
+ *
+ * Pass an operation that ignores the signal only when its transport has no
+ * cancellation path (the SDK-based model backends); the deadline then behaves
+ * as the plain race this used to be.
+ */
+export function with_timeout<T>(msecs: number, run: (signal: AbortSignal) => Promise<T>,
+    external?: AbortSignal): Promise<T> {
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (external?.aborted) {
+    controller.abort();
+  } else {
+    external?.addEventListener('abort', abort, { once: true });
+  }
+
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      // Abort before rejecting so the request stops as early as possible.
+      // Both calls are synchronous, so the deadline error still settles the
+      // race first and callers keep matching on 'timeout' rather than on the
+      // abort that the cancelled operation is about to raise.
+      controller.abort();
       reject(new Error("timeout"));
     }, msecs);
   });
-  return Promise.race([timeout, promise]);
+
+  return Promise.race([timeout, run(controller.signal)]).finally(() => {
+    clearTimeout(timer);
+    external?.removeEventListener('abort', abort);
+  });
 }
 
 interface TimeoutOptions {
   interactive?: boolean;
+  /** The caller's own cancellation, such as the chat panel's Stop. Folded
+   *  into the deadline signal by with_timeout, which also means a retry
+   *  starts only after the previous attempt has been cancelled. */
+  signal?: AbortSignal;
 }
 
 export async function timeout_with_retry(
     msecs: number,
-    promise_func: () => Promise<any>,
+    promise_func: (signal?: AbortSignal) => Promise<any>,
     options: TimeoutOptions = {}): Promise<any> {
 
   const interactive = options.interactive ?? true;
   try {
-    return await with_timeout(msecs, promise_func());
+    return await with_timeout(msecs, promise_func, options.signal);
   } catch (error) {
     console.log(error);
     if (error.message.toLowerCase().includes('timeout')) {

@@ -175,7 +175,7 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries: n
   let attempt = 0;
   while (attempt <= retries) {
     try {
-      const response = await with_timeout(PUBMED_TIMEOUT, fetch(url, options) as Promise<any>) as Response;
+      const response = await with_timeout(PUBMED_TIMEOUT, (signal) => fetch(url, { ...options, signal }));
       if (response.ok) {
         return response;
       }
