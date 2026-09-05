@@ -473,7 +473,7 @@ async function get_crossref_info(paper: PaperInfo): Promise<PaperInfo> {
   };
   let response: any;
   try {
-    response = await with_timeout(5000, fetch(url, options));
+    response = await with_timeout(5000, (signal) => fetch(url, { ...options, signal }));
   } catch {
     console.debug('TIMEOUT crossref');
     return paper;
@@ -513,7 +513,7 @@ async function get_scidir_info(paper: PaperInfo,
   };
   let response: any;
   try {
-    response = await with_timeout(5000, fetch(url, options));
+    response = await with_timeout(5000, (signal) => fetch(url, { ...options, signal }));
   } catch {
     console.debug('TIMEOUT scidir');
     return paper;
@@ -579,7 +579,7 @@ async function get_scopus_info(paper: PaperInfo, settings: JarvisSettings): Prom
   };
   let response: any;
   try {
-    response = await with_timeout(5000, fetch(url, options));
+    response = await with_timeout(5000, (signal) => fetch(url, { ...options, signal }));
   } catch {
     console.debug('TIMEOUT scopus');
     return paper;
@@ -617,7 +617,7 @@ async function get_springer_info(paper: PaperInfo, settings: JarvisSettings): Pr
   };
   let response: any;
   try {
-    response = await with_timeout(5000, fetch(url, options));
+    response = await with_timeout(5000, (signal) => fetch(url, { ...options, signal }));
   } catch {
     console.debug('TIMEOUT springer');
     return paper;
@@ -654,7 +654,7 @@ async function get_semantic_scholar_info(paper: PaperInfo, settings: JarvisSetti
   };
   let response: any;
   try {
-    response = await with_timeout(5000, fetch(url, options));
+    response = await with_timeout(5000, (signal) => fetch(url, { ...options, signal }));
   } catch {
     console.debug('TIMEOUT semantic_scholar');
     return paper;

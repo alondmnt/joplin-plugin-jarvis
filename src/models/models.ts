@@ -624,10 +624,15 @@ export class TextEmbeddingModel {
         };
         abortSignal?.addEventListener('abort', handleAbort);
 
-        const runner = () => this._calc_embedding(prepared.payload, prepared.context);
+        // The listener above rejects this promise on abort; the signal also
+        // goes into the transport so the request itself is cancelled rather
+        // than left running server-side after nobody is waiting for it. Under
+        // a timeout that signal comes from with_timeout, which folds in
+        // abortSignal, so the deadline cancels the request as well.
+        const runner = (signal?: AbortSignal) => this._calc_embedding(prepared.payload, prepared.context, signal);
         const embeddingPromise = (this.embed_timeout && this.embed_timeout > 0)
-            ? timeout_with_retry(this.embed_timeout, runner, { interactive: false })
-            : runner();
+            ? timeout_with_retry(this.embed_timeout, runner, { interactive: false, signal: abortSignal })
+            : runner(abortSignal);
 
         embeddingPromise
             .then(result => {
@@ -709,8 +714,10 @@ export class TextEmbeddingModel {
     await request_promise;
   }
 
-  // placeholder method, to be overridden by subclasses
-  async _calc_embedding(text: string, _context: EmbedContext): Promise<Float32Array> {
+  // placeholder method, to be overridden by subclasses.
+  // Subclasses whose transport cannot be cancelled (SDK-based ones) accept
+  // abortSignal and ignore it; embed() still rejects on abort.
+  async _calc_embedding(text: string, _context: EmbedContext, _abortSignal?: AbortSignal): Promise<Float32Array> {
     throw new Error('Method not implemented');
   }
 
@@ -971,12 +978,12 @@ class OpenAIEmbedding extends TextEmbeddingModel {
     }
   }
 
-  async _calc_embedding(text: string, context: EmbedContext): Promise<Float32Array> {
+  async _calc_embedding(text: string, context: EmbedContext, abortSignal?: AbortSignal): Promise<Float32Array> {
     if (!this.model) {
       throw new Error('Model not initialized');
     }
 
-    return openai.query_embedding(text, this.id, this.api_key, this.abort_on_error, this.endpoint, context);
+    return openai.query_embedding(text, this.id, this.api_key, this.abort_on_error, this.endpoint, context, abortSignal);
   }
 }
 
@@ -1074,12 +1081,12 @@ class OllamaEmbedding extends TextEmbeddingModel {
     }
   }
 
-  async _calc_embedding(text: string, context: EmbedContext): Promise<Float32Array> {
+  async _calc_embedding(text: string, context: EmbedContext, abortSignal?: AbortSignal): Promise<Float32Array> {
     if (!this.model) {
       throw new Error('Model not initialized');
     }
 
-    return ollama.query_embedding(text, this.api_key, this.id, this.abort_on_error, this.endpoint, context);
+    return ollama.query_embedding(text, this.api_key, this.id, this.abort_on_error, this.endpoint, context, abortSignal);
   }
 }
 
@@ -1175,8 +1182,10 @@ export class TextGenerationModel {
 
       if (this.type === 'chat') {
         const chat_prompt = this._parse_chat(prompt);
-        const runner = () => this._chat(chat_prompt, abortSignal);
-        (this.timeout > 0 ? timeout_with_retry(this.timeout, runner, { interactive }) : runner())
+        const runner = (signal?: AbortSignal) => this._chat(chat_prompt, signal);
+        (this.timeout > 0
+          ? timeout_with_retry(this.timeout, runner, { interactive, signal: abortSignal })
+          : runner(abortSignal))
           .then(resolve)
           .catch(reject);
       } else {
@@ -1205,8 +1214,10 @@ export class TextGenerationModel {
         reject(new Error('Model completion operation cancelled'));
       });
 
-      const runner = () => this._complete(prompt, abortSignal);
-      (this.timeout > 0 ? timeout_with_retry(this.timeout, runner, { interactive }) : runner())
+      const runner = (signal?: AbortSignal) => this._complete(prompt, signal);
+      (this.timeout > 0
+        ? timeout_with_retry(this.timeout, runner, { interactive, signal: abortSignal })
+        : runner(abortSignal))
         .then(resolve)
         .catch(reject);
     });
@@ -1585,21 +1596,21 @@ export class OpenAIGeneration extends TextGenerationModel {
     }
   }
 
-  async _chat(prompt: ChatEntry[]): Promise<string> {
+  async _chat(prompt: ChatEntry[], abortSignal?: AbortSignal): Promise<string> {
     return openai.query_chat(prompt, this.api_key, this.id,
       undefined, this.temperature, this.top_p, this.frequency_penalty,
-      this.presence_penalty, this.endpoint);
+      this.presence_penalty, this.endpoint, abortSignal);
   }
 
-  async _complete(prompt: string): Promise<string> {
+  async _complete(prompt: string, abortSignal?: AbortSignal): Promise<string> {
     if (this.type == 'chat') {
-      return this._chat([...this.base_chat, {role: 'user', content: prompt}]);
+      return this._chat([...this.base_chat, {role: 'user', content: prompt}], abortSignal);
     }
     // An oversized prompt self-heals via query_completion's reduce-and-retry.
     return await openai.query_completion(prompt, this.api_key, this.id,
       COMPLETION_MAX_TOKENS,
       this.temperature, this.top_p, this.frequency_penalty, this.presence_penalty,
-      this.endpoint);
+      this.endpoint, abortSignal);
   }
 }
 

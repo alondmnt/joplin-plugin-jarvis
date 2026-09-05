@@ -61,7 +61,8 @@ function strip_inert_params(params: Record<string, any>): void {
 // get the next response for a chat formatted *input prompt* from a *chat model*
 export async function query_chat(prompt: Array<{role: string; content: string;}>,
     api_key: string, model: string, max_tokens: number, temperature: number, top_p: number,
-    frequency_penalty: number, presence_penalty: number, custom_url: string=null): Promise<string> {
+    frequency_penalty: number, presence_penalty: number, custom_url: string=null,
+    abortSignal?: AbortSignal): Promise<string> {
 
   let url = '';
   if (custom_url) {
@@ -87,6 +88,7 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
       method: 'POST',
       headers: buildHeaders(api_key, url),
       body: JSON.stringify(params),
+      signal: abortSignal,
     });
 
     const responseText = await response.text();
@@ -109,6 +111,13 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
   } catch (error) {
     // Network failure, aborted fetch, etc. (no response object available)
     error_message = normalizeErrorMessage(error);
+  }
+
+  // A cancelled request is not a failure to report. Without this the dialog
+  // below asks the user to retry the work they just stopped, and answering OK
+  // re-issues it through the recursive retry at the end of this function.
+  if (abortSignal?.aborted) {
+    throw new ModelError('OpenAI chat cancelled');
   }
 
   // display error message (truncated for dialog, full message logged)
@@ -143,13 +152,14 @@ export async function query_chat(prompt: Array<{role: string; content: string;}>
 
   // retry
   return await query_chat(prompt, api_key, model, max_tokens, temperature, top_p,
-    frequency_penalty, presence_penalty, custom_url);
+    frequency_penalty, presence_penalty, custom_url, abortSignal);
 }
 
 // get the next response for a completion for *arbitrary string prompt* from a any model
 export async function query_completion(prompt: string, api_key: string,
     model: string, max_tokens: number, temperature: number, top_p: number,
-    frequency_penalty: number, presence_penalty: number, custom_url: string=null): Promise<string> {
+    frequency_penalty: number, presence_penalty: number, custom_url: string=null,
+    abortSignal?: AbortSignal): Promise<string> {
 
   let url = '';
   if (custom_url) {
@@ -175,6 +185,7 @@ export async function query_completion(prompt: string, api_key: string,
       method: 'POST',
       headers: buildHeaders(api_key, url),
       body: JSON.stringify(params),
+      signal: abortSignal,
     });
 
     const responseText = await response.text();
@@ -198,6 +209,11 @@ export async function query_completion(prompt: string, api_key: string,
 
   } catch (error) {
     error_message = normalizeErrorMessage(error);
+  }
+
+  // See query_chat: a cancelled request must not reach the retry dialog.
+  if (abortSignal?.aborted) {
+    throw new ModelError('OpenAI completion cancelled');
   }
 
   // display error message (truncated for dialog, full message logged)
@@ -233,7 +249,7 @@ export async function query_completion(prompt: string, api_key: string,
 
   // retry
   return await query_completion(prompt, api_key, model, max_tokens,
-    temperature, top_p, frequency_penalty, presence_penalty, custom_url);
+    temperature, top_p, frequency_penalty, presence_penalty, custom_url, abortSignal);
 }
 
 // Maximum length of a raw response body included in user-facing error
@@ -367,7 +383,7 @@ function normalizeErrorMessage(error: any): string {
   return String(error);
 }
 
-export async function query_embedding(input: string, model: string, api_key: string, _abort_on_error: boolean, custom_url: string=null, context?: EmbedContext): Promise<Float32Array> {
+export async function query_embedding(input: string, model: string, api_key: string, _abort_on_error: boolean, custom_url: string=null, context?: EmbedContext, abortSignal?: AbortSignal): Promise<Float32Array> {
   const responseParams: Record<string, unknown> = {
     input: input,
     model: model,
@@ -422,6 +438,7 @@ export async function query_embedding(input: string, model: string, api_key: str
         method: 'POST',
         headers: buildHeaders(api_key, url),
         body: JSON.stringify(responseParams),
+        signal: abortSignal,
       });
 
       const responseText = await response.text();
@@ -461,6 +478,12 @@ export async function query_embedding(input: string, model: string, api_key: str
 
       return new Float32Array(embedding);
     } catch (error) {
+      // Leave the attempt loop rather than sleeping and re-issuing work the
+      // user has stopped. Keyed on the signal, not the error shape, since
+      // shouldRetryError below matches by message text.
+      if (abortSignal?.aborted) {
+        throw new ModelError('OpenAI embedding cancelled');
+      }
       lastError = error;
       if (!isLastAttempt && shouldRetryError(error)) {
         await sleep(200 * (attempt + 1));

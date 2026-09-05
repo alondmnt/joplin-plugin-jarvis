@@ -36,7 +36,9 @@ Rules:
 Question: ${query}`;
 
   try {
-    const response = await with_timeout(10_000, model_gen.complete(prompt, opts));
+    const response = await with_timeout(10_000,
+      (signal) => model_gen.complete(prompt, { ...opts, abortSignal: signal }),
+      opts?.abortSignal);
     if (!response) { return null; }
 
     const results: {semantic: string, keywords: string[]}[] = [];
@@ -57,6 +59,10 @@ Question: ${query}`;
 
     return results.length > 0 ? results : null;
   } catch (error) {
+    // An abort is not a decomposition failure. Returning null for it would
+    // report "no sub-queries" and send the caller into its full fallback
+    // retrieval, so a Stop pressed here would be paid for twice.
+    if (opts?.abortSignal?.aborted) { throw error; }
     log.info(`[Hybrid] decomposition failed: ${error.message || error}`);
     return null;
   }

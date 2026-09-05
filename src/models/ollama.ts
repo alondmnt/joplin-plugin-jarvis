@@ -1,7 +1,7 @@
 import { ModelError } from '../utils';
 import type { EmbedContext } from './models';
 
-export async function query_embedding(input: string, api_key: string, model: string, _abort_on_error: boolean, url: string, _context?: EmbedContext): Promise<Float32Array> {
+export async function query_embedding(input: string, api_key: string, model: string, _abort_on_error: boolean, url: string, _context?: EmbedContext, abortSignal?: AbortSignal): Promise<Float32Array> {
     // Use the correct field name based on the endpoint
     // For /api/embed and /v1/embeddings: use "input"
     // For /api/embeddings: use "prompt"
@@ -25,6 +25,7 @@ export async function query_embedding(input: string, api_key: string, model: str
       method: 'POST',
       headers: headers,
       body: JSON.stringify(responseParams),
+      signal: abortSignal,
     });
     const data = await response.json();
 
