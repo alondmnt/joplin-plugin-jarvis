@@ -1,3 +1,15 @@
+# [v0.14.2](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.14.2)
+*Released on 2026-09-05T07:39:25Z*
+
+- fixed: make Stop cut the sub-query embeddings during retrieval
+- fixed: stop swallowing a cancelled retrieval and paying for it twice
+- fixed: cancel in-flight model requests on Stop instead of abandoning the wait
+- fixed: make a timeout cancel the request instead of abandoning it
+
+**Full Changelog**: https://github.com/alondmnt/joplin-plugin-jarvis/compare/v0.14.1...v0.14.2
+
+---
+
 # [v0.14.1](https://github.com/alondmnt/joplin-plugin-jarvis/releases/tag/v0.14.1)
 *Released on 2026-09-03T14:44:57Z*
 
