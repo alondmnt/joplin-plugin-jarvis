@@ -134,8 +134,12 @@ const panelCache: {
  *
  *  Holding the controller rather than a flag is what lets cancelChat reach the
  *  running request. Aborting rejects the model wrapper, which unlocks the panel
- *  and leaves panelCache consistent; it does not stop the HTTP request, because
- *  no provider threads the signal into its fetch yet (#93 tier 2). */
+ *  and leaves panelCache consistent. The OpenAI-compatible providers (Ollama
+ *  and Anthropic chat included) pass the signal into their fetch, so the HTTP
+ *  request is cancelled too. The Gemini, Hugging Face and Joplin AI paths go
+ *  through SDKs that take no signal, and a retrieval scan already running in
+ *  find_nearest_notes has no yield point to abort at, so those carry on after
+ *  a Stop even though the panel is already free. */
 let in_flight: AbortController | null = null;
 
 /** Message types that run a model request, and so contend for panelCache. */
