@@ -1133,7 +1133,7 @@ export async function register_settings() {
       description: 'Marks the start of each Jarvis turn in a chat note, and is how an existing note is split back into turns. Changing it does not relabel notes you have already written. Default: "\\n\\n---\\n**Jarvis:** "',
     },
     'chat_suffix': {
-      value: '\\n\\n---\n**User:** ',
+      value: '\\n\\n---\\n**User:** ',
       type: SettingItemType.String,
       section: 'jarvis.chat',
       public: true,
