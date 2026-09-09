@@ -48,6 +48,8 @@ If you use Ollama for both chat and embeddings, make sure it can keep two models
 
 The `UNTIL` column in `ollama ps` is the `keep_alive` countdown for an idle model, not a queue wait, so a model sitting there for a few minutes after a query has finished is normal.
 
+To keep models loaded for longer than the default five minutes, set the `OLLAMA_KEEP_ALIVE` environment variable on the Ollama server: a duration such as `30m`, any negative number (`-1`) to keep them loaded indefinitely, or `0` to unload immediately after each response. If you do set `-1`, check again that your chat and embedding models fit in memory together, or they will simply take turns evicting each other. See [the Ollama FAQ](https://docs.ollama.com/faq#how-do-i-keep-a-model-loaded-in-memory-or-make-it-unload-immediately) for the full description.
+
 ### Offline chat model with LM Studio
 
 1. Download [LM Studio](https://lmstudio.ai/)
